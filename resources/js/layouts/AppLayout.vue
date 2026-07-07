@@ -1,0 +1,107 @@
+<script setup>
+import { computed, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
+import { useNotifyStore } from '../stores/notify';
+
+const auth = useAuthStore();
+const notify = useNotifyStore();
+const router = useRouter();
+const drawer = ref(true);
+
+const navItems = computed(() => {
+    const items = [
+        { title: 'Dashboard', icon: 'mdi-view-dashboard-outline', to: '/dashboard' },
+        { title: 'Payment Requests', icon: 'mdi-file-document-multiple-outline', to: '/invoices' },
+    ];
+
+    if (auth.canApprove) {
+        items.push({ title: 'Approvals', icon: 'mdi-stamper', to: '/approvals' });
+    }
+
+    if (auth.canProcessPayments) {
+        items.push({ title: 'Payments', icon: 'mdi-bank-transfer-out', to: '/payments' });
+    }
+
+    items.push({ title: 'Reports', icon: 'mdi-chart-box-outline', to: '/reports' });
+
+    if (auth.isAdmin) {
+        items.push(
+            { title: 'Audit Trail', icon: 'mdi-history', to: '/audit-log' },
+            { title: 'Users', icon: 'mdi-account-group-outline', to: '/admin/users' },
+            { title: 'Approval Levels', icon: 'mdi-format-list-numbered', to: '/admin/approval-levels' },
+        );
+    }
+
+    return items;
+});
+
+const roleLabel = computed(() => {
+    const labels = { admin: 'Administrator', requester: 'Requester', approver: `Approver — L${auth.user?.approval_level ?? ''}`, finance: 'Finance' };
+    return labels[auth.user?.role] ?? auth.user?.role;
+});
+</script>
+
+<template>
+    <v-navigation-drawer v-model="drawer" color="#10243e">
+        <div class="pa-4 d-flex align-center">
+            <v-avatar color="primary" size="36" class="mr-3">
+                <v-icon color="white">mdi-file-sign</v-icon>
+            </v-avatar>
+            <div>
+                <div class="text-subtitle-1 font-weight-bold text-white">PAF</div>
+                <div class="text-caption text-blue-lighten-4">Payment Approval</div>
+            </div>
+        </div>
+        <v-divider color="grey-darken-1" />
+        <v-list nav density="comfortable">
+            <v-list-item
+                v-for="item in navItems"
+                :key="item.to"
+                :to="item.to"
+                :prepend-icon="item.icon"
+                :title="item.title"
+                color="blue-lighten-3"
+                class="text-blue-lighten-5"
+            />
+        </v-list>
+    </v-navigation-drawer>
+
+    <v-app-bar flat border color="surface">
+        <v-app-bar-nav-icon @click="drawer = !drawer" />
+        <v-toolbar-title class="text-subtitle-1 font-weight-medium">
+            Invoice Payment Approval Platform
+        </v-toolbar-title>
+        <v-spacer />
+        <v-menu>
+            <template #activator="{ props }">
+                <v-btn v-bind="props" variant="text" class="text-none">
+                    <v-avatar color="primary" size="30" class="mr-2">
+                        <span class="text-white text-caption">{{ auth.user?.name?.charAt(0) }}</span>
+                    </v-avatar>
+                    <div class="text-left d-none d-sm-block">
+                        <div class="text-body-2">{{ auth.user?.name }}</div>
+                        <div class="text-caption text-medium-emphasis">{{ roleLabel }}</div>
+                    </div>
+                    <v-icon end>mdi-chevron-down</v-icon>
+                </v-btn>
+            </template>
+            <v-list density="compact">
+                <v-list-item prepend-icon="mdi-logout" title="Sign out" @click="auth.logout()" />
+            </v-list>
+        </v-menu>
+    </v-app-bar>
+
+    <v-main class="bg-background">
+        <v-container fluid class="pa-6">
+            <router-view />
+        </v-container>
+    </v-main>
+
+    <v-snackbar v-model="notify.show" :color="notify.color" location="bottom right" timeout="4000">
+        {{ notify.text }}
+        <template #actions>
+            <v-btn icon="mdi-close" size="small" @click="notify.show = false" />
+        </template>
+    </v-snackbar>
+</template>

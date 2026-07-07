@@ -1,0 +1,1168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>PAF — Invoice Payment Approval Platform · Documentation</title>
+<style>
+    @page { size: A4; margin: 17mm 15mm; }
+    * { box-sizing: border-box; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    html, body { margin: 0; padding: 0; }
+    body { font: 10pt/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; color: #0b0b0b; }
+
+    h1, h2, h3, h4 { line-height: 1.25; page-break-after: avoid; }
+    h1 { font-size: 19pt; margin: 0 0 4pt; color: #10243e; page-break-before: always; }
+    h1 .secno { color: #256abf; margin-right: 8pt; }
+    h1 + .lede { color: #52514e; margin: 0 0 14pt; font-size: 10.5pt; }
+    h2 { font-size: 13pt; margin: 16pt 0 6pt; color: #10243e; border-bottom: 1.5pt solid #e1e0d9; padding-bottom: 3pt; }
+    h3 { font-size: 11pt; margin: 12pt 0 4pt; color: #1c3d66; }
+    h4 { font-size: 10pt; margin: 10pt 0 3pt; }
+    p { margin: 5pt 0; }
+    ul, ol { margin: 5pt 0 5pt 2pt; padding-left: 16pt; }
+    li { margin: 2.5pt 0; }
+
+    code, .path { font-family: Consolas, "Cascadia Mono", monospace; font-size: 8.75pt; background: #f4f3f0; border-radius: 2.5pt; padding: 0.5pt 3.5pt; }
+    pre { font-family: Consolas, "Cascadia Mono", monospace; font-size: 8.5pt; line-height: 1.5; background: #f7f6f3; border: 0.75pt solid #e1e0d9; border-left: 2.5pt solid #256abf; border-radius: 3pt; padding: 8pt 10pt; overflow: hidden; white-space: pre-wrap; page-break-inside: avoid; }
+    pre code { background: none; padding: 0; }
+
+    table { border-collapse: collapse; width: 100%; margin: 7pt 0 10pt; font-size: 8.75pt; }
+    th { background: #10243e; color: #fff; text-align: left; font-weight: 600; padding: 4pt 6pt; }
+    td { border-bottom: 0.75pt solid #e1e0d9; padding: 3.5pt 6pt; vertical-align: top; }
+    tr { page-break-inside: avoid; }
+    tbody tr:nth-child(even) { background: #f9f9f7; }
+    table.plain th { background: #eef1f6; color: #10243e; }
+    thead { display: table-header-group; }
+
+    .chip { display: inline-block; border-radius: 8pt; padding: 0.5pt 7pt; font-size: 8pt; font-weight: 600; white-space: nowrap; }
+    .kbd { display: inline-block; border: 0.75pt solid #c3c2b7; border-bottom-width: 2pt; border-radius: 3pt; padding: 0 4pt; font-family: Consolas, monospace; font-size: 8.5pt; background: #fff; }
+
+    .callout { border: 0.75pt solid #e1e0d9; border-left: 3pt solid #256abf; background: #f5f8fd; border-radius: 3pt; padding: 7pt 10pt; margin: 8pt 0; page-break-inside: avoid; }
+    .callout.warn { border-left-color: #eda100; background: #fdf9ee; }
+    .callout.danger { border-left-color: #d03b3b; background: #fdf2f2; }
+    .callout .t { font-weight: 700; font-size: 9.5pt; }
+
+    .cols2 { column-count: 2; column-gap: 18pt; }
+    .avoid-break { page-break-inside: avoid; }
+    .muted { color: #898781; }
+    .small { font-size: 8.75pt; }
+
+    /* ---------- cover ---------- */
+    .cover { height: 257mm; display: flex; flex-direction: column; page-break-after: always; }
+    .cover .brandbar { height: 5mm; background: linear-gradient(90deg, #10243e 0%, #256abf 70%, #1baf7a 100%); border-radius: 2pt; }
+    .cover .mid { flex: 1; display: flex; flex-direction: column; justify-content: center; }
+    .cover .logo { width: 64pt; height: 64pt; border-radius: 14pt; background: #10243e; color: #fff; display: flex; align-items: center; justify-content: center; font-size: 26pt; font-weight: 800; letter-spacing: 1pt; margin-bottom: 18pt; }
+    .cover h1.title { page-break-before: avoid; font-size: 30pt; margin: 0; color: #10243e; }
+    .cover .subtitle { font-size: 15pt; color: #256abf; font-weight: 600; margin: 4pt 0 14pt; }
+    .cover .desc { font-size: 11pt; color: #52514e; max-width: 420pt; }
+    .cover .badges { margin-top: 20pt; }
+    .cover .badge { display: inline-block; border: 0.75pt solid #c9d7ea; background: #f5f8fd; color: #10243e; border-radius: 10pt; padding: 2.5pt 10pt; font-size: 9pt; font-weight: 600; margin: 0 5pt 5pt 0; }
+    .cover .meta { border-top: 0.75pt solid #e1e0d9; padding-top: 10pt; display: flex; justify-content: space-between; color: #52514e; font-size: 9.5pt; }
+
+    /* ---------- toc ---------- */
+    .toc { page-break-after: always; }
+    .toc h1 { page-break-before: avoid; }
+    .toc ol.top { list-style: none; padding: 0; margin-top: 10pt; }
+    .toc ol.top > li { margin: 7pt 0; font-weight: 600; font-size: 11pt; color: #10243e; }
+    .toc ol.top > li .n { color: #256abf; display: inline-block; width: 22pt; }
+    .toc ul.sub { list-style: none; padding-left: 22pt; margin: 3pt 0; font-weight: 400; font-size: 9.5pt; color: #52514e; }
+    .toc ul.sub li { margin: 1.5pt 0; }
+
+    /* ---------- diagrams ---------- */
+    .figure { margin: 10pt 0; text-align: center; page-break-inside: avoid; }
+    .figure .cap { font-size: 8.75pt; color: #898781; margin-top: 4pt; }
+
+    .role-yes { color: #008300; font-weight: 700; }
+    .role-no { color: #c3c2b7; }
+    .role-cond { color: #b87a00; font-weight: 600; }
+
+    .endpoint { margin: 8pt 0 12pt; page-break-inside: avoid; }
+    .endpoint .sig { font-family: Consolas, monospace; font-size: 9.25pt; background: #f4f3f0; border: 0.75pt solid #e1e0d9; border-radius: 3pt; padding: 4pt 8pt; }
+    .m { font-weight: 700; }
+    .m.get { color: #256abf; } .m.post { color: #008300; } .m.put { color: #b87a00; } .m.del { color: #d03b3b; }
+</style>
+</head>
+<body>
+
+<!-- ================= COVER ================= -->
+<div class="cover">
+    <div class="brandbar"></div>
+    <div class="mid">
+        <div class="logo">PAF</div>
+        <h1 class="title">Invoice Payment Approval Platform</h1>
+        <div class="subtitle">Technical Documentation &amp; User Guide</div>
+        <p class="desc">
+            An internal platform for submitting invoice payment requests with supporting documents,
+            routing them through a configurable multi-level approval workflow, processing payments,
+            and tracking every action through dashboards, reports, Excel exports and a complete audit trail.
+        </p>
+        <div class="badges">
+            <span class="badge">Laravel 13.18</span>
+            <span class="badge">PHP 8.3</span>
+            <span class="badge">Vue 3</span>
+            <span class="badge">Vuetify</span>
+            <span class="badge">Pinia</span>
+            <span class="badge">Chart.js 4</span>
+            <span class="badge">MySQL 8.4</span>
+            <span class="badge">Vite 8</span>
+            <span class="badge">Laravel Excel</span>
+        </div>
+    </div>
+    <div class="meta">
+        <span>Version 1.0</span>
+        <span>Project folder: <code>htdocs/paf</code> · Database: <code>gallega_paf_db</code></span>
+        <span>2 July 2026</span>
+    </div>
+</div>
+
+<!-- ================= TOC ================= -->
+<div class="toc">
+    <h1>Contents</h1>
+    <ol class="top">
+        <li><span class="n">1</span> Introduction
+            <ul class="sub"><li>1.1 Purpose · 1.2 Feature summary · 1.3 Technology stack</li></ul>
+        </li>
+        <li><span class="n">2</span> System Architecture
+            <ul class="sub"><li>2.1 High-level design · 2.2 Authentication &amp; sessions · 2.3 Project layout</li></ul>
+        </li>
+        <li><span class="n">3</span> Roles &amp; Permissions
+            <ul class="sub"><li>3.1 The four roles · 3.2 Permission matrix · 3.3 Data visibility rules</li></ul>
+        </li>
+        <li><span class="n">4</span> Functional Guide
+            <ul class="sub"><li>4.1 Submitting a request · 4.2 Supporting documents · 4.3 Approval workflow · 4.4 Payment processing · 4.5 Status lifecycle · 4.6 Dashboard · 4.7 Reports &amp; Excel export · 4.8 Audit trail · 4.9 Administration</li></ul>
+        </li>
+        <li><span class="n">5</span> Data Model
+            <ul class="sub"><li>5.1 Entity overview · 5.2 Table specifications · 5.3 Referential integrity</li></ul>
+        </li>
+        <li><span class="n">6</span> API Reference
+            <ul class="sub"><li>6.1 Conventions · 6.2 Route inventory · 6.3 Endpoint details · 6.4 Validation rules</li></ul>
+        </li>
+        <li><span class="n">7</span> Frontend Application
+            <ul class="sub"><li>7.1 SPA routes &amp; guards · 7.2 Pages · 7.3 State management · 7.4 HTTP &amp; CSRF wiring · 7.5 Theme &amp; visual language</li></ul>
+        </li>
+        <li><span class="n">8</span> Configuration
+            <ul class="sub"><li>8.1 Business configuration (config/paf.php) · 8.2 Environment (.env)</li></ul>
+        </li>
+        <li><span class="n">9</span> Installation &amp; Operations
+            <ul class="sub"><li>9.1 Requirements · 9.2 First-time setup · 9.3 Daily development · 9.4 Production checklist</li></ul>
+        </li>
+        <li><span class="n">10</span> Seeded Accounts &amp; Demo Data</li>
+        <li><span class="n">11</span> Security Notes &amp; Known Limitations</li>
+        <li><span class="n">A</span> Appendix — Audit action catalog · Status &amp; priority reference</li>
+    </ol>
+</div>
+
+<!-- ================= 1. INTRODUCTION ================= -->
+<h1 style="page-break-before: avoid;"><span class="secno">1</span>Introduction</h1>
+<p class="lede">What PAF is, what it does, and what it is built with.</p>
+
+<h2>1.1 Purpose</h2>
+<p>
+    PAF (Payment Approval Flow) is an internal web platform that standardises how invoice payments are requested,
+    approved and executed. Employees submit a payment request against a vendor invoice, attach the supporting
+    documents (invoice copy, purchase order, delivery note…), and the platform routes the request through an
+    <strong>amount-based, multi-level approval chain</strong>. Once fully approved, the finance team schedules and executes
+    the payment, closing the loop with a payment reference. Every step — from creation to payment — is recorded in an
+    immutable audit trail, and the whole portfolio is observable through dashboards, filterable reports and Excel exports.
+</p>
+
+<h2>1.2 Feature summary</h2>
+<table class="plain">
+    <thead><tr><th style="width:28%">Capability</th><th>What it provides</th></tr></thead>
+    <tbody>
+        <tr><td><strong>Form submission</strong></td><td>Structured payment-request form: vendor details, invoice number &amp; dates, amount + VAT with live total, category, department, cost center, payment method, priority and justification. Save as draft or submit immediately.</td></tr>
+        <tr><td><strong>File uploads</strong></td><td>Up to 10 supporting documents per request, 10&nbsp;MB each (PDF, images, Office documents, CSV, TXT). Stored on the private local disk; downloads are permission-checked.</td></tr>
+        <tr><td><strong>Multi-level approval workflow</strong></td><td>Configurable approval levels with amount thresholds (seeded: L1 Department Manager — always; L2 Finance Director — ≥ 10,000; L3 CFO — ≥ 50,000). Requests pass every applicable level in order; rejection at any level stops the chain with a mandatory reason; rejected requests can be edited and resubmitted for a fresh cycle.</td></tr>
+        <tr><td><strong>Payment lifecycle tracking</strong></td><td>Seven statuses (draft → pending approval → approved → scheduled → paid, plus rejected / cancelled) with timestamps for each milestone and a payment reference recorded at execution.</td></tr>
+        <tr><td><strong>Dashboard analytics</strong></td><td>KPI cards (totals, pending, awaiting payment, paid this month), status distribution donut, 6-month submitted-vs-paid trend, top-5 vendors, spend by category, recent requests, and a personal approval-queue alert for approvers.</td></tr>
+        <tr><td><strong>Reporting &amp; Excel export</strong></td><td>Report builder with status/department/category/vendor/date filters, per-status summary cards, and a 23-column <code>.xlsx</code> export (Laravel Excel / PhpSpreadsheet) honouring the same filters and the caller's data visibility.</td></tr>
+        <tr><td><strong>Audit trail</strong></td><td>Every action (create, update, submit, approve, reject, schedule, pay, cancel, document upload/delete, login/logout, exports, admin changes) is logged with actor, timestamp, IP address and — for updates — old/new values. Per-invoice timeline plus an admin-wide searchable log.</td></tr>
+        <tr><td><strong>Administration</strong></td><td>User management (roles, approver levels, activation) and approval-level configuration (thresholds, names, active flags) — all from the UI, no code changes needed.</td></tr>
+    </tbody>
+</table>
+
+<h2>1.3 Technology stack</h2>
+<table>
+    <thead><tr><th>Layer</th><th>Technology</th><th>Version constraint</th><th>Notes</th></tr></thead>
+    <tbody>
+        <tr><td>Backend framework</td><td>Laravel</td><td><code>^13.8</code> (13.18.0 installed)</td><td>Slim Laravel 11+ bootstrap style (<code>bootstrap/app.php</code>)</td></tr>
+        <tr><td>Language</td><td>PHP</td><td><code>^8.3</code></td><td>Runs on PHP 8.3.30 locally</td></tr>
+        <tr><td>Database</td><td>MySQL</td><td>8.4.x</td><td>Database <code>gallega_paf_db</code>, utf8mb4</td></tr>
+        <tr><td>Excel export</td><td>maatwebsite/excel</td><td><code>^3.1</code></td><td>PhpSpreadsheet under the hood; requires <code>ext-zip</code>, <code>ext-gd</code></td></tr>
+        <tr><td>Frontend framework</td><td>Vue</td><td><code>^3.5</code></td><td>Composition API (<code>&lt;script setup&gt;</code>), SPA</td></tr>
+        <tr><td>UI library</td><td>Vuetify</td><td><code>^4.1</code></td><td>Material Design components, light theme</td></tr>
+        <tr><td>State</td><td>Pinia</td><td><code>^3.0</code></td><td><code>auth</code>, <code>meta</code>, <code>notify</code> stores</td></tr>
+        <tr><td>Routing</td><td>vue-router</td><td><code>^5.1</code></td><td>HTML5 history mode + role guards</td></tr>
+        <tr><td>Charts</td><td>Chart.js</td><td><code>^4.5</code></td><td>Doughnut + bar charts on the dashboard</td></tr>
+        <tr><td>HTTP client</td><td>axios</td><td><code>^1.18</code></td><td>Session cookies + CSRF, <code>/api</code> base</td></tr>
+        <tr><td>Build tool</td><td>Vite</td><td><code>^8.0</code></td><td><code>laravel-vite-plugin</code>, <code>vite-plugin-vuetify</code> (auto-import)</td></tr>
+        <tr><td>Icons</td><td>@mdi/font</td><td><code>^7.4</code></td><td>Material Design Icons webfont</td></tr>
+    </tbody>
+</table>
+<p class="small muted">
+    <code>tailwindcss</code> and <code>@tailwindcss/vite</code> remain in <code>package.json</code> from the Laravel skeleton but are
+    <em>not</em> used — the Vite config compiles only <code>resources/js/main.js</code> with the Vue and Vuetify plugins.
+</p>
+
+<!-- ================= 2. ARCHITECTURE ================= -->
+<h1><span class="secno">2</span>System Architecture</h1>
+<p class="lede">A single Laravel application serving a Vue SPA and a session-authenticated JSON API.</p>
+
+<h2>2.1 High-level design</h2>
+<p>
+    PAF is deliberately a <strong>single deployable</strong>: one Laravel application serves both the compiled Vue single-page
+    application and the JSON API it consumes. There is no separate API host, no token infrastructure and no CORS surface.
+</p>
+<div class="figure">
+<svg width="640" height="150" viewBox="0 0 640 150" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif">
+    <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#52514e"/>
+        </marker>
+    </defs>
+    <rect x="8" y="40" width="120" height="66" rx="8" fill="#f5f8fd" stroke="#256abf" stroke-width="1.5"/>
+    <text x="68" y="68" text-anchor="middle" font-size="12" font-weight="600" fill="#10243e">Browser</text>
+    <text x="68" y="86" text-anchor="middle" font-size="9.5" fill="#52514e">Vue 3 + Vuetify SPA</text>
+    <line x1="128" y1="60" x2="218" y2="60" stroke="#52514e" stroke-width="1.4" marker-end="url(#arr)"/>
+    <text x="173" y="50" text-anchor="middle" font-size="8.5" fill="#52514e">GET /… (SPA shell)</text>
+    <line x1="218" y1="88" x2="128" y2="88" stroke="#52514e" stroke-width="1.4" marker-end="url(#arr)"/>
+    <text x="173" y="103" text-anchor="middle" font-size="8.5" fill="#52514e">JSON · /api/*</text>
+    <rect x="220" y="26" width="200" height="96" rx="8" fill="#fff" stroke="#10243e" stroke-width="1.5"/>
+    <text x="320" y="48" text-anchor="middle" font-size="12" font-weight="600" fill="#10243e">Laravel 13</text>
+    <text x="320" y="66" text-anchor="middle" font-size="9.5" fill="#52514e">routes/web.php · /api prefix</text>
+    <text x="320" y="81" text-anchor="middle" font-size="9.5" fill="#52514e">Controllers · ApprovalService</text>
+    <text x="320" y="96" text-anchor="middle" font-size="9.5" fill="#52514e">AuditLogger · Laravel Excel</text>
+    <text x="320" y="111" text-anchor="middle" font-size="9.5" fill="#52514e">session guard · CSRF · roles</text>
+    <line x1="420" y1="55" x2="508" y2="55" stroke="#52514e" stroke-width="1.4" marker-end="url(#arr)"/>
+    <rect x="510" y="30" width="122" height="50" rx="8" fill="#f7f6f3" stroke="#1baf7a" stroke-width="1.5"/>
+    <text x="571" y="51" text-anchor="middle" font-size="11" font-weight="600" fill="#10243e">MySQL 8.4</text>
+    <text x="571" y="67" text-anchor="middle" font-size="9" fill="#52514e">gallega_paf_db</text>
+    <line x1="420" y1="98" x2="508" y2="98" stroke="#52514e" stroke-width="1.4" marker-end="url(#arr)"/>
+    <rect x="510" y="82" width="122" height="46" rx="8" fill="#f7f6f3" stroke="#eda100" stroke-width="1.5"/>
+    <text x="571" y="101" text-anchor="middle" font-size="11" font-weight="600" fill="#10243e">Local storage</text>
+    <text x="571" y="116" text-anchor="middle" font-size="8" fill="#52514e">storage/app/private/invoices/{id}</text>
+</svg>
+<div class="cap">Figure 1 — Deployment shape: one Laravel app serves the SPA shell, the JSON API, the database and private file storage.</div>
+</div>
+
+<ul>
+    <li><strong>SPA catch-all:</strong> <code>Route::view('/{any?}', 'app')->where('any', '^(?!api).*$')</code> returns
+        <code>resources/views/app.blade.php</code> for every non-<code>/api</code> path. The Blade shell carries the CSRF meta tag
+        and the Vite-built bundle; vue-router takes over client-side.</li>
+    <li><strong>API prefix inside web.php:</strong> all 31 API routes live under <code>Route::prefix('api')</code> in
+        <code>routes/web.php</code> — there is no <code>routes/api.php</code>. This keeps them inside the <code>web</code> middleware
+        group: database-backed sessions, cookies and CSRF protection apply to every call.</li>
+    <li><strong>JSON errors everywhere:</strong> <code>bootstrap/app.php</code> registers
+        <code>$exceptions->shouldRenderJsonWhen(fn ($request) => $request->is('api/*'))</code>, so validation failures,
+        auth failures and 404s on <code>/api/*</code> always render as JSON — the SPA never receives an HTML error page or redirect.</li>
+    <li><strong>Role gate:</strong> a single custom middleware, <code>EnsureRole</code> (alias <code>role</code>), guards the
+        finance (<code>role:finance,admin</code>) and administration (<code>role:admin</code>) route groups with a strict
+        role whitelist; everything else authorises inside controllers/services.</li>
+    <li><strong>Business logic placement:</strong> the approval state machine is isolated in
+        <code>App\Services\ApprovalService</code> (submit / approve / reject, all transactional), and audit writing in
+        <code>App\Services\AuditLogger</code>. Controllers stay thin: validation, authorisation, orchestration.</li>
+</ul>
+
+<h2>2.2 Authentication &amp; sessions</h2>
+<ul>
+    <li>Classic Laravel <strong>session authentication</strong> (<code>web</code> guard) — no Sanctum tokens, no JWT. The SPA is
+        same-origin, so the session cookie authenticates every API call transparently.</li>
+    <li><code>POST /api/login</code> validates credentials with <code>Auth::attempt()</code> (optional <code>remember</code> flag),
+        rejects deactivated accounts (<code>is_active = false</code>) even with a correct password, regenerates the session ID
+        against fixation, and writes a <code>login</code> audit entry. The route is throttled at <strong>10 attempts per minute</strong>.</li>
+    <li><code>POST /api/logout</code> logs the audit entry, logs out the <code>web</code> guard, invalidates the session and
+        regenerates the CSRF token.</li>
+    <li><strong>CSRF:</strong> Laravel issues the <code>XSRF-TOKEN</code> cookie, which axios echoes automatically as
+        <code>X-XSRF-TOKEN</code>; the Blade shell's <code>&lt;meta name="csrf-token"&gt;</code> is wired as a fallback
+        <code>X-CSRF-TOKEN</code> header for the first request after a full page load.</li>
+    <li>Sessions, cache and queues are all <strong>database-backed</strong> (<code>SESSION_DRIVER=database</code>,
+        <code>CACHE_STORE=database</code>, <code>QUEUE_CONNECTION=database</code>) — no Redis dependency.</li>
+</ul>
+
+<h2>2.3 Project layout</h2>
+<pre>paf/
+├─ app/
+│  ├─ Exports/InvoicesExport.php          # 23-column Excel export definition
+│  ├─ Http/
+│  │  ├─ Controllers/                     # Auth, Invoice, Document, Approval, Payment,
+│  │  │                                   # Dashboard, Report, AuditLog, User, ApprovalLevel, Meta
+│  │  └─ Middleware/EnsureRole.php        # 'role:…' middleware alias
+│  ├─ Models/                             # User, Invoice, InvoiceDocument, InvoiceApproval,
+│  │  │                                   # ApprovalLevel, AuditLog
+│  └─ Services/
+│     ├─ ApprovalService.php              # submit / approve / reject state machine
+│     └─ AuditLogger.php                  # single entry point for audit writes
+├─ bootstrap/app.php                      # routing, role alias, JSON exception rendering
+├─ config/paf.php                         # business lists: categories, departments, currencies,
+│                                         # payment methods, priorities, upload limits
+├─ database/
+│  ├─ migrations/                         # users(+PAF fields), approval_levels, invoices,
+│  │                                      # invoice_documents, invoice_approvals, audit_logs
+│  └─ seeders/                            # ApprovalLevelSeeder, UserSeeder, DemoDataSeeder
+├─ resources/
+│  ├─ js/                                 # Vue SPA (see §7)
+│  └─ views/app.blade.php                 # SPA shell (CSRF meta + @vite)
+├─ routes/web.php                         # /api/* endpoints + SPA catch-all
+└─ storage/app/private/invoices/{id}/     # uploaded documents (private disk)</pre>
+
+<!-- ================= 3. ROLES ================= -->
+<h1><span class="secno">3</span>Roles &amp; Permissions</h1>
+<p class="lede">Four roles cover the whole payment flow; approvers additionally carry a numeric level.</p>
+
+<h2>3.1 The four roles</h2>
+<table class="plain">
+    <thead><tr><th style="width:16%">Role</th><th style="width:34%">Who</th><th>What they do</th></tr></thead>
+    <tbody>
+        <tr><td><span class="chip" style="background:#eef1f6;color:#2a78d6">requester</span></td><td>Any employee raising payments</td><td>Creates, edits and submits their own requests; cancels while draft/pending; tracks progress; sees only their own data.</td></tr>
+        <tr><td><span class="chip" style="background:#fdf6e7;color:#b87a00">approver</span></td><td>Managers/directors/CFO, each with an <code>approval_level</code> (1–10)</td><td>Reviews the queue routed to their level; approves (optional comment) or rejects (mandatory reason). Also sees requests that carry an approval row at their level plus anything they submitted themselves.</td></tr>
+        <tr><td><span class="chip" style="background:#e9f6f1;color:#0e8a61">finance</span></td><td>Accounts-payable team</td><td>Processes fully-approved requests: schedules payment dates and records execution with a payment reference. Sees all requests.</td></tr>
+        <tr><td><span class="chip" style="background:#efedf9;color:#4a3aa7">admin</span></td><td>System administrators</td><td>Everything: acts at any approval level, manages users and approval levels, reads the global audit trail. Sees all requests.</td></tr>
+    </tbody>
+</table>
+
+<h2>3.2 Permission matrix</h2>
+<table>
+    <thead><tr><th>Action</th><th>Requester</th><th>Approver</th><th>Finance</th><th>Admin</th></tr></thead>
+    <tbody>
+        <tr><td>Create / edit / submit own requests</td><td class="role-yes">✔</td><td class="role-yes">✔</td><td class="role-yes">✔</td><td class="role-yes">✔ <span class="muted small">(+ others' editable requests — draft/rejected)</span></td></tr>
+        <tr><td>Cancel own draft / pending request</td><td class="role-yes">✔</td><td class="role-yes">✔</td><td class="role-yes">✔</td><td class="role-yes">✔ (any)</td></tr>
+        <tr><td>Delete own draft</td><td class="role-yes">✔</td><td class="role-yes">✔</td><td class="role-yes">✔</td><td class="role-yes">✔ (any)</td></tr>
+        <tr><td>View all requests</td><td class="role-no">✘ own only</td><td class="role-cond">◐ own + routed to their level</td><td class="role-yes">✔</td><td class="role-yes">✔</td></tr>
+        <tr><td>Approve / reject at current level</td><td class="role-no">✘</td><td class="role-cond">◐ only when <code>current_level</code> = their level</td><td class="role-no">✘</td><td class="role-yes">✔ any level</td></tr>
+        <tr><td>Approval queue (<code>/approvals</code>)</td><td class="role-no">✘</td><td class="role-yes">✔ their level</td><td class="role-no">✘</td><td class="role-yes">✔ all levels</td></tr>
+        <tr><td>Schedule payment / mark paid</td><td class="role-no">✘</td><td class="role-no">✘</td><td class="role-yes">✔</td><td class="role-yes">✔</td></tr>
+        <tr><td>Reports &amp; Excel export</td><td class="role-cond">◐ own data</td><td class="role-cond">◐ visible data</td><td class="role-yes">✔ all data</td><td class="role-yes">✔ all data</td></tr>
+        <tr><td>Global audit trail</td><td class="role-no">✘</td><td class="role-no">✘</td><td class="role-no">✘</td><td class="role-yes">✔</td></tr>
+        <tr><td>Manage users &amp; approval levels</td><td class="role-no">✘</td><td class="role-no">✘</td><td class="role-no">✘</td><td class="role-yes">✔</td></tr>
+    </tbody>
+</table>
+<p class="small muted">✔ full · ◐ conditional · ✘ none. Download of a request's documents follows the same visibility rule as viewing the request.</p>
+
+<h2>3.3 Data visibility rules</h2>
+<p>Visibility is enforced in one Eloquent scope, <code>Invoice::visibleTo($user)</code>, applied to lists, dashboards and reports alike:</p>
+<ol>
+    <li><strong>Admin &amp; finance</strong> (<code>canViewAllInvoices()</code>) — unrestricted.</li>
+    <li><strong>Approver</strong> — requests they submitted, <em>plus</em> any request having an approval row at their level,
+        whatever that row's status — including requests they already acted on. Because resubmission rebuilds the chain rows (§4.3),
+        this visibility lasts only until the request is resubmitted with a chain that no longer includes their level.</li>
+    <li><strong>Requester</strong> (and any other role) — only requests where <code>submitted_by</code> is the user.</li>
+</ol>
+<p class="small">
+    The same three-way rule is re-implemented for single-record access in <code>InvoiceController::authorizeView()</code> and
+    <code>DocumentController::authorizeAccess()</code> — see §11 for the maintenance note.
+</p>
+<!-- ================= 4. FUNCTIONAL GUIDE ================= -->
+<h1><span class="secno">4</span>Functional Guide</h1>
+<p class="lede">How each capability behaves, module by module.</p>
+
+<h2>4.1 Submitting a payment request</h2>
+<p>
+    <strong>Payment Requests → New Request</strong> opens the submission form. Every request receives a unique reference
+    <code>PAF-YYYY-NNNNN</code> (year-scoped, sequential, zero-padded to five digits — e.g. <code>PAF-2026-00061</code>).
+    The requester can <em>Save as Draft</em> (no workflow yet) or <em>Submit for Approval</em> (drafting and submitting in one step).
+</p>
+<table>
+    <thead><tr><th style="width:20%">Field</th><th style="width:12%">Required</th><th>Rules &amp; behaviour</th></tr></thead>
+    <tbody>
+        <tr><td>Vendor name</td><td>yes</td><td>Free text, max 255</td></tr>
+        <tr><td>Vendor email</td><td>no</td><td>Valid email, max 255</td></tr>
+        <tr><td>Vendor TRN</td><td>no</td><td>Tax registration number, max 50</td></tr>
+        <tr><td>Invoice number</td><td>yes</td><td>Vendor's invoice number, max 100 (not required to be unique — the platform's own <code>reference_no</code> is the unique key)</td></tr>
+        <tr><td>Invoice date</td><td>yes</td><td>Date</td></tr>
+        <tr><td>Due date</td><td>no</td><td>Date, must be on/after the invoice date</td></tr>
+        <tr><td>Currency</td><td>yes</td><td>One of <code>AED</code> (default), <code>USD</code>, <code>EUR</code>, <code>GBP</code>, <code>SAR</code></td></tr>
+        <tr><td>Amount</td><td>yes</td><td>Numeric, ≥ 0.01</td></tr>
+        <tr><td>Tax / VAT</td><td>no</td><td>Numeric ≥ 0, defaults to 0. <strong>Total = round(amount + tax, 2)</strong> is computed server-side and shown live in the form</td></tr>
+        <tr><td>Category</td><td>yes</td><td>One of the 11 configured categories (§8.1)</td></tr>
+        <tr><td>Department</td><td>yes</td><td>One of the 9 configured departments (§8.1)</td></tr>
+        <tr><td>Cost center</td><td>no</td><td>Free text, max 100</td></tr>
+        <tr><td>Payment method</td><td>yes</td><td>Bank Transfer (default) · Cheque · Cash · Corporate Card</td></tr>
+        <tr><td>Priority</td><td>yes</td><td><code>low</code> · <code>normal</code> (default) · <code>high</code> · <code>urgent</code> — drives queue ordering</td></tr>
+        <tr><td>Description</td><td>no</td><td>Justification, max 5,000 characters</td></tr>
+        <tr><td>Documents</td><td>no</td><td>See §4.2</td></tr>
+    </tbody>
+</table>
+<p>
+    Drafts (and rejected requests) remain fully editable by their owner; editing records an <code>updated</code> audit entry
+    with the old and new values. Only drafts can be deleted; drafts and pending requests can be cancelled.
+</p>
+
+<h2>4.2 Supporting documents</h2>
+<ul>
+    <li><strong>Limits:</strong> up to <strong>10 files</strong> per request, <strong>10&nbsp;MB</strong> (10,240&nbsp;KB) each.</li>
+    <li><strong>Accepted types:</strong> <code>pdf, jpg, jpeg, png, webp, doc, docx, xls, xlsx, csv, txt</code> (content-sniffed by Laravel's <code>mimes</code> rule, not just the extension).</li>
+    <li><strong>Storage:</strong> private local disk under <code>invoices/{invoice_id}/</code> with a random hashed filename; the original filename is preserved in the database and restored on download.</li>
+    <li><strong>Access control:</strong> downloading goes through <code>GET /api/documents/{id}/download</code> which applies the request-visibility rule (§3.3) before streaming the file with its original name.</li>
+    <li><strong>Removal:</strong> only the uploader (or an admin) may delete a document, and only while the request is editable (draft/rejected). Uploads and deletions are audit-logged; downloads are not.</li>
+    <li>Documents can be added when creating, and more can be appended when editing an editable request.</li>
+</ul>
+
+<h2>4.3 Approval workflow</h2>
+<h3>Routing by amount</h3>
+<p>
+    Approval levels live in the <code>approval_levels</code> table and are managed from the admin UI. A request must pass
+    <strong>every active level whose <code>min_amount</code> ≤ the request's total</strong>, in ascending level order
+    (<code>ApprovalLevel::requiredFor()</code>). With the seeded configuration:
+</p>
+<table class="plain">
+    <thead><tr><th>Total (AED)</th><th>Chain</th></tr></thead>
+    <tbody>
+        <tr><td>&lt; 10,000</td><td>L1 Department Manager</td></tr>
+        <tr><td>10,000 – 49,999.99</td><td>L1 Department Manager → L2 Finance Director</td></tr>
+        <tr><td>≥ 50,000</td><td>L1 Department Manager → L2 Finance Director → L3 CFO</td></tr>
+    </tbody>
+</table>
+<p class="small muted">Thresholds are inclusive: a request of exactly 10,000 requires L2. Levels are matched purely on amount — there is no category- or department-based routing.</p>
+
+<h3>Chain mechanics</h3>
+<ol>
+    <li><strong>Submit</strong> (drafts and rejected requests only): one <code>invoice_approvals</code> row is created per required level
+        (snapshotting the level's name), the request becomes <code>pending_approval</code> with <code>current_level</code> at the lowest
+        level, <code>submitted_at</code> is stamped, and any previous approval/rejection timestamps are cleared.
+        <em>Resubmission starts a fresh cycle</em>: all prior approval rows are deleted first (the audit log keeps the history).</li>
+    <li><strong>Who may act:</strong> an approver whose <code>approval_level</code> equals the request's <code>current_level</code>, or any admin
+        (at any level). Everyone else receives 403; acting on a non-pending request returns a validation error.
+        Levels have no named assignee — any qualified approver at the level may act, first action wins.</li>
+    <li><strong>Approve:</strong> the current level's row is stamped (approver, optional comment, timestamp). If a higher pending level
+        remains, <code>current_level</code> advances to it; otherwise the request becomes <code>approved</code> with <code>approved_at</code> set
+        and enters the finance queue.</li>
+    <li><strong>Reject:</strong> requires a reason (max 2,000 chars). The current level's row is marked rejected, the request becomes
+        <code>rejected</code> with the reason stored on the request itself. The owner may edit and resubmit — restarting the whole chain.</li>
+    <li>All three operations run inside database transactions and write audit entries.</li>
+</ol>
+
+<h3>Approval queue</h3>
+<p>
+    <strong>Approvals</strong> (approvers/admins) lists requests pending at the caller's level (admins: all levels), ordered
+    <em>urgent → high → normal → low</em>, then oldest submission first. Approve/reject can be done inline from the queue or
+    from the request detail page, which shows the full approval chain timeline with per-level status, actor, timestamp and comments.
+</p>
+
+<h2>4.4 Payment processing</h2>
+<p>The <strong>Payments</strong> workspace (finance/admin) has three tabs backed by <code>GET /api/payments/queue</code>:</p>
+<ul>
+    <li><strong>To Schedule</strong> — fully-approved requests, priority-ordered then oldest-approved first. Actions: <em>Schedule</em> (choose a payment date, today or later) or <em>Mark Paid</em> directly.</li>
+    <li><strong>Scheduled</strong> — requests with a planned <code>scheduled_date</code>. Action: <em>Mark Paid</em>.</li>
+    <li><strong>Paid</strong> — executed payments, most recent first, showing the payment reference.</li>
+</ul>
+<p>
+    <em>Mark Paid</em> requires a <strong>payment reference</strong> (transaction number, max 100 chars); it stamps <code>paid_at</code>
+    (defaults to now, may be supplied) and records the finance user in <code>paid_by</code>. Both actions are audit-logged.
+</p>
+
+<h2>4.5 Status lifecycle</h2>
+<div class="figure">
+<svg width="680" height="210" viewBox="0 0 680 210" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif">
+    <defs>
+        <marker id="a2" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#52514e"/>
+        </marker>
+    </defs>
+    <!-- main flow -->
+    <g font-size="10.5" font-weight="600" text-anchor="middle">
+        <rect x="10" y="60" width="88" height="34" rx="17" fill="#f4f3f0" stroke="#898781" stroke-width="1.5"/>
+        <text x="54" y="81" fill="#52514e">Draft</text>
+        <rect x="148" y="60" width="122" height="34" rx="17" fill="#fdf6e7" stroke="#eda100" stroke-width="1.5"/>
+        <text x="209" y="81" fill="#8a6100">Pending approval</text>
+        <rect x="320" y="60" width="96" height="34" rx="17" fill="#e9f6f1" stroke="#1baf7a" stroke-width="1.5"/>
+        <text x="368" y="81" fill="#0e8a61">Approved</text>
+        <rect x="466" y="60" width="98" height="34" rx="17" fill="#eaf1fb" stroke="#2a78d6" stroke-width="1.5"/>
+        <text x="515" y="81" fill="#1c5cab">Scheduled</text>
+        <rect x="606" y="60" width="66" height="34" rx="17" fill="#e8f3e8" stroke="#008300" stroke-width="1.8"/>
+        <text x="639" y="81" fill="#006300">Paid</text>
+    </g>
+    <g stroke="#52514e" stroke-width="1.4">
+        <line x1="98" y1="77" x2="146" y2="77" marker-end="url(#a2)"/>
+        <line x1="270" y1="77" x2="318" y2="77" marker-end="url(#a2)"/>
+        <line x1="416" y1="77" x2="464" y2="77" marker-end="url(#a2)"/>
+        <line x1="564" y1="77" x2="604" y2="77" marker-end="url(#a2)"/>
+    </g>
+    <g font-size="8" fill="#52514e" text-anchor="middle">
+        <text x="122" y="70">submit</text>
+        <text x="294" y="70">final approve</text>
+        <text x="440" y="70">schedule</text>
+        <text x="584" y="70">pay</text>
+    </g>
+    <!-- approved -> paid direct -->
+    <path d="M 368 60 C 380 24, 600 24, 636 58" fill="none" stroke="#52514e" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#a2)"/>
+    <text x="505" y="30" font-size="8" fill="#52514e" text-anchor="middle">mark paid without scheduling</text>
+    <!-- reject branch -->
+    <rect x="148" y="150" width="94" height="32" rx="16" fill="#fdf2f2" stroke="#e34948" stroke-width="1.5"/>
+    <text x="195" y="170" font-size="10.5" font-weight="600" fill="#b32d2d" text-anchor="middle">Rejected</text>
+    <line x1="209" y1="94" x2="200" y2="148" stroke="#52514e" stroke-width="1.2" marker-end="url(#a2)"/>
+    <text x="232" y="122" font-size="8" fill="#52514e">reject (reason)</text>
+    <path d="M 148 164 C 60 160, 44 120, 52 96" fill="none" stroke="#52514e" stroke-width="1.2" stroke-dasharray="4 3" marker-end="url(#a2)"/>
+    <text x="66" y="146" font-size="8" fill="#52514e" text-anchor="middle">edit &amp; resubmit</text>
+    <!-- cancel branch -->
+    <rect x="330" y="150" width="98" height="32" rx="16" fill="#fdf1ea" stroke="#eb6834" stroke-width="1.5"/>
+    <text x="379" y="170" font-size="10.5" font-weight="600" fill="#b34a1e" text-anchor="middle">Cancelled</text>
+    <line x1="70" y1="94" x2="342" y2="150" stroke="#c3c2b7" stroke-width="1.1" marker-end="url(#a2)"/>
+    <line x1="248" y1="94" x2="360" y2="148" stroke="#c3c2b7" stroke-width="1.1" marker-end="url(#a2)"/>
+    <text x="300" y="128" font-size="8" fill="#898781">cancel (owner/admin)</text>
+</svg>
+<div class="cap">Figure 2 — Payment lifecycle. Rejected requests are editable and can re-enter the chain; cancelled is terminal.</div>
+</div>
+
+<table>
+    <thead><tr><th>Status</th><th>Meaning</th><th>Set when</th><th>Editable</th><th>Exits</th></tr></thead>
+    <tbody>
+        <tr><td><span class="chip" style="background:#f4f3f0;color:#52514e">draft</span></td><td>Captured but not in workflow</td><td>Created (default)</td><td>yes</td><td>submit · cancel · delete</td></tr>
+        <tr><td><span class="chip" style="background:#fdf6e7;color:#8a6100">pending_approval</span></td><td>Awaiting the approver at <code>current_level</code></td><td>Submitted / resubmitted</td><td>no</td><td>approve (advance/final) · reject · cancel</td></tr>
+        <tr><td><span class="chip" style="background:#e9f6f1;color:#0e8a61">approved</span></td><td>Chain complete, awaiting finance</td><td>Final level approves (<code>approved_at</code>)</td><td>no</td><td>schedule · mark paid</td></tr>
+        <tr><td><span class="chip" style="background:#eaf1fb;color:#1c5cab">scheduled</span></td><td>Payment date planned</td><td>Finance schedules (<code>scheduled_date</code>)</td><td>no</td><td>mark paid</td></tr>
+        <tr><td><span class="chip" style="background:#e8f3e8;color:#006300">paid</span></td><td>Executed — terminal</td><td>Finance records reference (<code>paid_at</code>, <code>paid_by</code>)</td><td>no</td><td>—</td></tr>
+        <tr><td><span class="chip" style="background:#fdf2f2;color:#b32d2d">rejected</span></td><td>Declined with reason</td><td>Any level rejects (<code>rejected_at</code>, <code>rejection_reason</code>)</td><td>yes</td><td>edit · resubmit</td></tr>
+        <tr><td><span class="chip" style="background:#fdf1ea;color:#b34a1e">cancelled</span></td><td>Withdrawn — terminal</td><td>Owner/admin cancels a draft or pending request</td><td>no</td><td>—</td></tr>
+    </tbody>
+</table>
+
+<h2>4.6 Dashboard</h2>
+<p>The landing page adapts to the signed-in user's visibility (§3.3) and refreshes on every visit. It contains:</p>
+<ul>
+    <li><strong>Approval alert</strong> (approvers/admins): "<em>N requests are waiting for your approval</em>" with a shortcut to the queue.</li>
+    <li><strong>KPI cards:</strong> Total Requests (all time), Pending Approval (count + amount), Awaiting Payment (approved + scheduled, count + amount), Paid This Month (count + amount).</li>
+    <li><strong>Requests by Status</strong> — donut of the status distribution, with counts in the legend. Status colors are stable across the entire app (§7.5).</li>
+    <li><strong>Monthly Flow</strong> — grouped bars for the last 6 calendar months (including the current one): total submitted vs total paid, in AED.</li>
+    <li><strong>Top Vendors by Spend</strong> — top 5 vendors by amount (drafts, cancelled and rejected excluded).</li>
+    <li><strong>Spend by Category</strong> — same basis, grouped by category.</li>
+    <li><strong>Recent Requests</strong> — the 8 newest visible requests with quick links.</li>
+</ul>
+
+<h2>4.7 Reports &amp; Excel export</h2>
+<p>
+    <strong>Reports</strong> combines filters (status multi-select, department, category, vendor contains-match, invoice-date range),
+    live summary cards (matching count and amount, plus one card per status in the result), and a paginated result table.
+    All data respects the caller's visibility — a requester exports only their own requests, finance/admin export everything.
+</p>
+<p>
+    <strong>Export to Excel</strong> downloads <code>paf-invoices-YYYYMMDD-HHMMSS.xlsx</code> with the same filters applied,
+    auto-sized columns and a bold header row. The 23 columns, in order:
+</p>
+<p class="small" style="line-height:1.9">
+    <code>Reference No</code> <code>Vendor</code> <code>Invoice No</code> <code>Invoice Date</code> <code>Due Date</code> <code>Currency</code>
+    <code>Amount</code> <code>Tax</code> <code>Total</code> <code>Category</code> <code>Department</code> <code>Cost Center</code>
+    <code>Payment Method</code> <code>Priority</code> <code>Status</code> <code>Requested By</code> <code>Submitted At</code>
+    <code>Approved At</code> <code>Scheduled Date</code> <code>Paid At</code> <code>Payment Reference</code> <code>Paid By</code>
+    <code>Rejection Reason</code>
+</p>
+<p class="small muted">Amount, Tax and Total are numeric cells; dates are <code>Y-m-d</code>, timestamps <code>Y-m-d H:i</code>; the payment method exports its display label. Every export writes a <code>report_exported</code> audit entry.</p>
+
+<h2>4.8 Audit trail</h2>
+<p>
+    Every state-changing action is written to <code>audit_logs</code> through a single service (<code>AuditLogger::log()</code>),
+    capturing the acting user, the affected request, an action keyword, a human-readable description, the client IP,
+    a timestamp — and, for edits, JSON snapshots of old and new values.
+</p>
+<ul>
+    <li><strong>Per-request timeline</strong> — the request detail page shows its full history chronologically with actor and action icons.</li>
+    <li><strong>Global audit trail</strong> (admin) — searchable by text or reference number, filterable by action type (dropdown is populated from the distinct actions actually present), user and date range; 25 entries per page, newest first.</li>
+</ul>
+<p class="small">The full catalog of action keywords is in Appendix A.</p>
+
+<h2>4.9 Administration</h2>
+<h3>Users</h3>
+<ul>
+    <li>Create and edit accounts: name, email (unique), password (min 8; on edit, leave blank to keep), role, department, job title.</li>
+    <li>Choosing the <strong>approver</strong> role requires an approval level (1–10, picked from the configured levels); the level is cleared automatically when switching to another role.</li>
+    <li>Accounts are never deleted — they are <strong>deactivated</strong> (<code>is_active</code>), which blocks login with a clear message while preserving history. User changes are audit-logged with before/after snapshots.</li>
+</ul>
+<h3>Approval levels</h3>
+<ul>
+    <li>Levels are rows of <em>level number (1–10, unique) · name · minimum amount · active flag</em>. A minimum of 0 means "reviews every request".</li>
+    <li>Deactivating or deleting a level affects <em>future submissions only</em> — requests already in flight keep the chain they were submitted with (each request snapshots its levels), and past history keeps its records.</li>
+    <li>All changes are audit-logged (<code>approval_level_created/updated/deleted</code>).</li>
+</ul>
+
+<!-- ================= 5. DATA MODEL ================= -->
+<h1><span class="secno">5</span>Data Model</h1>
+<p class="lede">Six domain tables on top of Laravel's framework tables (sessions, cache, jobs).</p>
+
+<h2>5.1 Entity overview</h2>
+<div class="figure">
+<svg width="660" height="240" viewBox="0 0 660 240" xmlns="http://www.w3.org/2000/svg" font-family="system-ui, sans-serif">
+    <defs>
+        <marker id="a3" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+            <path d="M 0 0 L 10 5 L 0 10 z" fill="#52514e"/>
+        </marker>
+    </defs>
+    <g font-size="10">
+        <rect x="20" y="20" width="150" height="64" rx="6" fill="#f5f8fd" stroke="#256abf" stroke-width="1.5"/>
+        <text x="95" y="38" text-anchor="middle" font-weight="700" fill="#10243e">users</text>
+        <text x="95" y="54" text-anchor="middle" fill="#52514e" font-size="8.5">role · approval_level</text>
+        <text x="95" y="67" text-anchor="middle" fill="#52514e" font-size="8.5">department · is_active</text>
+
+        <rect x="255" y="80" width="170" height="70" rx="6" fill="#fff" stroke="#10243e" stroke-width="1.8"/>
+        <text x="340" y="99" text-anchor="middle" font-weight="700" fill="#10243e">invoices</text>
+        <text x="340" y="114" text-anchor="middle" fill="#52514e" font-size="8.5">reference_no · totals · status</text>
+        <text x="340" y="127" text-anchor="middle" fill="#52514e" font-size="8.5">current_level · lifecycle stamps</text>
+        <text x="340" y="140" text-anchor="middle" fill="#52514e" font-size="8.5">submitted_by → users</text>
+
+        <rect x="500" y="20" width="145" height="52" rx="6" fill="#f7f6f3" stroke="#1baf7a" stroke-width="1.5"/>
+        <text x="572" y="39" text-anchor="middle" font-weight="700" fill="#10243e">invoice_documents</text>
+        <text x="572" y="55" text-anchor="middle" fill="#52514e" font-size="8.5">file_path · original_name</text>
+
+        <rect x="500" y="100" width="145" height="52" rx="6" fill="#f7f6f3" stroke="#eda100" stroke-width="1.5"/>
+        <text x="572" y="119" text-anchor="middle" font-weight="700" fill="#10243e">invoice_approvals</text>
+        <text x="572" y="135" text-anchor="middle" fill="#52514e" font-size="8.5">level · status · approver_id</text>
+
+        <rect x="500" y="180" width="145" height="50" rx="6" fill="#f7f6f3" stroke="#d03b3b" stroke-width="1.5"/>
+        <text x="572" y="199" text-anchor="middle" font-weight="700" fill="#10243e">audit_logs</text>
+        <text x="572" y="214" text-anchor="middle" fill="#52514e" font-size="8.5">action · old/new values · ip</text>
+
+        <rect x="20" y="150" width="150" height="52" rx="6" fill="#f7f6f3" stroke="#4a3aa7" stroke-width="1.5"/>
+        <text x="95" y="169" text-anchor="middle" font-weight="700" fill="#10243e">approval_levels</text>
+        <text x="95" y="185" text-anchor="middle" fill="#52514e" font-size="8.5">level · name · min_amount</text>
+    </g>
+    <g stroke="#52514e" stroke-width="1.2" fill="none">
+        <line x1="170" y1="60" x2="253" y2="95" marker-end="url(#a3)"/>
+        <line x1="425" y1="95" x2="498" y2="55" marker-end="url(#a3)"/>
+        <line x1="425" y1="120" x2="498" y2="122" marker-end="url(#a3)"/>
+        <line x1="425" y1="140" x2="498" y2="195" marker-end="url(#a3)"/>
+        <path d="M 170 176 C 220 176, 230 140, 258 128" stroke-dasharray="4 3" marker-end="url(#a3)"/>
+    </g>
+    <g font-size="7.5" fill="#898781">
+        <text x="200" y="68">submitted_by / paid_by</text>
+        <text x="437" y="66">1 ⟶ n (cascade)</text>
+        <text x="437" y="112">1 ⟶ n (cascade)</text>
+        <text x="437" y="180">1 ⟶ n (null on delete)</text>
+        <text x="187" y="150">levels applied at submit time</text>
+    </g>
+</svg>
+<div class="cap">Figure 3 — Domain entities. Approval rows and documents belong to an invoice; audit rows reference it loosely (kept on delete).</div>
+</div>
+
+<h2>5.2 Table specifications</h2>
+
+<h3>invoices</h3>
+<table>
+    <thead><tr><th style="width:22%">Column</th><th style="width:22%">Type</th><th style="width:12%">Null / default</th><th>Notes</th></tr></thead>
+    <tbody>
+        <tr><td><code>id</code></td><td>bigint unsigned, AI</td><td>—</td><td>PK</td></tr>
+        <tr><td><code>reference_no</code></td><td>varchar(255)</td><td>—</td><td><strong>Unique.</strong> Format <code>PAF-YYYY-NNNNN</code>, sequence resets each year</td></tr>
+        <tr><td><code>vendor_name</code></td><td>varchar(255)</td><td>—</td><td>Indexed</td></tr>
+        <tr><td><code>vendor_email</code> / <code>vendor_trn</code></td><td>varchar(255)</td><td>null</td><td>TRN = tax registration number</td></tr>
+        <tr><td><code>invoice_no</code></td><td>varchar(255)</td><td>—</td><td>Vendor's number; not unique by design</td></tr>
+        <tr><td><code>invoice_date</code> / <code>due_date</code></td><td>date</td><td>— / null</td><td></td></tr>
+        <tr><td><code>currency</code></td><td>varchar(3)</td><td><code>'AED'</code></td><td></td></tr>
+        <tr><td><code>amount</code> / <code>tax_amount</code> / <code>total_amount</code></td><td>decimal(15,2)</td><td>— / 0 / —</td><td><code>total_amount</code> is server-computed and drives level routing</td></tr>
+        <tr><td><code>category</code> / <code>department</code> / <code>cost_center</code></td><td>varchar(255)</td><td>— / — / null</td><td><code>department</code> indexed</td></tr>
+        <tr><td><code>payment_method</code></td><td>varchar(255)</td><td><code>'bank_transfer'</code></td><td><code>bank_transfer | cheque | cash | card</code></td></tr>
+        <tr><td><code>priority</code></td><td>varchar(255)</td><td><code>'normal'</code></td><td><code>low | normal | high | urgent</code></td></tr>
+        <tr><td><code>description</code></td><td>text</td><td>null</td><td></td></tr>
+        <tr><td><code>status</code></td><td>varchar(255)</td><td><code>'draft'</code></td><td>7 values, §4.5. Composite index <code>(status, current_level)</code></td></tr>
+        <tr><td><code>current_level</code></td><td>tinyint unsigned</td><td>null</td><td>Level currently pending; null outside the chain</td></tr>
+        <tr><td><code>submitted_by</code></td><td>FK → users</td><td>—</td><td>Restrict on delete</td></tr>
+        <tr><td><code>submitted_at</code> / <code>approved_at</code> / <code>rejected_at</code> / <code>paid_at</code></td><td>timestamp</td><td>null</td><td>Lifecycle milestones</td></tr>
+        <tr><td><code>rejection_reason</code></td><td>text</td><td>null</td><td>Copied from the rejecting approver's comment</td></tr>
+        <tr><td><code>scheduled_date</code></td><td>date</td><td>null</td><td></td></tr>
+        <tr><td><code>payment_reference</code></td><td>varchar(255)</td><td>null</td><td></td></tr>
+        <tr><td><code>paid_by</code></td><td>FK → users</td><td>null</td><td>Restrict on delete</td></tr>
+    </tbody>
+</table>
+
+<h3>invoice_approvals</h3>
+<table>
+    <thead><tr><th style="width:22%">Column</th><th style="width:22%">Type</th><th style="width:12%">Null / default</th><th>Notes</th></tr></thead>
+    <tbody>
+        <tr><td><code>invoice_id</code></td><td>FK → invoices</td><td>—</td><td><strong>Cascade on delete</strong>; unique with <code>level</code> — one row per level per request</td></tr>
+        <tr><td><code>level</code></td><td>tinyint unsigned</td><td>—</td><td></td></tr>
+        <tr><td><code>level_name</code></td><td>varchar(255)</td><td>—</td><td>Snapshot of the level's name at submission time</td></tr>
+        <tr><td><code>status</code></td><td>varchar(255)</td><td><code>'pending'</code></td><td><code>pending | approved | rejected</code></td></tr>
+        <tr><td><code>approver_id</code></td><td>FK → users</td><td>null</td><td>Filled when acted upon</td></tr>
+        <tr><td><code>comments</code></td><td>text</td><td>null</td><td>Optional on approve, required on reject</td></tr>
+        <tr><td><code>acted_at</code></td><td>timestamp</td><td>null</td><td></td></tr>
+    </tbody>
+</table>
+
+<h3>invoice_documents</h3>
+<table>
+    <thead><tr><th style="width:22%">Column</th><th style="width:22%">Type</th><th style="width:12%">Null / default</th><th>Notes</th></tr></thead>
+    <tbody>
+        <tr><td><code>invoice_id</code></td><td>FK → invoices</td><td>—</td><td><strong>Cascade on delete</strong></td></tr>
+        <tr><td><code>uploaded_by</code></td><td>FK → users</td><td>—</td><td></td></tr>
+        <tr><td><code>original_name</code> / <code>file_path</code></td><td>varchar(255)</td><td>—</td><td>Original name shown/download; hashed path on the private disk</td></tr>
+        <tr><td><code>mime_type</code></td><td>varchar(255)</td><td>null</td><td></td></tr>
+        <tr><td><code>size</code></td><td>bigint unsigned</td><td>0</td><td>Bytes</td></tr>
+    </tbody>
+</table>
+
+<h3>approval_levels</h3>
+<table>
+    <thead><tr><th style="width:22%">Column</th><th style="width:22%">Type</th><th style="width:12%">Null / default</th><th>Notes</th></tr></thead>
+    <tbody>
+        <tr><td><code>level</code></td><td>tinyint unsigned</td><td>—</td><td><strong>Unique</strong>, 1–10 enforced by validation</td></tr>
+        <tr><td><code>name</code></td><td>varchar(255)</td><td>—</td><td>e.g. "Finance Director"</td></tr>
+        <tr><td><code>min_amount</code></td><td>decimal(15,2)</td><td>0</td><td>Level applies when request total ≥ this value</td></tr>
+        <tr><td><code>is_active</code></td><td>boolean</td><td>true</td><td>Inactive levels are skipped for new submissions</td></tr>
+    </tbody>
+</table>
+
+<h3>audit_logs</h3>
+<table>
+    <thead><tr><th style="width:22%">Column</th><th style="width:22%">Type</th><th style="width:12%">Null / default</th><th>Notes</th></tr></thead>
+    <tbody>
+        <tr><td><code>user_id</code></td><td>FK → users</td><td>null</td><td>Acting user (null for system)</td></tr>
+        <tr><td><code>invoice_id</code></td><td>FK → invoices</td><td>null</td><td><strong>Set null on invoice delete</strong> — trail survives</td></tr>
+        <tr><td><code>action</code></td><td>varchar(255)</td><td>—</td><td>Indexed keyword (Appendix A)</td></tr>
+        <tr><td><code>description</code></td><td>varchar(255)</td><td>—</td><td>Human-readable summary</td></tr>
+        <tr><td><code>old_values</code> / <code>new_values</code></td><td>json</td><td>null</td><td>Populated for updates</td></tr>
+        <tr><td><code>ip_address</code></td><td>varchar(45)</td><td>null</td><td>IPv4/IPv6</td></tr>
+        <tr><td><code>created_at</code></td><td>timestamp</td><td>CURRENT_TIMESTAMP</td><td>No <code>updated_at</code> — rows are write-once. Composite index <code>(invoice_id, created_at)</code></td></tr>
+    </tbody>
+</table>
+
+<h3>users (PAF extensions)</h3>
+<table>
+    <thead><tr><th style="width:22%">Column</th><th style="width:22%">Type</th><th style="width:12%">Null / default</th><th>Notes</th></tr></thead>
+    <tbody>
+        <tr><td><code>role</code></td><td>varchar(255)</td><td><code>'requester'</code></td><td><code>admin | requester | approver | finance</code></td></tr>
+        <tr><td><code>approval_level</code></td><td>tinyint unsigned</td><td>null</td><td>Approvers only; matched against <code>invoices.current_level</code></td></tr>
+        <tr><td><code>department</code> / <code>job_title</code></td><td>varchar(255)</td><td>null</td><td></td></tr>
+        <tr><td><code>is_active</code></td><td>boolean</td><td>true</td><td>Deactivated users cannot sign in</td></tr>
+    </tbody>
+</table>
+
+<h2>5.3 Referential integrity</h2>
+<table class="plain">
+    <thead><tr><th>Relationship</th><th>On delete</th><th>Rationale</th></tr></thead>
+    <tbody>
+        <tr><td><code>invoice_documents.invoice_id</code> → invoices</td><td><strong>cascade</strong></td><td>Documents have no life outside their request (files are removed via the API path)</td></tr>
+        <tr><td><code>invoice_approvals.invoice_id</code> → invoices</td><td><strong>cascade</strong></td><td>Chain rows are per-request state</td></tr>
+        <tr><td><code>audit_logs.invoice_id</code> → invoices</td><td><strong>set null</strong></td><td>The trail must survive request deletion</td></tr>
+        <tr><td><code>invoices.submitted_by / paid_by</code>, <code>invoice_approvals.approver_id</code>, <code>invoice_documents.uploaded_by</code>, <code>audit_logs.user_id</code> → users</td><td>restrict</td><td>Users are deactivated, never deleted — history stays attributable</td></tr>
+    </tbody>
+</table>
+<p class="small muted">
+    <code>users.approval_level</code> ↔ <code>approval_levels.level</code> and <code>invoices.current_level</code> ↔ <code>invoice_approvals.level</code>
+    are correlated integers without database foreign keys; integrity is enforced by the application (validation + workflow service).
+</p>
+<!-- ================= 6. API REFERENCE ================= -->
+<h1><span class="secno">6</span>API Reference</h1>
+<p class="lede">31 session-authenticated JSON endpoints under <code>/api</code>, plus the SPA catch-all.</p>
+
+<h2>6.1 Conventions</h2>
+<ul>
+    <li><strong>Base URL:</strong> same origin, prefix <code>/api</code>. All requests need the session cookie; state-changing requests need the CSRF header (handled automatically by the SPA's axios instance).</li>
+    <li><strong>Errors:</strong> always JSON on <code>/api/*</code> — <code>401 {"message":"Unauthenticated."}</code>, <code>403</code> with a message, <code>404</code>, <code>422 {"message": …, "errors": {field: [msg]}}</code> for validation.</li>
+    <li><strong>Pagination:</strong> list endpoints return the standard Laravel paginator (<code>data</code>, <code>total</code>, <code>current_page</code>, <code>per_page</code>, <code>last_page</code>, …); page size via <code>per_page</code>.</li>
+    <li><strong>Invoice updates use POST</strong> (<code>POST /api/invoices/{id}</code>) rather than PUT so multipart file uploads work.</li>
+</ul>
+
+<h2>6.2 Route inventory</h2>
+<table>
+    <thead><tr><th style="width:8%">Method</th><th style="width:30%">Path</th><th style="width:26%">Handler</th><th>Access</th></tr></thead>
+    <tbody>
+        <tr><td class="m post">POST</td><td><code>/api/login</code></td><td>AuthController@login</td><td>guest · throttled 10/min</td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/logout</code></td><td>AuthController@logout</td><td>authenticated</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/me</code></td><td>AuthController@me</td><td>authenticated</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/meta</code></td><td>MetaController@index</td><td>authenticated</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/dashboard</code></td><td>DashboardController@index</td><td>authenticated (scoped)</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/invoices</code></td><td>InvoiceController@index</td><td>authenticated (scoped)</td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/invoices</code></td><td>InvoiceController@store</td><td>authenticated</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/invoices/{id}</code></td><td>InvoiceController@show</td><td>visibility rule</td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/invoices/{id}</code></td><td>InvoiceController@update</td><td>owner/admin · editable status</td></tr>
+        <tr><td class="m del">DELETE</td><td><code>/api/invoices/{id}</code></td><td>InvoiceController@destroy</td><td>owner/admin · draft only</td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/invoices/{id}/submit</code></td><td>InvoiceController@submit</td><td>owner/admin · draft/rejected</td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/invoices/{id}/cancel</code></td><td>InvoiceController@cancel</td><td>owner/admin · draft/pending</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/documents/{id}/download</code></td><td>DocumentController@download</td><td>visibility rule</td></tr>
+        <tr><td class="m del">DELETE</td><td><code>/api/documents/{id}</code></td><td>DocumentController@destroy</td><td>uploader/admin · editable request</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/approvals/pending</code></td><td>ApprovalController@pending</td><td>approver (their level) / admin (all)</td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/invoices/{id}/approve</code></td><td>ApprovalController@approve</td><td>level approver / admin</td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/invoices/{id}/reject</code></td><td>ApprovalController@reject</td><td>level approver / admin</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/payments/queue</code></td><td>PaymentController@queue</td><td><code>role:finance,admin</code></td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/invoices/{id}/schedule</code></td><td>PaymentController@schedule</td><td><code>role:finance,admin</code> · approved</td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/invoices/{id}/mark-paid</code></td><td>PaymentController@markPaid</td><td><code>role:finance,admin</code> · approved/scheduled</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/reports</code></td><td>ReportController@index</td><td>authenticated (scoped)</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/reports/export</code></td><td>ReportController@export</td><td>authenticated (scoped)</td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/audit-logs</code></td><td>AuditLogController@index</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/audit-logs/actions</code></td><td>AuditLogController@actions</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/users</code></td><td>UserController@index</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/users</code></td><td>UserController@store</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m put">PUT</td><td><code>/api/users/{id}</code></td><td>UserController@update</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m get">GET</td><td><code>/api/approval-levels</code></td><td>ApprovalLevelController@index</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m post">POST</td><td><code>/api/approval-levels</code></td><td>ApprovalLevelController@store</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m put">PUT</td><td><code>/api/approval-levels/{id}</code></td><td>ApprovalLevelController@update</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m del">DELETE</td><td><code>/api/approval-levels/{id}</code></td><td>ApprovalLevelController@destroy</td><td><code>role:admin</code></td></tr>
+        <tr><td class="m get">GET</td><td><code>/{any}</code> <span class="muted">(non-api)</span></td><td>SPA shell (<code>app.blade.php</code>)</td><td>public shell; data requires login</td></tr>
+    </tbody>
+</table>
+<p class="small muted">The framework additionally exposes <code>GET /up</code>, a public health-check endpoint registered in <code>bootstrap/app.php</code> (returns 200 when the application boots).</p>
+
+<h2>6.3 Endpoint details</h2>
+
+<h3>Invoices</h3>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span> /api/invoices</div>
+    <p class="small">Query params: <code>page</code>, <code>per_page</code> (default 15), <code>mine</code> (bool), <code>status</code> (comma list or array),
+    <code>department</code>, <code>date_from</code>/<code>date_to</code> (on invoice date), <code>q</code> (matches reference, vendor, invoice #),
+    <code>sort</code> (<code>created_at | invoice_date | due_date | total_amount | status</code>, default <code>created_at</code>), <code>dir</code> (<code>asc</code>/<code>desc</code>).
+    Rows include <code>submitter {id, name, department}</code>.</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m post">POST</span> /api/invoices &nbsp;·&nbsp; <span class="m post">POST</span> /api/invoices/{id}</div>
+    <p class="small">Multipart body with the fields of §6.4 plus <code>documents[]</code> files and <code>action</code> = <code>draft</code> | <code>submit</code>.
+    Create returns <strong>201</strong> with the invoice (+documents +approvals); update requires owner/admin and draft/rejected status.
+    With <code>action=submit</code> the approval chain is built immediately after saving. Audit: <code>created</code>/<code>updated</code> (+<code>document_uploaded</code> per file, +<code>submitted</code>).</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span> /api/invoices/{id}</div>
+    <p class="small">Full detail: submitter, payer, documents (+uploader), approval chain (+approver names), and the complete audit timeline (+actors). 403 outside the visibility rule.</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m post">POST</span> /api/invoices/{id}/submit · /cancel &nbsp;·&nbsp; <span class="m del">DELETE</span> /api/invoices/{id}</div>
+    <p class="small">Owner or admin. Submit: draft/rejected → pending (422 otherwise; 422 if no active levels are configured). Cancel: draft/pending → cancelled. Delete: drafts only. Audit: <code>submitted</code> / <code>cancelled</code> / <code>deleted</code>.</p>
+</div>
+
+<h3>Approvals</h3>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span> /api/approvals/pending</div>
+    <p class="small">Pending requests at the caller's level (admin: every level), ordered urgent→high→normal→low then oldest submitted. 403 for non-approvers.</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m post">POST</span> /api/invoices/{id}/approve · /reject</div>
+    <p class="small">Body: <code>comments</code> — optional ≤2000 on approve, <strong>required</strong> on reject. Allowed for admins and for approvers whose level equals the request's <code>current_level</code>; otherwise 403. Non-pending requests → 422. Approve advances the chain or finalises; reject terminates with the reason. Audit: <code>approved</code> / <code>rejected</code>.</p>
+</div>
+
+<h3>Payments (finance/admin)</h3>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span> /api/payments/queue?status=approved|scheduled|paid</div>
+    <p class="small">Default <code>approved</code>; other values → 422. Priority-ordered; paid tab newest first.</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m post">POST</span> /api/invoices/{id}/schedule · /mark-paid</div>
+    <p class="small">Schedule: <code>scheduled_date</code> required, today or later; only from <code>approved</code>. Mark paid: <code>payment_reference</code> required ≤100, optional <code>paid_at</code>; from <code>approved</code> or <code>scheduled</code>. Audit: <code>scheduled</code> / <code>paid</code>.</p>
+</div>
+
+<h3>Dashboard, reports, meta</h3>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span> /api/dashboard</div>
+    <p class="small">Returns <code>cards</code> (total, pending, awaiting_payment, paid_this_month — counts and amounts), <code>my_queue</code>,
+    <code>status_distribution</code>, <code>monthly</code> (6 entries: month label, submitted, paid), <code>top_vendors</code> (≤5), <code>by_category</code>, <code>recent</code> (≤8). All scoped by visibility except <code>my_queue</code>, which counts the approver's actual desk.</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span> /api/reports &nbsp;·&nbsp; <span class="m get">GET</span> /api/reports/export</div>
+    <p class="small">Filters: <code>status</code> (multi), <code>department</code>, <code>category</code>, <code>vendor</code> (contains), <code>date_from</code>/<code>date_to</code>.
+    Index returns <code>summary</code> (per-status count/amount), <code>totals</code>, and paginated <code>rows</code> (default 25). Export streams the filtered
+    <code>.xlsx</code> (§4.7) and logs <code>report_exported</code>.</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span> /api/meta</div>
+    <p class="small">Dropdown data for the SPA: categories, departments, currencies, payment methods, priorities, statuses, roles, all approval levels (including inactive), and upload limits.</p>
+</div>
+
+<h3>Administration (admin)</h3>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span>/<span class="m post">POST</span> /api/users &nbsp;·&nbsp; <span class="m put">PUT</span> /api/users/{id}</div>
+    <p class="small">List (search <code>q</code>, filter <code>role</code>), create (201), update. No delete — deactivate via <code>is_active</code>. Audit: <code>user_created</code> / <code>user_updated</code> (with role/level/department/active before-after snapshots).</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span>/<span class="m post">POST</span> /api/approval-levels &nbsp;·&nbsp; <span class="m put">PUT</span>/<span class="m del">DELETE</span> /api/approval-levels/{id}</div>
+    <p class="small">CRUD for the level configuration. Audit: <code>approval_level_created/updated/deleted</code>.</p>
+</div>
+<div class="endpoint">
+    <div class="sig"><span class="m get">GET</span> /api/audit-logs &nbsp;·&nbsp; <span class="m get">GET</span> /api/audit-logs/actions</div>
+    <p class="small">Filters: <code>q</code> (description or invoice reference), <code>action</code>, <code>user_id</code>, <code>date_from</code>/<code>date_to</code>, <code>per_page</code> (default 25), newest first. <code>/actions</code> returns the distinct action keywords for the filter dropdown.</p>
+</div>
+
+<h2>6.4 Invoice validation rules</h2>
+<table>
+    <thead><tr><th style="width:22%">Field</th><th>Rules (identical on create and update)</th></tr></thead>
+    <tbody>
+        <tr><td><code>vendor_name</code></td><td>required · string · max 255</td></tr>
+        <tr><td><code>vendor_email</code></td><td>nullable · email · max 255</td></tr>
+        <tr><td><code>vendor_trn</code></td><td>nullable · string · max 50</td></tr>
+        <tr><td><code>invoice_no</code></td><td>required · string · max 100</td></tr>
+        <tr><td><code>invoice_date</code></td><td>required · date</td></tr>
+        <tr><td><code>due_date</code></td><td>nullable · date · after_or_equal:invoice_date</td></tr>
+        <tr><td><code>currency</code></td><td>required · in configured currencies</td></tr>
+        <tr><td><code>amount</code></td><td>required · numeric · min 0.01 · max 999,999,999,999</td></tr>
+        <tr><td><code>tax_amount</code></td><td>nullable · numeric · min 0 · max 999,999,999,999 (defaults 0; total computed server-side)</td></tr>
+        <tr><td><code>category</code> / <code>department</code></td><td>required · in configured lists</td></tr>
+        <tr><td><code>cost_center</code></td><td>nullable · string · max 100</td></tr>
+        <tr><td><code>payment_method</code></td><td>required · in <code>bank_transfer|cheque|cash|card</code></td></tr>
+        <tr><td><code>priority</code></td><td>required · in <code>low|normal|high|urgent</code></td></tr>
+        <tr><td><code>description</code></td><td>nullable · string · max 5,000</td></tr>
+        <tr><td><code>documents</code> / <code>documents.*</code></td><td>array max 10 · each: file · mimes pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt · max 10,240 KB</td></tr>
+    </tbody>
+</table>
+
+<!-- ================= 7. FRONTEND ================= -->
+<h1><span class="secno">7</span>Frontend Application</h1>
+<p class="lede">A Vue 3 + Vuetify SPA under <code>resources/js</code>, built by Vite into <code>public/build</code>.</p>
+
+<h2>7.1 SPA routes &amp; guards</h2>
+<table>
+    <thead><tr><th style="width:24%">Path</th><th style="width:30%">Page component</th><th>Access</th></tr></thead>
+    <tbody>
+        <tr><td><code>/login</code></td><td>LoginPage</td><td>guests (logged-in users are bounced to the dashboard)</td></tr>
+        <tr><td><code>/dashboard</code></td><td>DashboardPage</td><td>all authenticated</td></tr>
+        <tr><td><code>/invoices</code></td><td>invoices/InvoiceListPage</td><td>all authenticated</td></tr>
+        <tr><td><code>/invoices/new</code> · <code>/invoices/:id/edit</code></td><td>invoices/InvoiceFormPage</td><td>all authenticated (edit re-checked server-side)</td></tr>
+        <tr><td><code>/invoices/:id</code></td><td>invoices/InvoiceDetailPage</td><td>visibility rule (server-enforced)</td></tr>
+        <tr><td><code>/approvals</code></td><td>ApprovalsPage</td><td>approver · admin</td></tr>
+        <tr><td><code>/payments</code></td><td>PaymentsPage</td><td>finance · admin</td></tr>
+        <tr><td><code>/reports</code></td><td>ReportsPage</td><td>all authenticated</td></tr>
+        <tr><td><code>/audit-log</code></td><td>AuditLogPage</td><td>admin</td></tr>
+        <tr><td><code>/admin/users</code> · <code>/admin/approval-levels</code></td><td>admin/UsersPage · admin/ApprovalLevelsPage</td><td>admin</td></tr>
+    </tbody>
+</table>
+<p class="small">
+    A global <code>beforeEach</code> guard loads the session user once (<code>GET /api/me</code>), redirects guests to <code>/login</code>,
+    keeps authenticated users out of <code>/login</code>, and bounces role-mismatched navigation to the dashboard. Unknown paths redirect to the dashboard.
+    All pages are lazy-loaded chunks. UI role checks are convenience only — every rule is enforced again by the API.
+</p>
+
+<h2>7.2 Pages</h2>
+<ul>
+    <li><strong>Login</strong> — email/password card with error alert; on success routes to the dashboard.</li>
+    <li><strong>Dashboard</strong> — KPI cards, approval-queue alert, four charts, recent-requests table (§4.6).</li>
+    <li><strong>Payment Requests</strong> — server-paginated table with debounced filters (search, multi-status, department, date range).</li>
+    <li><strong>Request form</strong> — sectioned cards (Vendor &amp; Invoice / Amount with live total / Classification / Documents) with client-side rules mirroring §6.4; Submit or Save-as-Draft.</li>
+    <li><strong>Request detail</strong> — header with status chip and context-aware action buttons (submit, edit, cancel, delete, approve, reject, schedule, mark paid), rejection banner, detail panels, documents with download, approval-chain timeline highlighting the current level, audit timeline, payment panel. Actions confirm through a shared dialog.</li>
+    <li><strong>Approvals</strong> — priority-ordered queue with inline Approve/Reject dialogs.</li>
+    <li><strong>Payments</strong> — three-tab queue (To Schedule / Scheduled / Paid) with Schedule and Mark-Paid dialogs.</li>
+    <li><strong>Reports</strong> — filter bar, summary cards per status, result table, Export-to-Excel button (opens the download with current filters).</li>
+    <li><strong>Audit Trail</strong> — admin log browser with text/action/date filters.</li>
+    <li><strong>Users / Approval Levels</strong> — admin CRUD dialogs as described in §4.9.</li>
+</ul>
+
+<h2>7.3 State management (Pinia)</h2>
+<table class="plain">
+    <thead><tr><th style="width:14%">Store</th><th>Holds</th></tr></thead>
+    <tbody>
+        <tr><td><code>auth</code></td><td>Session user + <code>loaded</code> flag; getters <code>isAdmin/isApprover/isFinance/canApprove/canProcessPayments</code>; actions <code>fetchUser</code> (memoised), <code>login</code>, <code>logout</code> (hard-redirects to <code>/login</code>).</td></tr>
+        <tr><td><code>meta</code></td><td>Dropdown data from <code>GET /api/meta</code> (categories, departments, currencies, payment methods, priorities, levels, upload limits), loaded once and force-refreshable.</td></tr>
+        <tr><td><code>notify</code></td><td>Global snackbar (text/color/visible) rendered bottom-right in the layout; <code>success()</code> / <code>error()</code> helpers.</td></tr>
+    </tbody>
+</table>
+
+<h2>7.4 HTTP &amp; CSRF wiring</h2>
+<ul>
+    <li>One axios instance: <code>baseURL '/api'</code>, <code>withCredentials</code>, <code>X-Requested-With</code>, JSON <code>Accept</code>.</li>
+    <li>CSRF via the <code>XSRF-TOKEN</code> cookie (automatic) with the Blade <code>csrf-token</code> meta as first-load fallback.</li>
+    <li>A response interceptor hard-redirects to <code>/login</code> on any 401 (outside the login page itself).</li>
+    <li><code>errorMessage()</code> flattens Laravel validation errors into a single readable snackbar message.</li>
+    <li>File downloads (documents, Excel export) intentionally bypass axios via <code>window.open</code> — the session cookie carries auth.</li>
+</ul>
+
+<h2>7.5 Theme &amp; visual language</h2>
+<ul>
+    <li><strong>Vuetify light theme:</strong> primary <code>#256abf</code>, success <code>#008300</code>, warning <code>#eda100</code>, error <code>#d03b3b</code>, info <code>#2a78d6</code>, background <code>#f9f9f7</code>, surface <code>#fcfcfb</code>; outlined comfortable inputs; navy nav drawer (<code>#10243e</code>).</li>
+    <li><strong>Entity-stable status colors</strong> — one hex per status everywhere (chips, charts, legends):
+        paid <code>#008300</code> · scheduled <code>#2a78d6</code> · pending <code>#eda100</code> · approved <code>#1baf7a</code> ·
+        rejected <code>#e34948</code> · draft <code>#898781</code> · cancelled <code>#eb6834</code>.
+        The donut's segment order is fixed and was validated for color-vision-deficiency separation (worst adjacent ΔE 21.2, deutan) —
+        the order is a safety mechanism, not cosmetics.</li>
+    <li><strong>Charts</strong> (Chart.js): 2px surface gaps between donut segments, 4px rounded bar ends, recessive gridlines <code>#e1e0d9</code>,
+        muted axis ink <code>#898781</code>, k-abbreviated money axes, tooltips everywhere; single-series bars carry no legend.</li>
+    <li>Priorities: urgent <code>#d03b3b</code> · high <code>#ec835a</code> · normal <code>#52514e</code> · low <code>#898781</code>.</li>
+</ul>
+
+<!-- ================= 8. CONFIGURATION ================= -->
+<h1><span class="secno">8</span>Configuration</h1>
+<p class="lede">Business lists in one PHP file; infrastructure in <code>.env</code>.</p>
+
+<h2>8.1 Business configuration — <code>config/paf.php</code></h2>
+<table class="plain">
+    <thead><tr><th style="width:22%">Key</th><th>Values</th></tr></thead>
+    <tbody>
+        <tr><td><code>categories</code></td><td>Goods / Inventory · Services · Utilities · Rent &amp; Facilities · Marketing &amp; Advertising · IT &amp; Software · Logistics &amp; Freight · Maintenance · Professional Fees · Travel &amp; Accommodation · Other</td></tr>
+        <tr><td><code>departments</code></td><td>Finance · Procurement · IT · HR · Operations · Marketing · Sales · Logistics · Administration</td></tr>
+        <tr><td><code>currencies</code></td><td>AED · USD · EUR · GBP · SAR</td></tr>
+        <tr><td><code>payment_methods</code></td><td>bank_transfer → "Bank Transfer" · cheque → "Cheque" · cash → "Cash" · card → "Corporate Card"</td></tr>
+        <tr><td><code>priorities</code></td><td>low · normal · high · urgent</td></tr>
+        <tr><td><code>max_documents</code> / <code>max_document_kb</code></td><td>10 files / 10,240 KB (10 MB) each</td></tr>
+        <tr><td><code>document_mimes</code></td><td>pdf, jpg, jpeg, png, webp, doc, docx, xls, xlsx, csv, txt</td></tr>
+    </tbody>
+</table>
+<p class="small">Edits take effect immediately (validation and the <code>/api/meta</code> payload both read this file). Approval levels are <em>not</em> here — they live in the database and are managed from the admin UI.</p>
+
+<h2>8.2 Environment — <code>.env</code> highlights</h2>
+<table class="plain">
+    <thead><tr><th style="width:34%">Setting</th><th>Value / purpose</th></tr></thead>
+    <tbody>
+        <tr><td><code>APP_NAME</code> / <code>APP_ENV</code> / <code>APP_DEBUG</code></td><td><code>PAF</code> / <code>local</code> / <code>true</code> — set <code>APP_ENV=production</code>, <code>APP_DEBUG=false</code> before real use</td></tr>
+        <tr><td><code>APP_URL</code></td><td><code>http://127.0.0.1:8084</code> — match the serve port (<code>php artisan serve --port=8084</code>)</td></tr>
+        <tr><td><code>DB_*</code></td><td>MySQL on <code>127.0.0.1:3306</code>, database <code>gallega_paf_db</code>, user <code>root</code>, empty password (local defaults — change in production)</td></tr>
+        <tr><td><code>SESSION_DRIVER</code> / <code>CACHE_STORE</code> / <code>QUEUE_CONNECTION</code></td><td>all <code>database</code> — no external services required</td></tr>
+        <tr><td><code>SESSION_LIFETIME</code></td><td>120 minutes</td></tr>
+        <tr><td><code>FILESYSTEM_DISK</code></td><td><code>local</code> (private) — uploaded documents are never web-accessible directly</td></tr>
+        <tr><td><code>MAIL_MAILER</code></td><td><code>log</code> — no outbound mail configured yet</td></tr>
+    </tbody>
+</table>
+
+<!-- ================= 9. INSTALLATION ================= -->
+<h1><span class="secno">9</span>Installation &amp; Operations</h1>
+<p class="lede">From a clean checkout to a running platform.</p>
+
+<h2>9.1 Requirements</h2>
+<ul>
+    <li>PHP <strong>8.3+</strong> with extensions: pdo_mysql, mbstring, fileinfo, <strong>zip</strong>, <strong>gd</strong>, intl (zip/gd are needed by the Excel export)</li>
+    <li>Composer 2.x · Node.js 20+ with npm · MySQL 8.x</li>
+</ul>
+
+<h2>9.2 First-time setup</h2>
+<pre><code># 1. Dependencies
+composer install
+npm install
+
+# 2. Environment
+copy .env.example .env        # then set DB_* to MySQL (database gallega_paf_db)
+php artisan key:generate
+
+# 3. Database (create schema first if needed)
+#    CREATE DATABASE gallega_paf_db CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+php artisan migrate
+php artisan db:seed           # approval levels + accounts + demo data (optional but recommended)
+
+# 4. Frontend
+npm run build
+
+# 5. Serve
+php artisan serve --port=8084   # matches APP_URL; any port works if APP_URL agrees</code></pre>
+<div class="callout">
+    <div class="t">Shortcut</div>
+    The skeleton also ships <code>composer setup</code> (install → .env → key → migrate → npm install → build).
+    Note it does <strong>not</strong> seed — run <code>php artisan db:seed</code> yourself afterwards.
+</div>
+
+<h2>9.3 Daily development</h2>
+<pre><code>composer dev   # runs concurrently: artisan serve · queue:listen · pail (logs) · vite dev server</code></pre>
+<p class="small">Or individually: <code>php artisan serve --port=8084</code> and <code>npm run dev</code> (Vite HMR). After frontend changes for production: <code>npm run build</code>.</p>
+
+<h2>9.4 Production checklist</h2>
+<ul>
+    <li><code>APP_ENV=production</code>, <code>APP_DEBUG=false</code> (debug mode leaks stack traces in API errors), correct <code>APP_URL</code> (HTTPS).</li>
+    <li>Dedicated MySQL user with a real password instead of <code>root</code>/empty.</li>
+    <li><code>php artisan config:cache route:cache view:cache</code> · <code>npm run build</code> · point the web server at <code>public/</code>.</li>
+    <li>Serve over HTTPS and set <code>SESSION_SECURE_COOKIE=true</code>.</li>
+    <li>Run a queue worker (<code>php artisan queue:work</code>) if mail/notifications are added later; configure a real <code>MAIL_MAILER</code>.</li>
+    <li>Back up the database <em>and</em> <code>storage/app</code> (uploaded documents live there).</li>
+    <li>Replace the seeded demo accounts/passwords before exposure beyond the dev machine (§10).</li>
+</ul>
+
+<!-- ================= 10. SEEDED DATA ================= -->
+<h1><span class="secno">10</span>Seeded Accounts &amp; Demo Data</h1>
+<p class="lede">Everything <code>php artisan db:seed</code> creates.</p>
+
+<h2>10.1 Accounts</h2>
+<p>All seeded accounts share the password <span class="kbd">password</span>.</p>
+<table>
+    <thead><tr><th>Name</th><th>Email</th><th>Role</th><th>Level</th><th>Department</th><th>Job title</th></tr></thead>
+    <tbody>
+        <tr><td>System Admin</td><td><code>admin@paf.local</code></td><td>admin</td><td>—</td><td>IT</td><td>System Administrator</td></tr>
+        <tr><td>Rachel Cruz</td><td><code>requester@paf.local</code></td><td>requester</td><td>—</td><td>Procurement</td><td>Procurement Officer</td></tr>
+        <tr><td>Daniel Reyes</td><td><code>requester2@paf.local</code></td><td>requester</td><td>—</td><td>Operations</td><td>Operations Coordinator</td></tr>
+        <tr><td>Liam Fernandez</td><td><code>approver1@paf.local</code></td><td>approver</td><td>1</td><td>Operations</td><td>Department Manager</td></tr>
+        <tr><td>Fatima Hassan</td><td><code>approver2@paf.local</code></td><td>approver</td><td>2</td><td>Finance</td><td>Finance Director</td></tr>
+        <tr><td>Omar Khalid</td><td><code>approver3@paf.local</code></td><td>approver</td><td>3</td><td>Finance</td><td>Chief Financial Officer</td></tr>
+        <tr><td>Grace Tan</td><td><code>finance@paf.local</code></td><td>finance</td><td>—</td><td>Finance</td><td>AP Accountant</td></tr>
+    </tbody>
+</table>
+
+<h2>10.2 Approval levels</h2>
+<table class="plain">
+    <thead><tr><th>Level</th><th>Name</th><th>Applies when total ≥</th></tr></thead>
+    <tbody>
+        <tr><td>1</td><td>Department Manager</td><td>0 (every request)</td></tr>
+        <tr><td>2</td><td>Finance Director</td><td>10,000</td></tr>
+        <tr><td>3</td><td>CFO</td><td>50,000</td></tr>
+    </tbody>
+</table>
+
+<h2>10.3 Demo portfolio</h2>
+<p>
+    59 realistic invoices spread over the past ~6 months across 12 vendors: 5 drafts, 8 pending approval, 6 approved,
+    4 scheduled, 28 paid, 5 rejected, 3 cancelled. Each carries a coherent lifecycle — chronologically consistent
+    submissions, level-by-level approvals with comments, scheduling and payment references — and a matching backdated audit trail,
+    so dashboards, queues, reports and timelines are meaningful immediately. Amounts are drawn from three bands aligned with
+    the approval thresholds (≈200–9.5k / 10.5k–48k / 52k–220k AED, all with 5% VAT).
+    The demo seeder is guarded: it does nothing if any invoice already exists.
+</p>
+
+<!-- ================= 11. SECURITY & LIMITATIONS ================= -->
+<h1><span class="secno">11</span>Security Notes &amp; Known Limitations</h1>
+<p class="lede">An honest register of design decisions and edges to be aware of.</p>
+
+<h2>11.1 Security posture</h2>
+<ul>
+    <li>Same-origin session auth with CSRF on every mutating call; login throttled (10/min); session fixation protection; deactivated accounts blocked at login.</li>
+    <li>Server-side authorization on every endpoint: role middleware for finance/admin areas, per-record visibility checks for requests and documents, level-matching for approval actions. UI checks are cosmetic duplicates.</li>
+    <li>Documents live on the private disk and stream only through the permission-checked download endpoint.</li>
+    <li>Passwords bcrypt-hashed (12 rounds); audit rows are write-once (no update path, no <code>updated_at</code>).</li>
+    <li>Approval history is snapshotted per request (level names copied), so renaming/removing levels never rewrites history.</li>
+</ul>
+
+<h2>11.2 Known limitations &amp; deliberate trade-offs</h2>
+<table class="plain">
+    <thead><tr><th style="width:30%">Item</th><th>Detail &amp; mitigation</th></tr></thead>
+    <tbody>
+        <tr><td>Resubmission clears chain rows</td><td>Submitting a rejected request deletes its previous approval rows; the prior cycle survives only in the audit trail. Acceptable for an internal tool; revisit if formal approval history tables are needed.</td></tr>
+        <tr><td>No separation of duties in payments</td><td>Any finance/admin user can schedule and pay any approved request, including one they submitted. Add an ownership guard if policy requires it.</td></tr>
+        <tr><td>Create-then-submit is two transactions</td><td><code>POST /api/invoices</code> with <code>action=submit</code> commits the draft first; if chain building fails (e.g. no active levels) the client gets 422 but the draft exists. Harmless — the draft is visible and resubmittable.</td></tr>
+        <tr><td>Reference-number race</td><td><code>nextReferenceNo()</code> reads the last reference without locking; simultaneous creates could collide, in which case the unique index rejects one insert. Fine at internal volumes.</td></tr>
+        <tr><td>Draft-deletion audit rows unlinked</td><td>The <code>deleted</code> audit entry stores the reference in text but no <code>invoice_id</code>.</td></tr>
+        <tr><td>Admin approvals log an empty level</td><td>Approve/reject audit text interpolates the <em>actor's</em> level; admins (level-less) produce "Level&nbsp; approved…". Cosmetic.</td></tr>
+        <tr><td>Document downloads not audit-logged</td><td>Uploads/deletions are logged; reads are not. Add logging in <code>DocumentController@download</code> if read-auditing is required.</td></tr>
+        <tr><td>Unbounded <code>per_page</code></td><td>List endpoints accept any page size. Cap it if the dataset grows large.</td></tr>
+        <tr><td>Visibility rule in three places</td><td><code>Invoice::visibleTo()</code>, <code>InvoiceController::authorizeView()</code>, <code>DocumentController::authorizeAccess()</code> implement the same rule — keep them in sync when changing visibility policy.</td></tr>
+        <tr><td>Approver visibility is historical</td><td>An approver sees any request that has a chain row at their level, even after acting or when the request sits at another level. Intentional (context), but worth knowing.</td></tr>
+        <tr><td>Cancelled requests keep pending rows</td><td>Cancelling mid-chain leaves untouched pending approval rows attached to a terminal request. No functional impact.</td></tr>
+        <tr><td>Meta exposes inactive levels</td><td><code>/api/meta</code> returns all levels including inactive ones (the admin UI needs them); consumers should filter on <code>is_active</code> where relevant.</td></tr>
+        <tr><td>Skeleton leftovers</td><td><code>tailwindcss</code> deps and <code>database/database.sqlite</code> remain from the Laravel skeleton but are unused (live DB is MySQL).</td></tr>
+        <tr><td>No email notifications</td><td>Approvers learn of pending items from the dashboard alert/queue. Mail hooks are a natural next step (<code>MAIL_MAILER</code> currently <code>log</code>).</td></tr>
+    </tbody>
+</table>
+
+<!-- ================= APPENDIX ================= -->
+<h1><span class="secno">A</span>Appendix</h1>
+<p class="lede">Reference tables.</p>
+
+<h2>A.1 Audit action catalog</h2>
+<table>
+    <thead><tr><th style="width:26%">Action</th><th style="width:42%">Written when</th><th>Extras</th></tr></thead>
+    <tbody>
+        <tr><td><code>login</code> / <code>logout</code></td><td>Sign-in / sign-out</td><td></td></tr>
+        <tr><td><code>created</code></td><td>Request created (draft)</td><td>linked to request</td></tr>
+        <tr><td><code>updated</code></td><td>Editable request modified</td><td>old/new value snapshots</td></tr>
+        <tr><td><code>submitted</code></td><td>Entered the approval chain</td><td>lists the required levels</td></tr>
+        <tr><td><code>approved</code></td><td>A level approved (advance or final)</td><td>actor + level in text</td></tr>
+        <tr><td><code>rejected</code></td><td>A level rejected</td><td>reason stored on request</td></tr>
+        <tr><td><code>cancelled</code></td><td>Withdrawn by owner/admin</td><td></td></tr>
+        <tr><td><code>scheduled</code></td><td>Payment date set</td><td>date in text</td></tr>
+        <tr><td><code>paid</code></td><td>Payment executed</td><td>reference in text</td></tr>
+        <tr><td><code>deleted</code></td><td>Draft deleted</td><td>reference in text only</td></tr>
+        <tr><td><code>document_uploaded</code> / <code>document_deleted</code></td><td>Attachment added / removed</td><td>filename in text</td></tr>
+        <tr><td><code>report_exported</code></td><td>Excel export generated</td><td></td></tr>
+        <tr><td><code>user_created</code> / <code>user_updated</code></td><td>Admin user management</td><td>role/level/dept/active snapshots on update</td></tr>
+        <tr><td><code>approval_level_created</code> / <code>_updated</code> / <code>_deleted</code></td><td>Admin level management</td><td>name/threshold/active snapshots on update</td></tr>
+    </tbody>
+</table>
+
+<h2>A.2 Status &amp; priority color reference</h2>
+<table class="plain">
+    <thead><tr><th>Entity</th><th>Value → color</th></tr></thead>
+    <tbody>
+        <tr><td>Status</td><td>
+            <span class="chip" style="background:#f4f3f0;color:#52514e">draft #898781</span>
+            <span class="chip" style="background:#fdf6e7;color:#8a6100">pending #eda100</span>
+            <span class="chip" style="background:#e9f6f1;color:#0e8a61">approved #1baf7a</span>
+            <span class="chip" style="background:#eaf1fb;color:#1c5cab">scheduled #2a78d6</span>
+            <span class="chip" style="background:#e8f3e8;color:#006300">paid #008300</span>
+            <span class="chip" style="background:#fdf2f2;color:#b32d2d">rejected #e34948</span>
+            <span class="chip" style="background:#fdf1ea;color:#b34a1e">cancelled #eb6834</span>
+        </td></tr>
+        <tr><td>Priority</td><td>
+            <span class="chip" style="background:#fdf2f2;color:#d03b3b">urgent #d03b3b</span>
+            <span class="chip" style="background:#fdf1ea;color:#ec835a">high #ec835a</span>
+            <span class="chip" style="background:#f4f3f0;color:#52514e">normal #52514e</span>
+            <span class="chip" style="background:#f4f3f0;color:#898781">low #898781</span>
+        </td></tr>
+    </tbody>
+</table>
+
+<p class="small muted" style="margin-top:24pt; border-top:0.75pt solid #e1e0d9; padding-top:8pt;">
+    PAF — Invoice Payment Approval Platform · Documentation v1.0 · Generated 2 July 2026 ·
+    Laravel 13.18 / Vue 3 / Vuetify / MySQL · Project <code>c:\xampp8.2\htdocs\paf</code>
+</p>
+
+</body>
+</html>
