@@ -1,0 +1,153 @@
+<script setup>
+import { computed, ref, watch } from 'vue';
+import { money } from '../utils/format';
+import { useMetaStore } from '../stores/meta';
+
+const props = defineProps({
+    total: { type: Number, default: 0 },
+    disabled: { type: Boolean, default: false },
+});
+
+const emit = defineEmits(['change']);
+
+const meta = useMetaStore();
+
+// Levels the current total must pass through, in order.
+const requiredLevels = computed(() =>
+    [...(meta.approval_levels ?? [])]
+        .filter((l) => l.is_active && Number(l.min_amount) <= Number(props.total || 0))
+        .sort((a, b) => a.level - b.level)
+);
+
+const assignments = ref({}); // { [level]: approverId }
+const adhoc = ref([]); // [{ approver_id, label }]
+
+const approverItems = computed(() =>
+    (meta.approvers ?? []).map((a) => ({
+        value: a.id,
+        title: a.name,
+        subtitle:
+            (a.role === 'admin' ? 'Admin' : `Approver · L${a.approval_level ?? '—'}`) +
+            (a.department ? ` · ${a.department}` : ''),
+    }))
+);
+
+// Render each option with its subtitle (avoids fragile item.raw access in a custom slot).
+function approverItemProps(item) {
+    return { title: item.title, subtitle: item.subtitle };
+}
+
+const allAssigned = computed(() => requiredLevels.value.every((l) => !!assignments.value[l.level]));
+
+// Pre-fill each required level with its default approver (without clobbering user choices).
+watch(
+    requiredLevels,
+    (levels) => {
+        const next = {};
+        levels.forEach((l) => {
+            next[l.level] = assignments.value[l.level] ?? l.default_approver_id ?? null;
+        });
+        assignments.value = next;
+    },
+    { immediate: true, deep: true }
+);
+
+watch(
+    [assignments, adhoc],
+    () => {
+        emit('change', {
+            assignments: { ...assignments.value },
+            adhoc: adhoc.value.filter((s) => s.approver_id).map((s) => ({ ...s })),
+            valid: allAssigned.value,
+        });
+    },
+    { deep: true, immediate: true }
+);
+
+function addAdhoc() {
+    adhoc.value.push({ approver_id: null, label: '' });
+}
+
+function removeAdhoc(index) {
+    adhoc.value.splice(index, 1);
+}
+
+defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
+</script>
+
+<template>
+    <div>
+        <v-alert
+            v-if="!requiredLevels.length"
+            type="warning"
+            variant="tonal"
+            density="comfortable"
+            text="No active approval levels apply to this amount. Ask an administrator to configure approval levels."
+        />
+
+        <template v-else>
+            <div class="text-caption text-medium-emphasis mb-3">
+                This request will route through {{ requiredLevels.length }} level(s)
+                (total {{ money(total) }}). Approvers are pre-filled from each level's default — change them as needed.
+            </div>
+
+            <div v-for="lvl in requiredLevels" :key="lvl.id ?? lvl.level" class="d-flex align-center ga-3 mb-2">
+                <v-chip size="small" color="primary" variant="tonal" class="flex-shrink-0" style="min-width: 44px; justify-content: center">
+                    L{{ lvl.level }}
+                </v-chip>
+                <div class="text-body-2 font-weight-medium flex-shrink-0" style="width: 150px">{{ lvl.name }}</div>
+                <v-select
+                    v-model="assignments[lvl.level]"
+                    :items="approverItems"
+                    item-title="title"
+                    item-value="value"
+                    :item-props="approverItemProps"
+                    label="Approver"
+                    density="compact"
+                    hide-details
+                    clearable
+                    :disabled="disabled"
+                />
+            </div>
+
+            <v-divider class="my-4" />
+
+            <div class="d-flex align-center mb-2">
+                <div class="text-body-2 font-weight-medium">Additional approvers</div>
+                <span class="text-caption text-medium-emphasis ml-2">(optional, added after the levels above)</span>
+                <v-spacer />
+                <v-btn size="small" variant="tonal" prepend-icon="mdi-plus" :disabled="disabled" @click="addAdhoc">
+                    Add approver
+                </v-btn>
+            </div>
+
+            <div v-for="(stage, i) in adhoc" :key="i" class="d-flex align-center ga-3 mb-2">
+                <v-chip size="small" variant="tonal" class="flex-shrink-0" style="min-width: 44px; justify-content: center">
+                    +{{ i + 1 }}
+                </v-chip>
+                <v-text-field
+                    v-model="stage.label"
+                    label="Role / label"
+                    placeholder="e.g. Legal review"
+                    density="compact"
+                    hide-details
+                    style="width: 150px"
+                    class="flex-shrink-0"
+                    :disabled="disabled"
+                />
+                <v-select
+                    v-model="stage.approver_id"
+                    :items="approverItems"
+                    item-title="title"
+                    item-value="value"
+                    :item-props="approverItemProps"
+                    label="Approver"
+                    density="compact"
+                    hide-details
+                    :disabled="disabled"
+                />
+                <v-btn icon="mdi-close" variant="text" size="small" :disabled="disabled" @click="removeAdhoc(i)" />
+            </div>
+        </template>
+    </div>
+</template>

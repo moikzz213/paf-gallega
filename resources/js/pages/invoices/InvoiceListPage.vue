@@ -1,12 +1,17 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue';
-import api from '../../services/api';
-import { money, shortDate, STATUS_META } from '../../utils/format';
+import api, { errorMessage } from '../../services/api';
+import { money, shortDate, statusLabel } from '../../utils/format';
 import { useMetaStore } from '../../stores/meta';
+import { useAuthStore } from '../../stores/auth';
+import { useNotifyStore } from '../../stores/notify';
 import StatusChip from '../../components/StatusChip.vue';
 
 const meta = useMetaStore();
+const auth = useAuthStore();
+const notify = useNotifyStore();
 const loading = ref(false);
+const acting = ref(false);
 const items = ref([]);
 const total = ref(0);
 
@@ -20,18 +25,29 @@ const filters = reactive({
 
 const options = reactive({ page: 1, itemsPerPage: 15 });
 
+const dialog = ref({ show: false, kind: 'post', invoice: null, erp_doc_no: '', posting_date: '', finance_remarks: '' });
+
 const headers = [
-    { title: 'Reference', key: 'reference_no' },
-    { title: 'Vendor', key: 'vendor_name' },
-    { title: 'Invoice #', key: 'invoice_no', sortable: false },
-    { title: 'Department', key: 'department', sortable: false },
-    { title: 'Requested By', key: 'submitter', sortable: false },
+    { title: 'Submitted', key: 'submitted_at' },
+    { title: 'Vendor / Invoice #', key: 'vendor_name', sortable: false },
+    { title: 'Dept', key: 'department', sortable: false },
     { title: 'Total', key: 'total_amount', align: 'end' },
-    { title: 'Status', key: 'status' },
-    { title: 'Invoice Date', key: 'invoice_date' },
+    { title: 'Posted', key: 'posting_date', sortable: false },
+    { title: 'Status', key: 'status', sortable: false },
+    { title: 'O/S Days', key: 'aging', sortable: false },
+    { title: '', key: 'actions', align: 'end', sortable: false },
 ];
 
-const statusOptions = Object.entries(STATUS_META).map(([value, m]) => ({ value, title: m.label }));
+const statusOptions = () => (meta.statuses ?? []).map((s) => ({ value: s, title: statusLabel(s) }));
+
+function osDays(date) {
+    if (!date) return 0;
+    return Math.max(0, Math.floor((Date.now() - new Date(date)) / 86400000));
+}
+
+function agingColor(d) {
+    return d <= 7 ? '#008300' : d <= 14 ? '#d97706' : '#dc2626';
+}
 
 async function load() {
     loading.value = true;
@@ -64,17 +80,43 @@ watch(filters, () => {
 });
 
 onMounted(() => meta.load());
+
+function openDialog(invoice, kind) {
+    dialog.value = { show: true, kind, invoice, erp_doc_no: '', posting_date: '', finance_remarks: '' };
+}
+
+async function confirmDialog() {
+    const { kind, invoice, erp_doc_no, posting_date, finance_remarks } = dialog.value;
+    acting.value = true;
+    try {
+        if (kind === 'post') {
+            if (!erp_doc_no.trim()) throw { response: { data: { message: 'ERP document number is required.' } } };
+            await api.post(`/invoices/${invoice.id}/post`, { erp_doc_no, posting_date: posting_date || undefined });
+            notify.success(`${invoice.reference_no} posted in ERP.`);
+        } else {
+            if (!finance_remarks.trim()) throw { response: { data: { message: 'A query note is required.' } } };
+            await api.post(`/invoices/${invoice.id}/query`, { finance_remarks });
+            notify.success(`Query raised on ${invoice.reference_no}.`);
+        }
+        dialog.value.show = false;
+        await load();
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        acting.value = false;
+    }
+}
 </script>
 
 <template>
     <div>
         <div class="d-flex align-center mb-6">
             <div>
-                <h1 class="text-h5 font-weight-bold">Payment Requests</h1>
-                <div class="text-body-2 text-medium-emphasis">Submit and track invoice payment requests</div>
+                <h1 class="text-h5 font-weight-bold">Invoice Log</h1>
+                <div class="text-body-2 text-medium-emphasis">Date-wise register — Finance posts invoices to ERP or raises a query</div>
             </div>
             <v-spacer />
-            <v-btn color="primary" prepend-icon="mdi-plus" to="/invoices/new">New Request</v-btn>
+            <v-btn color="primary" prepend-icon="mdi-plus" to="/invoices/new">Submit Invoice</v-btn>
         </div>
 
         <v-card class="mb-4">
@@ -92,7 +134,7 @@ onMounted(() => meta.load());
                     <v-col cols="12" sm="6" md="3">
                         <v-select
                             v-model="filters.status"
-                            :items="statusOptions"
+                            :items="statusOptions()"
                             label="Status"
                             multiple
                             chips
@@ -131,24 +173,64 @@ onMounted(() => meta.load());
                 density="comfortable"
                 @update:options="load"
             >
-                <template #item.reference_no="{ item }">
-                    <router-link :to="`/invoices/${item.id}`" class="text-primary text-decoration-none font-weight-medium">
-                        {{ item.reference_no }}
-                    </router-link>
+                <template #item.submitted_at="{ item }">
+                    {{ shortDate(item.submitted_at) }}
                 </template>
-                <template #item.submitter="{ item }">
-                    {{ item.submitter?.name }}
+                <template #item.vendor_name="{ item }">
+                    <router-link :to="`/invoices/${item.id}`" class="text-primary text-decoration-none font-weight-medium">
+                        {{ item.vendor_name }}
+                    </router-link>
+                    <div class="text-caption text-medium-emphasis">{{ item.invoice_no }} · {{ item.reference_no }}</div>
                 </template>
                 <template #item.total_amount="{ item }">
                     <span style="font-variant-numeric: tabular-nums">{{ money(item.total_amount, item.currency) }}</span>
                 </template>
-                <template #item.status="{ item }">
-                    <StatusChip :status="item.status" />
+                <template #item.posting_date="{ item }">
+                    {{ shortDate(item.posting_date) }}
+                    <div v-if="item.erp_doc_no" class="text-caption text-medium-emphasis">{{ item.erp_doc_no }}</div>
                 </template>
-                <template #item.invoice_date="{ item }">
-                    {{ shortDate(item.invoice_date) }}
+                <template #item.status="{ item }">
+                    <StatusChip :status="item.status" size="small" />
+                    <div v-if="item.payment_status && item.payment_status !== 'not_initiated'" class="mt-1">
+                        <StatusChip :status="item.payment_status" size="x-small" />
+                    </div>
+                </template>
+                <template #item.aging="{ item }">
+                    <span v-if="item.payment_status === 'paid'" class="text-medium-emphasis">—</span>
+                    <span v-else class="font-weight-bold" :style="{ color: agingColor(osDays(item.submitted_at)) }">
+                        {{ osDays(item.submitted_at) }} d
+                    </span>
+                </template>
+                <template #item.actions="{ item }">
+                    <template v-if="auth.canProcessPayments && ['submitted', 'query_raised'].includes(item.status)">
+                        <v-btn color="success" size="small" variant="tonal" class="mr-2" @click="openDialog(item, 'post')">Post</v-btn>
+                        <v-btn color="warning" size="small" variant="text" @click="openDialog(item, 'query')">Query</v-btn>
+                    </template>
                 </template>
             </v-data-table-server>
         </v-card>
+
+        <v-dialog v-model="dialog.show" max-width="480">
+            <v-card>
+                <v-card-title>
+                    {{ dialog.kind === 'post' ? 'Post to ERP' : 'Raise Query' }} — {{ dialog.invoice?.reference_no }}
+                </v-card-title>
+                <v-card-text>
+                    <div class="text-body-2 mb-3">
+                        {{ dialog.invoice?.vendor_name }} — <strong>{{ money(dialog.invoice?.total_amount, dialog.invoice?.currency) }}</strong>
+                    </div>
+                    <template v-if="dialog.kind === 'post'">
+                        <v-text-field v-model="dialog.erp_doc_no" label="ERP document number *" autofocus />
+                        <v-text-field v-model="dialog.posting_date" label="Posting date (defaults to today)" type="date" />
+                    </template>
+                    <v-textarea v-else v-model="dialog.finance_remarks" label="Query / remarks to the department *" rows="3" autofocus />
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="dialog.show = false">Cancel</v-btn>
+                    <v-btn :color="dialog.kind === 'post' ? 'success' : 'warning'" variant="flat" :loading="acting" @click="confirmDialog">Confirm</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
     </div>
 </template>

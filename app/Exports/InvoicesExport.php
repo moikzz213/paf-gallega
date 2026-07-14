@@ -13,13 +13,11 @@ use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMapping, WithStyles
 {
-    public function __construct(private Builder $query)
-    {
-    }
+    public function __construct(private Builder $query) {}
 
     public function query()
     {
-        return $this->query->with(['submitter:id,name', 'payer:id,name']);
+        return $this->query->with(['submitter:id,name', 'poster:id,name', 'paymentRequest:id,reference_no,status,paid_at,payment_reference']);
     }
 
     public function headings(): array
@@ -27,9 +25,9 @@ class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMap
         return [
             'Reference No', 'Vendor', 'Invoice No', 'Invoice Date', 'Due Date',
             'Currency', 'Amount', 'Tax', 'Total', 'Category', 'Department',
-            'Cost Center', 'Payment Method', 'Priority', 'Status',
-            'Requested By', 'Submitted At', 'Approved At', 'Scheduled Date',
-            'Paid At', 'Payment Reference', 'Paid By', 'Rejection Reason',
+            'Cost Center', 'Payment Method', 'Priority', 'Status', 'Payment Status',
+            'ERP Doc No', 'Posting Date', 'Requested By', 'Submitted At', 'Posted By',
+            'Payment Request', 'Paid At', 'Payment Reference',
         ];
     }
 
@@ -52,14 +50,15 @@ class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMap
             config('paf.payment_methods')[$invoice->payment_method] ?? $invoice->payment_method,
             ucfirst($invoice->priority),
             str_replace('_', ' ', ucfirst($invoice->status)),
+            str_replace('_', ' ', ucfirst($invoice->payment_status)),
+            $invoice->erp_doc_no,
+            $invoice->posting_date?->format('Y-m-d'),
             $invoice->submitter?->name,
             $invoice->submitted_at?->format('Y-m-d H:i'),
-            $invoice->approved_at?->format('Y-m-d H:i'),
-            $invoice->scheduled_date?->format('Y-m-d'),
-            $invoice->paid_at?->format('Y-m-d H:i'),
-            $invoice->payment_reference,
-            $invoice->payer?->name,
-            $invoice->rejection_reason,
+            $invoice->poster?->name,
+            $invoice->paymentRequest?->reference_no,
+            $invoice->paymentRequest?->paid_at?->format('Y-m-d H:i'),
+            $invoice->paymentRequest?->payment_reference,
         ];
     }
 

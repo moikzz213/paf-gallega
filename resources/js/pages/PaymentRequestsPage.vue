@@ -1,0 +1,211 @@
+<script setup>
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import api, { errorMessage } from '../services/api';
+import { money, shortDate } from '../utils/format';
+import { useAuthStore } from '../stores/auth';
+import { useMetaStore } from '../stores/meta';
+import { useNotifyStore } from '../stores/notify';
+import StatusChip from '../components/StatusChip.vue';
+import ApprovalChainBuilder from '../components/ApprovalChainBuilder.vue';
+
+const auth = useAuthStore();
+const meta = useMetaStore();
+const notify = useNotifyStore();
+
+const loading = ref(false);
+const items = ref([]);
+const total = ref(0);
+const options = reactive({ page: 1, itemsPerPage: 15 });
+
+const headers = [
+    { title: 'Reference', key: 'reference_no', sortable: false },
+    { title: 'Invoices', key: 'invoices', sortable: false },
+    { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
+    { title: 'Stage', key: 'stage', sortable: false },
+    { title: 'Status', key: 'status', sortable: false },
+    { title: 'Created', key: 'created_at', sortable: false },
+];
+
+async function load() {
+    loading.value = true;
+    try {
+        const { data } = await api.get('/payment-requests', {
+            params: { page: options.page, per_page: options.itemsPerPage },
+        });
+        items.value = data.data;
+        total.value = data.total;
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        loading.value = false;
+    }
+}
+
+onMounted(() => {
+    meta.load();
+    meta.loadApprovers();
+});
+
+// ---- create flow ----
+const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], saving: false });
+const chain = ref({ assignments: {}, adhoc: [], valid: false });
+
+const selectedInvoices = computed(() => create.eligible.filter((i) => create.selected.includes(i.id)));
+const selectedTotal = computed(() => selectedInvoices.value.reduce((s, i) => s + Number(i.total_amount), 0));
+
+async function openCreate() {
+    create.show = true;
+    create.selected = [];
+    create.loadingEligible = true;
+    try {
+        const { data } = await api.get('/payment-requests/eligible', { params: { per_page: 200 } });
+        create.eligible = data.data;
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        create.loadingEligible = false;
+    }
+}
+
+function onChainChange(payload) {
+    chain.value = payload;
+}
+
+async function submitCreate() {
+    if (!create.selected.length) return notify.error('Select at least one invoice.');
+    if (!chain.value.valid) return notify.error('Assign an approver for every approval stage.');
+
+    const approvers = {};
+    Object.entries(chain.value.assignments).forEach(([lvl, id]) => {
+        if (id) approvers[lvl] = id;
+    });
+    const adhoc_approvers = chain.value.adhoc
+        .filter((s) => s.approver_id)
+        .map((s) => ({ approver_id: s.approver_id, label: s.label || null }));
+
+    create.saving = true;
+    try {
+        const { data } = await api.post('/payment-requests', {
+            invoice_ids: create.selected,
+            approvers,
+            adhoc_approvers,
+        });
+        notify.success(`${data.reference_no} created and sent for approval.`);
+        create.show = false;
+        await load();
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        create.saving = false;
+    }
+}
+</script>
+
+<template>
+    <div>
+        <div class="d-flex align-center mb-6">
+            <div>
+                <h1 class="text-h5 font-weight-bold">Payment Requests</h1>
+                <div class="text-body-2 text-medium-emphasis">Group posted invoices into a payment request and route it for approval</div>
+            </div>
+            <v-spacer />
+            <v-btn v-if="auth.canProcessPayments" color="primary" prepend-icon="mdi-plus" @click="openCreate">New Payment Request</v-btn>
+        </div>
+
+        <v-card>
+            <v-data-table-server
+                v-model:page="options.page"
+                v-model:items-per-page="options.itemsPerPage"
+                :headers="headers"
+                :items="items"
+                :items-length="total"
+                :loading="loading"
+                density="comfortable"
+                no-data-text="No payment requests yet."
+                @update:options="load"
+            >
+                <template #item.reference_no="{ item }">
+                    <router-link :to="`/payment-requests/${item.id}`" class="text-primary text-decoration-none font-weight-medium">
+                        {{ item.reference_no }}
+                    </router-link>
+                    <div class="text-caption text-medium-emphasis">by {{ item.creator?.name }}</div>
+                </template>
+                <template #item.invoices="{ item }">
+                    {{ item.invoices?.length ?? 0 }} invoice(s)
+                </template>
+                <template #item.total_amount="{ item }">
+                    <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">{{ money(item.total_amount) }}</span>
+                </template>
+                <template #item.stage="{ item }">
+                    <span v-if="item.status === 'in_approval'">{{ item.current_stage }} / {{ item.approvals?.length }}</span>
+                    <span v-else class="text-medium-emphasis">—</span>
+                </template>
+                <template #item.status="{ item }">
+                    <StatusChip :status="item.status" size="small" />
+                </template>
+                <template #item.created_at="{ item }">
+                    {{ shortDate(item.created_at) }}
+                </template>
+            </v-data-table-server>
+        </v-card>
+
+        <!-- Create dialog -->
+        <v-dialog v-model="create.show" max-width="900" scrollable>
+            <v-card>
+                <v-card-title>New Payment Request</v-card-title>
+                <v-card-subtitle>Select posted invoices, then build the approval chain</v-card-subtitle>
+                <v-divider />
+                <v-card-text style="max-height: 70vh">
+                    <div v-if="create.loadingEligible" class="d-flex justify-center py-8">
+                        <v-progress-circular indeterminate color="primary" />
+                    </div>
+                    <template v-else>
+                        <div class="text-subtitle-2 mb-2">Eligible invoices ({{ create.eligible.length }})</div>
+                        <v-data-table
+                            v-model="create.selected"
+                            :headers="[
+                                { title: 'Reference', key: 'reference_no', sortable: false },
+                                { title: 'Vendor / Invoice #', key: 'vendor_name', sortable: false },
+                                { title: 'Dept', key: 'department', sortable: false },
+                                { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
+                            ]"
+                            :items="create.eligible"
+                            item-value="id"
+                            show-select
+                            density="compact"
+                            hide-default-footer
+                            :items-per-page="-1"
+                            no-data-text="No posted invoices are waiting for payment."
+                        >
+                            <template #item.vendor_name="{ item }">
+                                {{ item.vendor_name }}
+                                <div class="text-caption text-medium-emphasis">{{ item.invoice_no }}</div>
+                            </template>
+                            <template #item.total_amount="{ item }">
+                                {{ money(item.total_amount, item.currency) }}
+                            </template>
+                        </v-data-table>
+
+                        <div class="d-flex align-center my-4">
+                            <v-chip color="primary" variant="tonal">{{ create.selected.length }} selected</v-chip>
+                            <v-spacer />
+                            <div class="text-body-1"><span class="text-medium-emphasis">Total:</span> <strong>{{ money(selectedTotal) }}</strong></div>
+                        </div>
+
+                        <v-divider class="mb-4" />
+                        <div class="text-subtitle-2 mb-2">Approval chain</div>
+                        <ApprovalChainBuilder :total="selectedTotal" @change="onChainChange" />
+                    </template>
+                </v-card-text>
+                <v-divider />
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="create.show = false">Cancel</v-btn>
+                    <v-btn color="primary" variant="flat" :loading="create.saving" prepend-icon="mdi-send" @click="submitCreate">
+                        Send for Approval
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+    </div>
+</template>

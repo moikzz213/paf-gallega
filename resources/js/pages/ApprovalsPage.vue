@@ -1,33 +1,33 @@
 <script setup>
-import { reactive, ref } from 'vue';
+import { onMounted, reactive, ref } from 'vue';
+import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../services/api';
-import { money, dateTime, PRIORITY_META } from '../utils/format';
+import { money, dateTime } from '../utils/format';
 import { useNotifyStore } from '../stores/notify';
 
 const notify = useNotifyStore();
+const router = useRouter();
 const loading = ref(false);
 const acting = ref(false);
 const items = ref([]);
 const total = ref(0);
 const options = reactive({ page: 1, itemsPerPage: 15 });
 
-const dialog = ref({ show: false, kind: 'approve', invoice: null, comments: '' });
+const dialog = ref({ show: false, kind: 'approve', pr: null, comments: '' });
 
 const headers = [
     { title: 'Reference', key: 'reference_no', sortable: false },
-    { title: 'Vendor', key: 'vendor_name', sortable: false },
-    { title: 'Requested By', key: 'submitter', sortable: false },
+    { title: 'Invoices', key: 'invoices', sortable: false },
     { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
-    { title: 'Priority', key: 'priority', sortable: false },
-    { title: 'Level', key: 'current_level', sortable: false },
-    { title: 'Submitted', key: 'submitted_at', sortable: false },
+    { title: 'Your stage', key: 'stage', sortable: false },
+    { title: 'Sent', key: 'sent_at', sortable: false },
     { title: '', key: 'actions', align: 'end', sortable: false },
 ];
 
 async function load() {
     loading.value = true;
     try {
-        const { data } = await api.get('/approvals/pending', {
+        const { data } = await api.get('/payment-requests/pending', {
             params: { page: options.page, per_page: options.itemsPerPage },
         });
         items.value = data.data;
@@ -39,20 +39,27 @@ async function load() {
     }
 }
 
-function openDialog(invoice, kind) {
-    dialog.value = { show: true, kind, invoice, comments: '' };
+onMounted(load);
+
+function stageLabel(pr) {
+    const step = pr.approvals?.find((s) => s.sequence === pr.current_stage);
+    return step ? `${step.sequence} — ${step.label}` : '—';
+}
+
+function openDialog(pr, kind) {
+    dialog.value = { show: true, kind, pr, comments: '' };
 }
 
 async function confirmDialog() {
-    const { kind, invoice, comments } = dialog.value;
+    const { kind, pr, comments } = dialog.value;
     if (kind === 'reject' && !comments.trim()) {
         notify.error('A reason is required to reject.');
         return;
     }
     acting.value = true;
     try {
-        await api.post(`/invoices/${invoice.id}/${kind}`, { comments });
-        notify.success(`${invoice.reference_no} ${kind === 'approve' ? 'approved' : 'rejected'}.`);
+        await api.post(`/payment-requests/${pr.id}/${kind}`, { comments });
+        notify.success(`${pr.reference_no} ${kind === 'approve' ? 'approved' : 'rejected'}.`);
         dialog.value.show = false;
         await load();
     } catch (e) {
@@ -67,7 +74,7 @@ async function confirmDialog() {
     <div>
         <div class="mb-6">
             <h1 class="text-h5 font-weight-bold">Approvals</h1>
-            <div class="text-body-2 text-medium-emphasis">Requests waiting for your decision, urgent first</div>
+            <div class="text-body-2 text-medium-emphasis">Payment requests waiting for your decision</div>
         </div>
 
         <v-card>
@@ -83,37 +90,20 @@ async function confirmDialog() {
                 @update:options="load"
             >
                 <template #item.reference_no="{ item }">
-                    <router-link :to="`/invoices/${item.id}`" class="text-primary text-decoration-none font-weight-medium">
+                    <router-link :to="`/payment-requests/${item.id}`" class="text-primary text-decoration-none font-weight-medium">
                         {{ item.reference_no }}
                     </router-link>
+                    <div class="text-caption text-medium-emphasis">by {{ item.creator?.name }}</div>
                 </template>
-                <template #item.submitter="{ item }">
-                    {{ item.submitter?.name }}
-                    <div class="text-caption text-medium-emphasis">{{ item.department }}</div>
-                </template>
+                <template #item.invoices="{ item }">{{ item.invoices?.length ?? 0 }} invoice(s)</template>
                 <template #item.total_amount="{ item }">
-                    <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">
-                        {{ money(item.total_amount, item.currency) }}
-                    </span>
+                    <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">{{ money(item.total_amount) }}</span>
                 </template>
-                <template #item.priority="{ item }">
-                    <v-chip size="small" variant="tonal" :style="{ color: PRIORITY_META[item.priority]?.color }">
-                        {{ PRIORITY_META[item.priority]?.label ?? item.priority }}
-                    </v-chip>
-                </template>
-                <template #item.current_level="{ item }">
-                    L{{ item.current_level }}
-                </template>
-                <template #item.submitted_at="{ item }">
-                    {{ dateTime(item.submitted_at) }}
-                </template>
+                <template #item.stage="{ item }">{{ stageLabel(item) }}</template>
+                <template #item.sent_at="{ item }">{{ dateTime(item.sent_at) }}</template>
                 <template #item.actions="{ item }">
-                    <v-btn color="success" size="small" variant="flat" class="mr-2" @click="openDialog(item, 'approve')">
-                        Approve
-                    </v-btn>
-                    <v-btn color="error" size="small" variant="tonal" @click="openDialog(item, 'reject')">
-                        Reject
-                    </v-btn>
+                    <v-btn color="success" size="small" variant="flat" class="mr-2" @click="openDialog(item, 'approve')">Approve</v-btn>
+                    <v-btn color="error" size="small" variant="tonal" @click="openDialog(item, 'reject')">Reject</v-btn>
                 </template>
             </v-data-table-server>
         </v-card>
@@ -121,12 +111,11 @@ async function confirmDialog() {
         <v-dialog v-model="dialog.show" max-width="480">
             <v-card>
                 <v-card-title>
-                    {{ dialog.kind === 'approve' ? 'Approve' : 'Reject' }} {{ dialog.invoice?.reference_no }}
+                    {{ dialog.kind === 'approve' ? 'Approve' : 'Reject' }} {{ dialog.pr?.reference_no }}
                 </v-card-title>
                 <v-card-text>
                     <div class="text-body-2 mb-3">
-                        {{ dialog.invoice?.vendor_name }} —
-                        <strong>{{ money(dialog.invoice?.total_amount, dialog.invoice?.currency) }}</strong>
+                        {{ dialog.pr?.invoices?.length }} invoice(s) — <strong>{{ money(dialog.pr?.total_amount) }}</strong>
                     </div>
                     <v-textarea
                         v-model="dialog.comments"
@@ -138,12 +127,7 @@ async function confirmDialog() {
                 <v-card-actions>
                     <v-spacer />
                     <v-btn variant="text" @click="dialog.show = false">Cancel</v-btn>
-                    <v-btn
-                        :color="dialog.kind === 'approve' ? 'success' : 'error'"
-                        variant="flat"
-                        :loading="acting"
-                        @click="confirmDialog"
-                    >
+                    <v-btn :color="dialog.kind === 'approve' ? 'success' : 'error'" variant="flat" :loading="acting" @click="confirmDialog">
                         {{ dialog.kind === 'approve' ? 'Approve' : 'Reject' }}
                     </v-btn>
                 </v-card-actions>

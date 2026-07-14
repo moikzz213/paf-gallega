@@ -7,22 +7,36 @@ use Illuminate\Database\Eloquent\Model;
 
 class Invoice extends Model
 {
-    public const STATUS_DRAFT = 'draft';
-    public const STATUS_PENDING = 'pending_approval';
-    public const STATUS_APPROVED = 'approved';
-    public const STATUS_REJECTED = 'rejected';
-    public const STATUS_SCHEDULED = 'scheduled';
-    public const STATUS_PAID = 'paid';
+    // Intake lifecycle (the Invoice Log)
+    public const STATUS_SUBMITTED = 'submitted';
+
+    public const STATUS_POSTED = 'posted';
+
+    public const STATUS_QUERY = 'query_raised';
+
     public const STATUS_CANCELLED = 'cancelled';
 
     public const STATUSES = [
-        self::STATUS_DRAFT,
-        self::STATUS_PENDING,
-        self::STATUS_APPROVED,
-        self::STATUS_REJECTED,
-        self::STATUS_SCHEDULED,
-        self::STATUS_PAID,
+        self::STATUS_SUBMITTED,
+        self::STATUS_POSTED,
+        self::STATUS_QUERY,
         self::STATUS_CANCELLED,
+    ];
+
+    // Where the invoice sits in the payment cycle
+    public const PAY_NOT_INITIATED = 'not_initiated';
+
+    public const PAY_IN_APPROVAL = 'in_approval';
+
+    public const PAY_APPROVED = 'approved_for_payment';
+
+    public const PAY_PAID = 'paid';
+
+    public const PAYMENT_STATUSES = [
+        self::PAY_NOT_INITIATED,
+        self::PAY_IN_APPROVAL,
+        self::PAY_APPROVED,
+        self::PAY_PAID,
     ];
 
     protected $fillable = [
@@ -30,9 +44,9 @@ class Invoice extends Model
         'invoice_no', 'invoice_date', 'due_date', 'currency',
         'amount', 'tax_amount', 'total_amount',
         'category', 'department', 'cost_center', 'payment_method',
-        'priority', 'description', 'status', 'current_level',
-        'submitted_by', 'submitted_at', 'approved_at', 'rejected_at',
-        'rejection_reason', 'scheduled_date', 'paid_at', 'payment_reference', 'paid_by',
+        'priority', 'description', 'status', 'submitted_by', 'submitted_at',
+        'posting_date', 'erp_doc_no', 'finance_remarks', 'posted_by', 'posted_at',
+        'payment_status', 'payment_request_id',
     ];
 
     protected function casts(): array
@@ -40,14 +54,12 @@ class Invoice extends Model
         return [
             'invoice_date' => 'date:Y-m-d',
             'due_date' => 'date:Y-m-d',
-            'scheduled_date' => 'date:Y-m-d',
+            'posting_date' => 'date:Y-m-d',
             'amount' => 'decimal:2',
             'tax_amount' => 'decimal:2',
             'total_amount' => 'decimal:2',
             'submitted_at' => 'datetime',
-            'approved_at' => 'datetime',
-            'rejected_at' => 'datetime',
-            'paid_at' => 'datetime',
+            'posted_at' => 'datetime',
         ];
     }
 
@@ -56,19 +68,19 @@ class Invoice extends Model
         return $this->belongsTo(User::class, 'submitted_by');
     }
 
-    public function payer()
+    public function poster()
     {
-        return $this->belongsTo(User::class, 'paid_by');
+        return $this->belongsTo(User::class, 'posted_by');
+    }
+
+    public function paymentRequest()
+    {
+        return $this->belongsTo(PaymentRequest::class);
     }
 
     public function documents()
     {
         return $this->hasMany(InvoiceDocument::class);
-    }
-
-    public function approvals()
-    {
-        return $this->hasMany(InvoiceApproval::class)->orderBy('level');
     }
 
     public function auditLogs()
@@ -83,19 +95,28 @@ class Invoice extends Model
         }
 
         if ($user->isApprover()) {
-            // approvers see invoices that have (or had) an approval row at their level, plus their own
+            // approvers see their own submissions plus invoices in a PRF routed to them
             return $query->where(function (Builder $q) use ($user) {
                 $q->where('submitted_by', $user->id)
-                    ->orWhereHas('approvals', fn (Builder $a) => $a->where('level', $user->approval_level));
+                    ->orWhereHas('paymentRequest.approvals', fn (Builder $a) => $a->where('approver_id', $user->id));
             });
         }
 
         return $query->where('submitted_by', $user->id);
     }
 
+    /** Editable while it is still in the log and not yet in a payment cycle. */
     public function isEditable(): bool
     {
-        return in_array($this->status, [self::STATUS_DRAFT, self::STATUS_REJECTED], true);
+        return in_array($this->status, [self::STATUS_SUBMITTED, self::STATUS_QUERY], true)
+            && $this->payment_status === self::PAY_NOT_INITIATED;
+    }
+
+    /** Eligible to be pulled into a new payment request. */
+    public function isPayable(): bool
+    {
+        return $this->payment_status === self::PAY_NOT_INITIATED
+            && in_array($this->status, [self::STATUS_POSTED, self::STATUS_SUBMITTED], true);
     }
 
     public static function nextReferenceNo(): string
@@ -107,6 +128,6 @@ class Invoice extends Model
             ->value('reference_no');
         $seq = $last ? ((int) substr($last, strlen($prefix))) + 1 : 1;
 
-        return $prefix . str_pad((string) $seq, 5, '0', STR_PAD_LEFT);
+        return $prefix.str_pad((string) $seq, 5, '0', STR_PAD_LEFT);
     }
 }

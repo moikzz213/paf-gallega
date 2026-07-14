@@ -45,7 +45,8 @@ class DocumentController extends Controller
 
         $visible = $user->canViewAllInvoices()
             || $invoice->submitted_by === $user->id
-            || ($user->isApprover() && $invoice->approvals()->where('level', $user->approval_level)->exists());
+            || ($user->isApprover() && $invoice->paymentRequest
+                && $invoice->paymentRequest->approvals()->where('approver_id', $user->id)->exists());
 
         abort_unless($visible, 403);
     }
