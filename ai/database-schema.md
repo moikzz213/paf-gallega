@@ -1,161 +1,135 @@
 # Database Schema
 
-> Source of truth: `database/migrations/2026_07_02_000001..000006_*`. This document mirrors
-> them — update it whenever a migration changes.
+> Source of truth: `database/migrations/`. The `2026_07_02_*` series creates the base tables;
+> the `2026_07_14_*` series adds the vendor-portal model (see
+> [decisions/ADR-002](decisions/ADR-002-vendor-portal-workflow.md)). Update this file whenever a
+> migration changes.
 
 ## Engine & strategy
 
-- **Engine:** SQLite (`DB_CONNECTION=sqlite`, file `database/database.sqlite`). Portable to
-  MySQL/Postgres — no SQLite-specific SQL is used in application code.
-- **Migration strategy:** Standard Laravel migrations. Laravel's default framework tables
-  (`users`, `cache`, `jobs`, sessions) come first (`0001_01_01_*`); PAF domain tables are added
-  in the `2026_07_02_*` series. PAF user columns are added via a `Schema::table` alter migration.
-- **Seeders:** `DatabaseSeeder` → `ApprovalLevelSeeder`, `UserSeeder`, `DemoDataSeeder`.
+- Portable SQL via Eloquent (no engine-specific SQL). `.env.example` ships **SQLite**; the dev
+  instance runs **MySQL**. Tests use in-memory SQLite (`phpunit.xml`).
+- Seeders: `DatabaseSeeder` → `UserSeeder`, `ApprovalLevelSeeder` (sets default approvers),
+  `DemoDataSeeder` (invoices + PRFs across all states).
 
 ## Entity overview
 
 ```
-users ──< invoices >── approval_levels (by amount threshold, not FK)
-  │           │
-  │           ├──< invoice_documents
-  │           ├──< invoice_approvals
-  │           └──< audit_logs
-  └──< audit_logs (actor)
+users ──< invoices >── payment_requests ──< payment_request_approvals
+  │           │                 │
+  │           └── belongs to a  │  (invoice.payment_request_id, nullable)
+  │                             │
+  └──< audit_logs (actor) ; audit_logs ── invoice_id? / payment_request_id?
+
+approval_levels  (config: threshold + default approver; pre-fills a PRF chain)
+invoice_documents  ──< invoices
 ```
 
-- A **user** submits many **invoices** (`invoices.submitted_by`).
-- An **invoice** has many **invoice_documents**, many **invoice_approvals** (one per required
-  level), and many **audit_logs**.
-- **approval_levels** is a configuration table; approvals snapshot `level` + `level_name` onto
-  each `invoice_approvals` row (no hard FK from approval to level).
+- An **invoice** is submitted by a user, optionally posted by a user, and may belong to one
+  **payment_request** (its current cycle).
+- A **payment_request** groups many invoices (`invoices.payment_request_id`) and has an ordered
+  set of **payment_request_approvals** (the chain).
+- **approval_levels** is configuration; it seeds a PRF's chain but is not FK-linked to it.
 
 ## Tables
 
 ### users (PAF extensions)
 
-Base Laravel columns (`id`, `name`, `email`, `email_verified_at`, `password`, `remember_token`,
-timestamps) plus, from `add_paf_fields_to_users_table`:
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `role` | string, default `requester` | `admin` \| `requester` \| `approver` \| `finance` |
-| `approval_level` | tinyint, nullable | Set only for approvers; matches an `approval_levels.level` |
-| `department` | string, nullable | |
-| `job_title` | string, nullable | |
-| `is_active` | boolean, default true | Deactivated users cannot log in |
+Base Laravel columns plus (`add_paf_fields_to_users_table`): `role`
+(`admin|requester|approver|finance`), `approval_level` (tinyint, approvers only),
+`department`, `job_title`, `is_active` (bool).
 
 ### approval_levels
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | bigint PK | |
-| `level` | tinyint, **unique** | Ordinal position in the chain |
+| `level` | tinyint, **unique** | ordinal |
 | `name` | string | e.g. "Finance Director" |
-| `min_amount` | decimal(15,2), default 0 | Invoice required to pass this level when `total_amount >= min_amount` |
-| `is_active` | boolean, default true | Inactive levels are skipped |
+| `min_amount` | decimal(15,2) | level applies when PRF `total ≥ min_amount` |
+| `default_approver_id` | FK users, nullable (nullOnDelete) | pre-fills the chain stage |
+| `is_active` | boolean | inactive levels are skipped |
 | timestamps | | |
 
 ### invoices
 
-The central entity — a vendor invoice submitted as a payment request.
+Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `PAF-{year}-00001`),
+`vendor_name` (idx), `vendor_email`, `vendor_trn`, `invoice_no`, `invoice_date`, `due_date`,
+`currency`, `amount`, `tax_amount`, `total_amount`, `category`, `department` (idx), `cost_center`,
+`payment_method`, `priority`, `description`.
+
+Lifecycle & posting columns:
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `status` | string, default `submitted` | `submitted \| posted \| query_raised \| cancelled` |
+| `submitted_by` | FK users | requester |
+| `submitted_at` | timestamp | submission date (drives aging) |
+| `posting_date` | date, nullable | when posted in ERP |
+| `erp_doc_no` | string, nullable | ERP document number |
+| `finance_remarks` | text, nullable | query text |
+| `posted_by` | FK users, nullable | Finance user who posted |
+| `posted_at` | timestamp, nullable | |
+| `payment_status` | string, default `not_initiated` | `not_initiated \| in_approval \| approved_for_payment \| paid` |
+| `payment_request_id` | FK payment_requests, nullable (nullOnDelete) | current PRF |
+| timestamps | | |
+
+**Index:** `(status, payment_status)`, `department`, `vendor_name`.
+`isEditable()` = status ∈ {submitted, query_raised} **and** payment_status = not_initiated.
+`isPayable()` = payment_status = not_initiated **and** status ∈ {posted, submitted}.
+
+### payment_requests (PRF)
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | bigint PK | |
-| `reference_no` | string, **unique** | System ref, format `PAF-{year}-{00001}` (`Invoice::nextReferenceNo()`) |
-| `vendor_name` | string | indexed |
-| `vendor_email` | string, nullable | |
-| `vendor_trn` | string, nullable | Tax registration number |
-| `invoice_no` | string | Vendor's own invoice number |
-| `invoice_date` | date | |
-| `due_date` | date, nullable | |
-| `currency` | char(3), default `AED` | AED/USD/EUR/GBP/SAR (config `paf.currencies`) |
-| `amount` | decimal(15,2) | Net |
-| `tax_amount` | decimal(15,2), default 0 | |
-| `total_amount` | decimal(15,2) | Drives approval routing |
-| `category` | string | From `config('paf.categories')` |
-| `department` | string | indexed; from `config('paf.departments')` |
-| `cost_center` | string, nullable | |
-| `payment_method` | string, default `bank_transfer` | bank_transfer \| cheque \| cash \| card |
-| `priority` | string, default `normal` | low \| normal \| high \| urgent |
-| `description` | text, nullable | |
-| `status` | string, default `draft` | See lifecycle below; indexed with `current_level` |
-| `current_level` | tinyint, nullable | Approval level currently pending; null when not in-chain |
-| `submitted_by` | FK → users | Requester |
-| `submitted_at` | timestamp, nullable | |
-| `approved_at` | timestamp, nullable | |
-| `rejected_at` | timestamp, nullable | |
+| `reference_no` | string, **unique** | `PRF-{year}-00001` |
+| `created_by` | FK users | Finance user who initiated |
+| `status` | string, default `draft` | `draft \| in_approval \| approved \| rejected \| paid` (idx) |
+| `current_stage` | uint, nullable | sequence of the stage awaiting action |
+| `total_amount` | decimal(15,2) | sum of member invoices |
+| `sent_at`, `approved_at`, `rejected_at` | timestamp, nullable | |
 | `rejection_reason` | text, nullable | |
-| `scheduled_date` | date, nullable | |
 | `paid_at` | timestamp, nullable | |
-| `payment_reference` | string, nullable | e.g. `TRF-XXXXXXXX` |
-| `paid_by` | FK → users, nullable | Finance user who marked paid |
+| `payment_reference` | string, nullable | |
+| `paid_by` | FK users, nullable | |
 | timestamps | | |
 
-**Indexes:** `(status, current_level)`, `department`, `vendor_name`.
+### payment_request_approvals
 
-**Status lifecycle** (`Invoice::STATUS_*`):
-`draft → pending_approval → approved → scheduled → paid`, with branches
-`→ rejected` (from pending) and `→ cancelled`. `draft` and `rejected` are the only editable
-states (`Invoice::isEditable()`).
-
-### invoice_documents
+One row per chain stage, sequence-ordered.
 
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | bigint PK | |
-| `invoice_id` | FK → invoices, **cascade delete** | |
-| `uploaded_by` | FK → users | |
-| `original_name` | string | |
-| `file_path` | string | Path on the configured filesystem disk |
-| `mime_type` | string, nullable | |
-| `size` | unsigned bigint, default 0 | bytes |
-| timestamps | | |
-
-Upload constraints (config `paf.php`): max 10 files, max 10 MB each, mimes
-`pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`.
-
-### invoice_approvals
-
-One row per required approval level, created at submit time.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | bigint PK | |
-| `invoice_id` | FK → invoices, **cascade delete** | |
-| `level` | tinyint | Snapshot of `approval_levels.level` |
-| `level_name` | string | Snapshot of the level name |
-| `status` | string, default `pending` | pending \| approved \| rejected |
-| `approver_id` | FK → users, nullable | Who acted |
-| `comments` | text, nullable | Approval note / rejection reason |
+| `payment_request_id` | FK, **cascade delete** | |
+| `sequence` | uint | position in the chain (1..N) |
+| `level` | tinyint, nullable | source approval level; null for ad-hoc |
+| `label` | string | role / stage name |
+| `is_adhoc` | boolean | added beyond the amount-based levels |
+| `status` | string, default `pending` | `pending \| approved \| rejected` |
+| `approver_id` | FK users, nullable | the assigned approver (and actor) |
+| `comments` | text, nullable | |
 | `acted_at` | timestamp, nullable | |
 | timestamps | | |
 
-**Unique:** `(invoice_id, level)` — one approval row per level per invoice.
+**Unique:** `(payment_request_id, sequence)`.
+
+### invoice_documents
+
+`invoice_id` (cascade delete), `uploaded_by`, `original_name`, `file_path`, `mime_type`, `size`.
+Limits (config `paf.php`): 10 files, 10 MB, `pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`.
 
 ### audit_logs
 
-Append-only activity trail. `public $timestamps = false;` — uses only `created_at`.
-
-| Column | Type | Notes |
-|--------|------|-------|
-| `id` | bigint PK | |
-| `user_id` | FK → users, nullable | Actor |
-| `invoice_id` | FK → invoices, nullable, **null on delete** | |
-| `action` | string | created \| updated \| submitted \| approved \| rejected \| scheduled \| paid \| cancelled \| login \| logout \| document_uploaded … |
-| `description` | string | Human-readable summary |
-| `old_values` | json, nullable | |
-| `new_values` | json, nullable | |
-| `ip_address` | string(45), nullable | |
-| `created_at` | timestamp, default current | |
-
-**Indexes:** `(invoice_id, created_at)`, `action`.
+Append-only (`created_at` only). `user_id` (actor), `invoice_id` (nullOnDelete),
+`payment_request_id` (nullOnDelete), `action`, `description`, `old_values`/`new_values` (json),
+`ip_address`. **Indexes:** `(invoice_id, created_at)`, `action`.
 
 ## Referential integrity
 
-- `invoices.submitted_by`, `invoices.paid_by` → `users` (paid_by nullable).
-- `invoice_documents.invoice_id` and `invoice_approvals.invoice_id` **cascade delete** with the
-  invoice.
-- `audit_logs.invoice_id` is set **null on delete** — audit history survives invoice deletion.
-- `approval_levels` is referenced by value (snapshot), not FK, so renaming/deleting a level
-  does not rewrite historical approvals.
+- `invoice_documents` and `payment_request_approvals` **cascade delete** with their parent.
+- `audit_logs.invoice_id` / `payment_request_id` are **null on delete** — history survives.
+- `invoices.payment_request_id` is null on delete — clearing a PRF frees its invoices.
+- **Retired** by ADR-002: the `invoice_approvals` table and the per-invoice approval/payment
+  columns.

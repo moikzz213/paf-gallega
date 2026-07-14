@@ -10,8 +10,8 @@ const auth = useAuthStore();
 const loading = ref(true);
 const dash = ref(null);
 
-// CVD-validated segment order — keep as-is (validated adjacency, not cosmetic)
-const DONUT_ORDER = ['paid', 'scheduled', 'pending_approval', 'approved', 'rejected', 'draft', 'cancelled'];
+// Invoice-log statuses, in a stable donut order
+const DONUT_ORDER = ['posted', 'submitted', 'query_raised', 'cancelled'];
 
 onMounted(async () => {
     const { data } = await api.get('/dashboard');
@@ -23,9 +23,9 @@ const cards = computed(() => {
     if (!dash.value) return [];
     const c = dash.value.cards;
     return [
-        { title: 'Total Requests', value: c.total_requests, caption: 'all time', icon: 'mdi-file-document-multiple-outline', color: '#256abf' },
-        { title: 'Pending Approval', value: c.pending.count, caption: money(c.pending.amount), icon: 'mdi-clock-outline', color: '#eda100' },
-        { title: 'Awaiting Payment', value: c.awaiting_payment.count, caption: money(c.awaiting_payment.amount), icon: 'mdi-bank-transfer-out', color: '#1baf7a' },
+        { title: 'Total Invoices', value: c.total_invoices, caption: 'all time', icon: 'mdi-file-document-multiple-outline', color: '#256abf' },
+        { title: 'Awaiting Posting', value: c.awaiting_posting.count, caption: money(c.awaiting_posting.amount), icon: 'mdi-timer-sand', color: '#2a78d6' },
+        { title: 'In Approval', value: c.in_approval.count, caption: money(c.in_approval.amount), icon: 'mdi-clock-outline', color: '#eda100' },
         { title: 'Paid This Month', value: c.paid_this_month.count, caption: money(c.paid_this_month.amount), icon: 'mdi-check-circle-outline', color: '#008300' },
     ];
 });

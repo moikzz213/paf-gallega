@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
+use App\Models\PaymentRequest;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
@@ -12,31 +13,36 @@ class DashboardController extends Controller
     {
         $user = $request->user();
         $visible = fn () => Invoice::query()->visibleTo($user);
+        $paidThisMonth = fn () => $visible()
+            ->where('payment_status', Invoice::PAY_PAID)
+            ->whereHas('paymentRequest', fn ($p) => $p->whereBetween('paid_at', [now()->startOfMonth(), now()->endOfMonth()]));
 
         $cards = [
-            'total_requests' => $visible()->count(),
-            'pending' => [
-                'count' => $visible()->where('status', Invoice::STATUS_PENDING)->count(),
-                'amount' => (float) $visible()->where('status', Invoice::STATUS_PENDING)->sum('total_amount'),
+            'total_invoices' => $visible()->count(),
+            'awaiting_posting' => [
+                'count' => $visible()->where('status', Invoice::STATUS_SUBMITTED)->count(),
+                'amount' => (float) $visible()->where('status', Invoice::STATUS_SUBMITTED)->sum('total_amount'),
             ],
-            'awaiting_payment' => [
-                'count' => $visible()->whereIn('status', [Invoice::STATUS_APPROVED, Invoice::STATUS_SCHEDULED])->count(),
-                'amount' => (float) $visible()->whereIn('status', [Invoice::STATUS_APPROVED, Invoice::STATUS_SCHEDULED])->sum('total_amount'),
+            'in_approval' => [
+                'count' => $visible()->where('payment_status', Invoice::PAY_IN_APPROVAL)->count(),
+                'amount' => (float) $visible()->where('payment_status', Invoice::PAY_IN_APPROVAL)->sum('total_amount'),
             ],
             'paid_this_month' => [
-                'count' => $visible()->where('status', Invoice::STATUS_PAID)->whereBetween('paid_at', [now()->startOfMonth(), now()->endOfMonth()])->count(),
-                'amount' => (float) $visible()->where('status', Invoice::STATUS_PAID)->whereBetween('paid_at', [now()->startOfMonth(), now()->endOfMonth()])->sum('total_amount'),
+                'count' => $paidThisMonth()->count(),
+                'amount' => (float) $paidThisMonth()->sum('total_amount'),
             ],
         ];
 
-        // approvers: how many are sitting on my desk right now
+        // approvers: payment requests sitting on my desk right now
         $myQueue = 0;
         if ($user->isApprover()) {
-            $myQueue = Invoice::where('status', Invoice::STATUS_PENDING)
-                ->where('current_level', $user->approval_level)
+            $myQueue = PaymentRequest::where('status', PaymentRequest::STATUS_IN_APPROVAL)
+                ->whereHas('approvals', fn ($a) => $a
+                    ->whereColumn('sequence', 'payment_requests.current_stage')
+                    ->where('approver_id', $user->id))
                 ->count();
         } elseif ($user->isAdmin()) {
-            $myQueue = Invoice::where('status', Invoice::STATUS_PENDING)->count();
+            $myQueue = PaymentRequest::where('status', PaymentRequest::STATUS_IN_APPROVAL)->count();
         }
 
         $statusDistribution = $visible()
@@ -53,12 +59,15 @@ class DashboardController extends Controller
             $monthly[] = [
                 'month' => $from->format('M Y'),
                 'submitted' => (float) $visible()->whereBetween('submitted_at', [$from, $to])->sum('total_amount'),
-                'paid' => (float) $visible()->where('status', Invoice::STATUS_PAID)->whereBetween('paid_at', [$from, $to])->sum('total_amount'),
+                'paid' => (float) $visible()
+                    ->where('payment_status', Invoice::PAY_PAID)
+                    ->whereHas('paymentRequest', fn ($p) => $p->whereBetween('paid_at', [$from, $to]))
+                    ->sum('total_amount'),
             ];
         }
 
         $topVendors = $visible()
-            ->whereNotIn('status', [Invoice::STATUS_DRAFT, Invoice::STATUS_CANCELLED, Invoice::STATUS_REJECTED])
+            ->where('status', '!=', Invoice::STATUS_CANCELLED)
             ->select('vendor_name', DB::raw('count(*) as count'), DB::raw('sum(total_amount) as amount'))
             ->groupBy('vendor_name')
             ->orderByDesc('amount')
@@ -66,7 +75,7 @@ class DashboardController extends Controller
             ->get();
 
         $byCategory = $visible()
-            ->whereNotIn('status', [Invoice::STATUS_DRAFT, Invoice::STATUS_CANCELLED, Invoice::STATUS_REJECTED])
+            ->where('status', '!=', Invoice::STATUS_CANCELLED)
             ->select('category', DB::raw('sum(total_amount) as amount'))
             ->groupBy('category')
             ->orderByDesc('amount')

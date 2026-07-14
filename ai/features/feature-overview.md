@@ -1,86 +1,92 @@
 # Feature Overview
 
 The PAF platform's capabilities, by area. See [../api-contracts.md](../api-contracts.md) for the
-endpoints behind each, and [../architecture.md](../architecture.md) for how they fit together.
+endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow.md) for the model.
 
 ## 1. Authentication & session
 
 - Email/password login (session cookie), throttled. Deactivated (`is_active=false`) users are
-  blocked. Sign-in/out are audit-logged. No email verification / password reset yet.
+  blocked. Sign-in/out are audit-logged. No email verification / password reset.
 
-## 2. Payment request submission (Requester)
+## 2. Submit Invoice (Requester)
 
 - Fixed-format form: vendor details (name, email, TRN), invoice no/date/due date, currency,
-  amount + tax (total computed server-side), category, department, cost center, payment method,
-  priority, description.
-- System reference `PAF-{year}-{00001}` auto-assigned.
-- Save as **draft** or **submit** directly. Drafts and rejected requests are editable and
-  resubmittable.
-- **Supporting documents:** up to 10 files, ≤10 MB each (pdf/images/office/csv/txt), attached at
-  create/update; downloadable; removable while the request is editable.
+  amount + tax (total computed server-side), category, submitting department, cost center,
+  payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
+- System reference `PAF-{year}-{00001}`; submitted immediately (status `submitted`).
+- A **queried** invoice can be edited and it returns to `submitted`.
 
-## 3. Approval workflow (Approver / Admin)
+## 3. Invoice Log (Finance)
 
-- **Amount-threshold routing:** on submit, one approval row is created per active approval level
-  whose `min_amount ≤ total_amount`. Default chain: L1 Department Manager (≥0), L2 Finance
-  Director (≥10k), L3 CFO (≥50k).
-- **Sequential chain:** the request sits at `current_level`; only the approver pinned to that
-  level (or an admin) can act. Approve → advances to the next level or finalizes to `approved`.
-  Reject → chain ends, request returns to requester as `rejected` (with reason) and is editable.
-- **Approval queue:** `/approvals` lists requests awaiting the current user's level (admins see
-  all pending), ordered by priority then submission time.
-- Resubmission after rejection starts a **fresh** approval cycle.
+- Date-wise register of every invoice with **outstanding-days aging** (green ≤7, amber 8–14,
+  red >14 days from submission).
+- Finance actions per invoice:
+  - **Post to ERP** — record `erp_doc_no` (+ posting date) → status `posted`.
+  - **Raise Query** — record `finance_remarks` back to the department → status `query_raised`.
+- Filter by status, department, date range, and free-text search.
 
-## 4. Payment processing (Finance / Admin)
+## 4. Payment Request / PRF (Finance)
 
-- Queue tabbed by state: To Schedule (`approved`), Scheduled, Paid.
-- **Schedule:** set a `scheduled_date` (today or later) → `scheduled`.
-- **Mark paid:** record a `payment_reference` (+ optional paid date) → `paid`, capturing
-  `paid_by`.
+- Finance selects **multiple eligible invoices** (posted or submitted, not already in a cycle)
+  and groups them into one PRF.
+- Builds the **approval chain** for the PRF total (pre-filled from level defaults, fully
+  editable, ad-hoc stages allowed) and sends it for approval in one step.
+- Selected invoices are reserved (`payment_status = in_approval`) and linked to the PRF.
 
-## 5. Dashboard
+## 5. Payment Approval (Approver / Admin)
 
-- KPI cards (total requests, pending count+amount, awaiting payment, paid this month), an
-  approver "queue waiting" alert, and Chart.js visualizations: status distribution (doughnut),
-  monthly submitted-vs-paid (bar), top vendors, spend by category, plus a recent-requests table.
-  All figures are scoped to the viewer's visibility.
+- Each PRF routes **stage-by-stage**; the request sits at `current_stage` and only the assigned
+  approver (or an admin) can act.
+- **Approve** → advances to the next stage, or finalizes the PRF to `approved` (invoices →
+  `approved_for_payment`).
+- **Reject** → PRF `rejected`; its invoices are returned to the eligible pool for re-initiation.
+- **Approvals queue** lists the PRFs awaiting the current user's stage.
 
-## 6. Reports & Excel export
+## 6. Mark Paid (Finance)
 
-- Filterable report (status, department, category, vendor, date range) with per-status summary,
-  totals, and a paginated table.
-- **Export to Excel** (`maatwebsite/excel`) — a 23-column XLSX of the filtered set; exports are
-  audit-logged.
+- Once a PRF is fully `approved`, Finance records a `payment_reference` → PRF `paid`, invoices
+  `paid`.
 
-## 7. Audit trail (Admin)
+## 7. Dashboard
 
-- Every state-changing action writes an `audit_log` (actor, action, description, old/new JSON,
-  IP, timestamp). Admin audit-log viewer with search + action/date filters; each entry links to
-  its invoice. Invoice detail pages also render a per-request audit timeline.
+- KPI cards (total invoices, awaiting posting, in approval, paid this month), an approver
+  "queue waiting" alert, and Chart.js visuals (invoice-status distribution, monthly submitted vs
+  paid, top vendors, spend by category) plus a recent-invoices table. All scoped to the viewer.
 
-## 8. Administration (Admin)
+## 8. Reports & Excel export
+
+- Filterable report (status, department, category, vendor, date range) with per-status summary
+  and a paginated table. **Export to Excel** (24-column XLSX incl. ERP posting + PRF payment
+  columns); exports are audit-logged.
+
+## 9. Audit trail (Admin)
+
+- Every state change writes an `audit_log` (actor, action, description, IP, timestamp), scoped to
+  an invoice and/or a payment request. Admin viewer with search + action/date filters; invoice
+  and PRF detail pages render their own audit timelines.
+
+## 10. Administration (Admin)
 
 - **Users:** create/edit (no hard delete — deactivate via `is_active`); role assignment;
-  `approval_level` required for approvers.
-- **Approval levels:** full CRUD of the threshold-based chain (level, name, `min_amount`,
-  active). Changes propagate to future submissions; historical approvals keep their snapshot.
+  `approval_level` for approvers.
+- **Approval levels:** CRUD of the threshold levels used to **pre-fill** PRF chains, each with a
+  **default approver**.
 
 ## Role → feature matrix
 
 | Feature | Requester | Approver | Finance | Admin |
 |---------|:--------:|:--------:|:-------:|:-----:|
-| Submit / edit own requests | ✓ | ✓ (own) | ✓ (own) | ✓ |
-| Approve / reject at level | | ✓ (own level) | | ✓ |
-| Schedule / mark paid | | | ✓ | ✓ |
+| Submit / edit own invoices | ✓ | ✓ (own) | ✓ | ✓ |
+| Post to ERP / raise query | | | ✓ | ✓ |
+| Create payment request | | | ✓ | ✓ |
+| Approve / reject a PRF stage | | ✓ (assigned) | | ✓ |
+| Mark PRF paid | | | ✓ | ✓ |
 | Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
-| Audit log viewer | | | | ✓ |
-| Manage users / levels | | | | ✓ |
-| See all invoices | | own + level | ✓ | ✓ |
+| Audit log viewer, manage users/levels | | | | ✓ |
 
 ## Not yet implemented
 
-- Real email/notifications (mail driver is `log`).
-- ERP / payment-gateway integration.
+- Real email/notifications (mail driver is `log`) and real ERP/payment-gateway integration.
 - Password reset / email verification.
-- The demo HTML's fixed **8-stage** chain (this system uses a configurable threshold chain
-  instead) — see [../issues/technical-debt.md](../issues/technical-debt.md).
+- Concurrency guard against selecting one invoice into two PRFs — see
+  [../issues/known-issues.md](../issues/known-issues.md).

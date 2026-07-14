@@ -1,129 +1,95 @@
 # API Contracts
 
-> All routes are defined in `routes/web.php` under the `api` prefix (there is **no**
-> `routes/api.php`). Auth is **session-based** (same-origin SPA), not tokens/Sanctum.
-> Update this file whenever a controller's routes, validation, or response shape changes.
+> All routes are in `routes/web.php` under the `api` prefix (there is **no** `routes/api.php`).
+> Auth is **session-based** (same-origin SPA). Update this file whenever routes, validation, or
+> response shapes change. Model: [decisions/ADR-002](decisions/ADR-002-vendor-portal-workflow.md).
 
 ## Conventions
 
-- **Base:** all endpoints are `/api/...`. Every endpoint except `POST /api/login` is behind
-  `auth`. `POST /api/login` also has `throttle:10,1`.
-- **Roles:** `EnsureRole` middleware (`role:...`) gates route groups — `role:finance,admin`
-  (payments), `role:admin` (audit-logs, users, approval-levels).
-- **No response envelope.** Controllers return a raw Eloquent model/collection or
-  `response()->json(...)`. List endpoints return Laravel's standard **paginator** shape:
-  `{ data:[...], current_page, last_page, per_page, total, from, to, links, ... }`.
-- **Pagination:** `?per_page=N`. Default 15 (invoices, approvals, payments, users) or 25
-  (audit-logs, reports).
-- **Errors:** no try/catch. `422` from `validate()`/`ValidationException` as
-  `{ message, errors:{ field:[msg] } }`; `403` from inline checks / `role:` middleware; `404`
-  from route-model binding.
-- **Common filter params:** `q` (search), `status`, `department`, `date_from`, `date_to`,
-  `sort`, `dir`, `per_page`, `mine`.
-- **Uploads:** only on invoices, `multipart/form-data`, field `documents[]`. Stored on the
-  `local` disk under `invoices/{id}`. Limits from `config/paf.php` (10 files, 10 MB,
-  `pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`). Invoice **update uses POST** (not PUT) to
-  carry multipart.
-- **Server-computed:** `total_amount = round(amount + tax_amount, 2)` and `reference_no` are set
-  server-side, never client-supplied.
+- Base `/api/...`; everything except `POST /api/login` is behind `auth`. Login is `throttle:10,1`.
+- Roles via `EnsureRole` (`role:...`): `role:finance,admin` (invoice post/query, PRF create,
+  mark-paid, eligible list), `role:admin` (audit-logs, users, approval-levels).
+- **No response envelope** — controllers return raw models or Laravel paginator JSON
+  (`{ data, current_page, last_page, per_page, total, ... }`).
+- Errors: `422` from validation/`ValidationException`; `403` from `role:` middleware or inline
+  checks; `404` from route-model binding.
+- Uploads: invoices only, `multipart/form-data`, field `documents[]`. Invoice **update uses POST**
+  (multipart). `total_amount` and `reference_no` are server-computed.
 
 ### Enums (wire values)
 
-- **Invoice status:** `draft`, `pending_approval`, `approved`, `rejected`, `scheduled`, `paid`,
-  `cancelled`. ⚠️ Pending serializes as `pending_approval`, whereas an **approval row's** pending
-  is `pending` — two different strings.
-- **Roles:** `admin`, `requester`, `approver`, `finance`.
-- **Currencies:** `AED, USD, EUR, GBP, SAR`. **Priorities:** `low, normal, high, urgent`.
-  **Payment methods (keys):** `bank_transfer, cheque, cash, card`.
+- **Invoice status:** `submitted`, `posted`, `query_raised`, `cancelled`.
+- **Invoice payment_status:** `not_initiated`, `in_approval`, `approved_for_payment`, `paid`.
+- **PRF status:** `draft`, `in_approval`, `approved`, `rejected`, `paid`.
+- **PRF approval status:** `pending`, `approved`, `rejected`.
+- **Roles:** `admin`, `requester`, `approver`, `finance`. **Currencies:** AED/USD/EUR/GBP/SAR.
 
-## Auth
+## Auth & meta
 
 | Method | Path | Notes |
 |--------|------|-------|
-| POST | `/api/login` | body `email, password, remember?`; throttled 10/min; checks `is_active`; returns `{ user }` |
-| POST | `/api/logout` | invalidates session; returns `{ message }` |
-| GET | `/api/me` | returns `{ user }` |
-| GET | `/api/meta` | reference data: `categories, departments, currencies, payment_methods, priorities, statuses, roles, approval_levels, upload{max_documents,max_document_kb,mimes}` |
+| POST | `/api/login` | `email, password, remember?`; checks `is_active`; `{ user }` |
+| POST | `/api/logout` · GET `/api/me` | session |
+| GET | `/api/meta` | `categories, departments, currencies, payment_methods, priorities, statuses, payment_statuses, pr_statuses, roles, approval_levels (with defaultApprover), upload{…}` |
+| GET | `/api/approvers` | active users with role approver/admin — the chain-builder pool |
+| GET | `/api/dashboard` | scoped KPIs: `cards{total_invoices, awaiting_posting, in_approval, paid_this_month}, my_queue, status_distribution[], monthly[], top_vendors[], by_category[], recent[]` |
 
-## Invoices (payment requests)
+## Invoices (Invoice Log)
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET | `/api/invoices` | scoped `visibleTo` | filters: `mine, status[], department, date_from, date_to, q`; `sort∈{created_at,invoice_date,due_date,total_amount,status}`, `dir`; paginated 15 |
-| POST | `/api/invoices` | any auth | create (see rules below); `action=submit` also submits; **201** with `documents,approvals` |
-| GET | `/api/invoices/{invoice}` | canViewAll / owner / approver-at-level, else 403 | loads submitter, payer, documents.uploader, approvals.approver, auditLogs.user |
-| POST | `/api/invoices/{invoice}` | owner or admin; must be `draft`/`rejected` | update (same rules); `action=submit` submits |
-| DELETE | `/api/invoices/{invoice}` | owner or admin; must be `draft` | `{ message }` |
-| POST | `/api/invoices/{invoice}/submit` | owner or admin | → `ApprovalService::submit()` |
-| POST | `/api/invoices/{invoice}/cancel` | owner or admin; `draft`/`pending_approval` | → `cancelled` |
+| GET | `/api/invoices` | scoped `visibleTo` | filters `mine, status[], payment_status[], department, date_from/to, q`; `sort∈{submitted_at,invoice_date,due_date,total_amount,status}`; paginated 15 |
+| POST | `/api/invoices` | any auth | create → status `submitted`; **201** with `documents` |
+| GET | `/api/invoices/{invoice}` | canViewAll / owner / assigned approver (via PRF) | loads submitter, poster, documents, `paymentRequest.approvals.approver`, auditLogs |
+| POST | `/api/invoices/{invoice}` | owner or admin; must be editable | update (multipart); a queried invoice returns to `submitted` |
+| DELETE | `/api/invoices/{invoice}` | owner or admin; payment `not_initiated` | `{ message }` |
+| POST | `/api/invoices/{invoice}/cancel` | owner or admin; payment `not_initiated` | → `cancelled` |
+| POST | `/api/invoices/{invoice}/post` | `role:finance,admin`; status submitted/query | `erp_doc_no` req, `posting_date` nullable → `posted` |
+| POST | `/api/invoices/{invoice}/query` | `role:finance,admin`; status submitted/posted | `finance_remarks` req → `query_raised` |
 
-**Create/update validation:** `vendor_name` req ≤255; `vendor_email` nullable email; `vendor_trn`
-nullable ≤50; `invoice_no` req ≤100; `invoice_date` req date; `due_date` nullable
-`after_or_equal:invoice_date`; `currency` req in currencies; `amount` req numeric 0.01–1e12;
-`tax_amount` nullable numeric ≥0; `category` req in categories; `department` req in departments;
-`cost_center` nullable ≤100; `payment_method` req in method keys; `priority` req in priorities;
-`description` nullable ≤5000; `documents` nullable array ≤10; `documents.*` file, config mimes,
-≤10240 KB.
+**Create/update validation:** vendor_name req; vendor_email nullable email; vendor_trn ≤50;
+invoice_no req ≤100; invoice_date req; due_date `after_or_equal:invoice_date`; currency in list;
+amount 0.01–1e12; tax_amount ≥0; category/department/payment_method/priority in config;
+description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 
-## Approvals
+## Payment Requests (PRF)
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET | `/api/approvals/pending` | admin (all) or approver (own level), else 403 | ordered priority then `submitted_at` asc; paginated 15 |
-| POST | `/api/invoices/{invoice}/approve` | admin or approver-at-current-level | `comments` nullable ≤2000 |
-| POST | `/api/invoices/{invoice}/reject` | admin or approver-at-current-level | `comments` **required** ≤2000 |
+| GET | `/api/payment-requests/eligible` | `role:finance,admin` | invoices payable (not_initiated & posted/submitted); paginated 100 |
+| GET | `/api/payment-requests/pending` | approver (own stage) / admin (all) | PRFs `in_approval` awaiting the current user's stage |
+| GET | `/api/payment-requests` | scoped `visibleTo` | filters `status[], q`; paginated 15 |
+| POST | `/api/payment-requests` | `role:finance,admin` | create from `invoice_ids` + chain (see below); **201** |
+| GET | `/api/payment-requests/{paymentRequest}` | scoped `visibleTo` | loads creator, payer, invoices, approvals.approver, auditLogs |
+| POST | `/api/payment-requests/{paymentRequest}/approve` | admin or assigned current-stage approver | `comments` nullable ≤2000 |
+| POST | `/api/payment-requests/{paymentRequest}/reject` | admin or assigned current-stage approver | `comments` **required** ≤2000 → PRF rejected, invoices freed |
+| POST | `/api/payment-requests/{paymentRequest}/mark-paid` | `role:finance,admin`; PRF must be `approved` | `payment_reference` req ≤100 → `paid` |
 
-Workflow: `submit` deletes prior approvals (fresh cycle), creates one row per required level
-(`ApprovalLevel::requiredFor(total)`), sets `pending_approval` at level 1. `approve` marks the
-current level and advances `current_level`, or finalizes to `approved`. `reject` marks the level
-rejected and sets invoice `rejected` with `rejection_reason`.
+**Create payload (JSON):**
+- `invoice_ids`: required array of eligible invoice ids.
+- `approvers`: object mapping approval **level → user id** (overrides that level's default).
+- `adhoc_approvers`: array of `{ approver_id, label? }` appended after the level stages.
+- Every referenced user must be **active with role approver/admin** (validated). The server
+  builds the ordered chain from `ApprovalLevel::requiredFor(total)` (assignment or default per
+  level) + ad-hoc stages, sets `current_stage = 1`, `status = in_approval`, and reserves the
+  invoices (`payment_status = in_approval`).
 
-## Payments (`role:finance,admin`)
+**Chain routing:** approve marks the current stage and advances to the next pending sequence, or
+finalizes the PRF to `approved` (invoices → `approved_for_payment`). Reject marks the stage,
+sets PRF `rejected`, and returns invoices to `not_initiated` (unlinked).
 
-| Method | Path | Notes |
-|--------|------|-------|
-| GET | `/api/payments/queue?status=` | `status∈{approved,scheduled,paid}` (default `approved`), else 422; paginated 15 |
-| POST | `/api/invoices/{invoice}/schedule` | invoice must be `approved`; `scheduled_date` req date `after_or_equal:today` → `scheduled` |
-| POST | `/api/invoices/{invoice}/mark-paid` | status `approved`/`scheduled`; `payment_reference` req ≤100, `paid_at` nullable → `paid`, `paid_by=me` |
-
-## Documents
-
-| Method | Path | Notes |
-|--------|------|-------|
-| GET | `/api/documents/{document}/download` | same view rule as invoice show; 404 if file missing; streams file |
-| DELETE | `/api/documents/{document}` | uploader or admin; parent invoice must be editable; `{ message }` |
-
-## Reports (any auth, data-scoped)
+## Documents · Reports · Admin
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/api/reports` | filters `status[], department, category, vendor, date_from, date_to`; returns `summary[], totals{count,amount}, rows(paginated 25)` |
-| GET | `/api/reports/export` | same filters; streams `paf-invoices-{Ymd-His}.xlsx` (`InvoicesExport`, 23 columns); logs `report_exported` |
+| GET | `/api/documents/{document}/download` | view rule as invoice show; streams file |
+| DELETE | `/api/documents/{document}` | uploader or admin; invoice must be editable |
+| GET | `/api/reports` · `/api/reports/export` | filters `status[], department, category, vendor, date_from/to`; export = 24-col XLSX, audit-logged |
+| GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. Approval-level create/update accepts `default_approver_id` (nullable; must be an active approver/admin) |
 
-## Administration (`role:admin`)
+## Notable quirks
 
-| Method | Path | Notes |
-|--------|------|-------|
-| GET | `/api/audit-logs` | filters `action, user_id, q, date_from, date_to`; paginated 25, `created_at desc` |
-| GET | `/api/audit-logs/actions` | distinct action strings for filters |
-| GET | `/api/users` | filters `q, role`; ordered by name; paginated 15 |
-| POST | `/api/users` | `name, email(unique), password(min8), role, approval_level(required_if role=approver, 1–10), department?, job_title?, is_active` → **201** |
-| PUT | `/api/users/{user}` | same rules; `password` nullable (unset if empty); email unique ignores self. No delete — deactivate via `is_active` |
-| GET | `/api/approval-levels` | all levels ordered by `level` (not paginated) |
-| POST | `/api/approval-levels` | `level(1–10, unique), name(≤100), min_amount(≥0), is_active` → **201** |
-| PUT | `/api/approval-levels/{approvalLevel}` | same; level uniqueness ignores self |
-| DELETE | `/api/approval-levels/{approvalLevel}` | `{ message }` |
-
-## Dashboard
-
-| Method | Path | Notes |
-|--------|------|-------|
-| GET | `/api/dashboard` | data-scoped `visibleTo`. Keys: `cards{total_requests, pending{count,amount}, awaiting_payment{count,amount}, paid_this_month{count,amount}}, my_queue, status_distribution[], monthly[]{month,submitted,paid}, top_vendors[]{vendor_name,count,amount}, by_category[]{category,amount}, recent[]` |
-
-## Notable contract quirks
-
-- **No `{data,meta}` wrapper** — clients handle both raw-model JSON and paginator JSON.
-- **Two "pending" strings** — invoice `pending_approval` vs approval-row `pending`.
-- **Invoice update is POST** (multipart); users/approval-levels use PUT.
-- **Authorization placement is mixed** — some in middleware, some inline, some service-level;
-  reports/dashboard have no role gate (data-scoped only).
+- No `{data,meta}` wrapper; clients handle raw-model and paginator JSON.
+- Invoice update is POST (multipart); users/approval-levels use PUT.
+- Authorization is mixed (middleware + inline + service). Reports/dashboard are data-scoped only.
+- The approval chain lives on the **PRF**, not the invoice.

@@ -1,22 +1,21 @@
 # Known Issues
 
-Behavioral gaps and limitations observed during onboarding analysis. None are code-marked
-(`TODO`/`FIXME`) — the codebase has no such markers. Severity is a judgment call for triage.
+Behavioral gaps and limitations after the vendor-portal rework
+([ADR-002](../decisions/ADR-002-vendor-portal-workflow.md)). The codebase has no `TODO`/`FIXME`
+markers. Severity is a triage judgment.
 
 | # | Area | Issue | Severity |
 |---|------|-------|----------|
-| 1 | Notifications | No email/notifications. Approvers only learn of pending items by visiting `/approvals`. The demo's "email to approver" step is not real — `MAIL_MAILER=log`. | High (product) |
-| 2 | Auth | No password reset or email verification flow. Passwords can only be set/changed by an admin. | Medium |
-| 3 | Testing | No domain test coverage — only Laravel's default example tests. Approval-chain, authorization scoping, and payment lifecycle are untested. | High |
-| 4 | Approval model mismatch | The `vendor-portal-demo` HTML specifies a fixed **8-stage** chain; the app implements a **configurable amount-threshold** chain (3 seeded levels). Reconciliation is a pending product decision. | Medium (product) |
-| 5 | Authorization drift risk | Two independent authorization vocabularies (server `role:` middleware + inline checks vs. client router `meta.roles` + `AppLayout` getters). They agree today but can drift when routes are added. | Medium |
-| 6 | Inconsistent enum strings | Invoice pending status serializes as `pending_approval` while an approval row's pending is `pending`. Easy to confuse in client code / queries. | Low |
-| 7 | No concurrency guard on approvals | Two approvers at the same level (or admin + approver) acting simultaneously could race; the current-level check is not lock-protected. | Low |
-| 8 | Reports/dashboard have no role gate | They rely solely on `Invoice::scopeVisibleTo` data-scoping. Correct today, but any query added there without the scope would leak data. | Medium |
-| 9 | Deletion of approval levels | Admins can delete an `approval_level`; historical approvals snapshot the name so history survives, but deleting a level mid-flight changes routing for future submissions with no warning. | Low |
+| 1 | Notifications | No email/notifications. Approvers learn of pending PRFs only by visiting **Approvals**; departments see a query only by opening the invoice. `MAIL_MAILER=log`. | High (product) |
+| 2 | ERP | "Post to ERP" records a doc number but calls **no external system** — there is no real ERP integration. | Medium (product) |
+| 3 | Auth | No password reset or email verification. Passwords are set only by an admin. | Medium |
+| 4 | Concurrency | **No guard against double-selecting an invoice into two PRFs.** Two Finance users could each pull the same eligible invoice before sending; whoever creates first reserves it, the other 422s at submit — but there is no lock, so a race on the reservation is possible. | Medium |
+| 5 | Rejected PRF visibility | Rejecting a PRF **unlinks its invoices** (so they can be re-initiated), which means the invoice detail page loses its on-screen link back to the rejected PRF. The audit trail still records the rejection. | Low |
+| 6 | Authorization drift risk | Two authorization vocabularies (server `role:` + inline/service checks vs. client router `meta.roles` + `AppLayout` getters). They agree today but are independent code paths. | Medium |
+| 7 | Reports/dashboard have no role gate | They rely solely on the `scopeVisibleTo` scopes. Correct today, but any query added there without the scope would leak data. | Medium |
+| 8 | Deleting an approval level | Admins can delete an `approval_level`; it only affects **future** PRF chains (existing PRF stages snapshot their label), but there is no warning. | Low |
 
 ## How to use this file
 
-When you fix one of these, move it to [bugs-fixed.md](bugs-fixed.md) with the commit/date. When
-you discover a new limitation, add a row here (or a debt item in
-[technical-debt.md](technical-debt.md) if it's structural).
+When you fix one of these, move it to [bugs-fixed.md](bugs-fixed.md) with the commit/date. Add
+new behavioral gaps here, or structural ones to [technical-debt.md](technical-debt.md).

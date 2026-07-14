@@ -3,8 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
-use App\Models\User;
-use App\Services\ApprovalService;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,19 +10,14 @@ use Illuminate\Validation\Rule;
 
 class InvoiceController extends Controller
 {
-    private const MAX_ADHOC_APPROVERS = 10;
-
-    public function __construct(private ApprovalService $approvals)
-    {
-    }
-
+    /** Invoice Log — date-wise register, scoped by visibility. */
     public function index(Request $request)
     {
         $user = $request->user();
 
         $query = Invoice::query()
             ->visibleTo($user)
-            ->with(['submitter:id,name,department']);
+            ->with(['submitter:id,name,department', 'poster:id,name', 'paymentRequest:id,reference_no,status']);
 
         if ($request->boolean('mine')) {
             $query->where('submitted_by', $user->id);
@@ -34,16 +27,20 @@ class InvoiceController extends Controller
             $query->whereIn('status', is_array($status) ? $status : explode(',', $status));
         }
 
+        if ($paymentStatus = $request->input('payment_status')) {
+            $query->whereIn('payment_status', is_array($paymentStatus) ? $paymentStatus : explode(',', $paymentStatus));
+        }
+
         if ($department = $request->input('department')) {
             $query->where('department', $department);
         }
 
         if ($request->filled('date_from')) {
-            $query->whereDate('invoice_date', '>=', $request->date('date_from'));
+            $query->whereDate('submitted_at', '>=', $request->date('date_from'));
         }
 
         if ($request->filled('date_to')) {
-            $query->whereDate('invoice_date', '<=', $request->date('date_to'));
+            $query->whereDate('submitted_at', '<=', $request->date('date_to'));
         }
 
         if ($q = trim((string) $request->input('q'))) {
@@ -54,8 +51,8 @@ class InvoiceController extends Controller
             });
         }
 
-        $sort = in_array($request->input('sort'), ['created_at', 'invoice_date', 'due_date', 'total_amount', 'status'], true)
-            ? $request->input('sort') : 'created_at';
+        $sort = in_array($request->input('sort'), ['submitted_at', 'invoice_date', 'due_date', 'total_amount', 'status'], true)
+            ? $request->input('sort') : 'submitted_at';
 
         return $query->orderBy($sort, $request->input('dir') === 'asc' ? 'asc' : 'desc')
             ->paginate((int) $request->input('per_page', 15));
@@ -69,23 +66,20 @@ class InvoiceController extends Controller
             $invoice = Invoice::create([
                 ...$data,
                 'reference_no' => Invoice::nextReferenceNo(),
-                'status' => Invoice::STATUS_DRAFT,
+                'status' => Invoice::STATUS_SUBMITTED,
+                'payment_status' => Invoice::PAY_NOT_INITIATED,
                 'submitted_by' => $request->user()->id,
+                'submitted_at' => now(),
             ]);
 
-            AuditLogger::log('created', "Request {$invoice->reference_no} created for {$invoice->vendor_name} ({$invoice->currency} {$invoice->total_amount})", $invoice);
+            AuditLogger::log('submitted', "Invoice {$invoice->reference_no} submitted to Finance for {$invoice->vendor_name} ({$invoice->currency} {$invoice->total_amount})", $invoice);
 
             $this->storeDocuments($request, $invoice);
 
             return $invoice;
         });
 
-        if ($request->input('action') === 'submit') {
-            [$assignments, $adhoc] = $this->approverPayload($request);
-            $this->approvals->submit($invoice, $assignments, $adhoc);
-        }
-
-        return response()->json($invoice->load('documents', 'approvals.approver:id,name'), 201);
+        return response()->json($invoice->load('documents'), 201);
     }
 
     public function show(Request $request, Invoice $invoice)
@@ -95,9 +89,9 @@ class InvoiceController extends Controller
         return response()->json(
             $invoice->load([
                 'submitter:id,name,email,department',
-                'payer:id,name',
+                'poster:id,name',
                 'documents.uploader:id,name',
-                'approvals.approver:id,name',
+                'paymentRequest.approvals.approver:id,name',
                 'auditLogs.user:id,name',
             ])
         );
@@ -108,60 +102,73 @@ class InvoiceController extends Controller
         $user = $request->user();
 
         if ($invoice->submitted_by !== $user->id && ! $user->isAdmin()) {
-            abort(403, 'You can only edit your own requests.');
+            abort(403, 'You can only edit your own invoices.');
         }
 
         if (! $invoice->isEditable()) {
-            abort(422, 'Only draft or rejected requests can be edited.');
+            abort(422, 'This invoice can no longer be edited.');
         }
 
         $data = $this->validated($request);
         $old = $invoice->only(array_keys($data));
 
+        // Editing a queried invoice puts it back into the review queue.
+        if ($invoice->status === Invoice::STATUS_QUERY) {
+            $data['status'] = Invoice::STATUS_SUBMITTED;
+            $data['finance_remarks'] = null;
+        }
+
         $invoice->update($data);
         $this->storeDocuments($request, $invoice);
 
-        AuditLogger::log('updated', "Request {$invoice->reference_no} updated", $invoice, $old, $data);
+        AuditLogger::log('updated', "Invoice {$invoice->reference_no} updated", $invoice, $old, $data);
 
-        if ($request->input('action') === 'submit') {
-            [$assignments, $adhoc] = $this->approverPayload($request);
-            $this->approvals->submit($invoice, $assignments, $adhoc);
-        }
-
-        return response()->json($invoice->refresh()->load('documents', 'approvals.approver:id,name'));
+        return response()->json($invoice->refresh()->load('documents'));
     }
 
-    public function destroy(Request $request, Invoice $invoice)
+    /** Finance posts the invoice in the ERP. */
+    public function post(Request $request, Invoice $invoice)
     {
-        $user = $request->user();
-
-        if ($invoice->submitted_by !== $user->id && ! $user->isAdmin()) {
-            abort(403);
+        if (! in_array($invoice->status, [Invoice::STATUS_SUBMITTED, Invoice::STATUS_QUERY], true)) {
+            abort(422, 'Only submitted or queried invoices can be posted.');
         }
 
-        if ($invoice->status !== Invoice::STATUS_DRAFT) {
-            abort(422, 'Only drafts can be deleted.');
-        }
+        $data = $request->validate([
+            'erp_doc_no' => ['required', 'string', 'max:100'],
+            'posting_date' => ['nullable', 'date'],
+        ]);
 
-        AuditLogger::log('deleted', "Draft {$invoice->reference_no} deleted");
-        $invoice->delete();
+        $invoice->update([
+            'status' => Invoice::STATUS_POSTED,
+            'erp_doc_no' => $data['erp_doc_no'],
+            'posting_date' => $data['posting_date'] ?? now()->toDateString(),
+            'posted_by' => $request->user()->id,
+            'posted_at' => now(),
+            'finance_remarks' => null,
+        ]);
 
-        return response()->json(['message' => 'Deleted']);
+        AuditLogger::log('posted', "Invoice {$invoice->reference_no} posted in ERP (doc {$invoice->erp_doc_no})", $invoice);
+
+        return response()->json($invoice->refresh()->load('poster:id,name'));
     }
 
-    public function submit(Request $request, Invoice $invoice)
+    /** Finance raises a query back to the submitting department. */
+    public function raiseQuery(Request $request, Invoice $invoice)
     {
-        $user = $request->user();
-
-        if ($invoice->submitted_by !== $user->id && ! $user->isAdmin()) {
-            abort(403, 'You can only submit your own requests.');
+        if (! in_array($invoice->status, [Invoice::STATUS_SUBMITTED, Invoice::STATUS_POSTED], true)) {
+            abort(422, 'This invoice cannot be queried in its current state.');
         }
 
-        [$assignments, $adhoc] = $this->approverPayload($request);
+        $data = $request->validate(['finance_remarks' => ['required', 'string', 'max:2000']]);
 
-        return response()->json(
-            $this->approvals->submit($invoice, $assignments, $adhoc)->load('approvals.approver:id,name')
-        );
+        $invoice->update([
+            'status' => Invoice::STATUS_QUERY,
+            'finance_remarks' => $data['finance_remarks'],
+        ]);
+
+        AuditLogger::log('query_raised', "Query raised on {$invoice->reference_no}: {$data['finance_remarks']}", $invoice);
+
+        return response()->json($invoice->refresh());
     }
 
     public function cancel(Request $request, Invoice $invoice)
@@ -172,14 +179,32 @@ class InvoiceController extends Controller
             abort(403);
         }
 
-        if (! in_array($invoice->status, [Invoice::STATUS_DRAFT, Invoice::STATUS_PENDING], true)) {
-            abort(422, 'Only draft or pending requests can be cancelled.');
+        if ($invoice->payment_status !== Invoice::PAY_NOT_INITIATED) {
+            abort(422, 'Invoices already in a payment cycle cannot be cancelled.');
         }
 
-        $invoice->update(['status' => Invoice::STATUS_CANCELLED, 'current_level' => null]);
-        AuditLogger::log('cancelled', "Request {$invoice->reference_no} cancelled", $invoice);
+        $invoice->update(['status' => Invoice::STATUS_CANCELLED]);
+        AuditLogger::log('cancelled', "Invoice {$invoice->reference_no} cancelled", $invoice);
 
         return response()->json($invoice->refresh());
+    }
+
+    public function destroy(Request $request, Invoice $invoice)
+    {
+        $user = $request->user();
+
+        if ($invoice->submitted_by !== $user->id && ! $user->isAdmin()) {
+            abort(403);
+        }
+
+        if ($invoice->payment_status !== Invoice::PAY_NOT_INITIATED) {
+            abort(422, 'Invoices already in a payment cycle cannot be deleted.');
+        }
+
+        AuditLogger::log('deleted', "Invoice {$invoice->reference_no} deleted");
+        $invoice->delete();
+
+        return response()->json(['message' => 'Deleted']);
     }
 
     private function validated(Request $request): array
@@ -211,45 +236,6 @@ class InvoiceController extends Controller
         return $data;
     }
 
-    /**
-     * Validate and normalise the approver assignments sent with a submit.
-     *
-     * @return array{0: array<int, int>, 1: array<int, array{approver_id: int, label: string|null}>}
-     */
-    private function approverPayload(Request $request): array
-    {
-        $isApprover = Rule::exists('users', 'id')->where(function ($q) {
-            $q->where('is_active', true)->whereIn('role', [User::ROLE_APPROVER, User::ROLE_ADMIN]);
-        });
-
-        $request->validate([
-            'approvers' => ['nullable', 'array'],
-            'approvers.*' => ['nullable', 'integer', $isApprover],
-            'adhoc_approvers' => ['nullable', 'array', 'max:'.self::MAX_ADHOC_APPROVERS],
-            'adhoc_approvers.*.approver_id' => ['required', 'integer', $isApprover],
-            'adhoc_approvers.*.label' => ['nullable', 'string', 'max:100'],
-        ]);
-
-        $assignments = [];
-        foreach ((array) $request->input('approvers', []) as $level => $approverId) {
-            if ($approverId) {
-                $assignments[(int) $level] = (int) $approverId;
-            }
-        }
-
-        $adhoc = [];
-        foreach ((array) $request->input('adhoc_approvers', []) as $stage) {
-            if (! empty($stage['approver_id'])) {
-                $adhoc[] = [
-                    'approver_id' => (int) $stage['approver_id'],
-                    'label' => $stage['label'] ?? null,
-                ];
-            }
-        }
-
-        return [$assignments, $adhoc];
-    }
-
     private function storeDocuments(Request $request, Invoice $invoice): void
     {
         foreach ($request->file('documents', []) as $file) {
@@ -273,9 +259,9 @@ class InvoiceController extends Controller
 
         $visible = $user->canViewAllInvoices()
             || $invoice->submitted_by === $user->id
-            || $invoice->approvals()->where('approver_id', $user->id)->exists()
-            || ($user->isApprover() && $invoice->approvals()->where('level', $user->approval_level)->exists());
+            || ($user->isApprover() && $invoice->paymentRequest
+                && $invoice->paymentRequest->approvals()->where('approver_id', $user->id)->exists());
 
-        abort_unless($visible, 403, 'You do not have access to this request.');
+        abort_unless($visible, 403, 'You do not have access to this invoice.');
     }
 }

@@ -32,6 +32,11 @@ const approverItems = computed(() =>
     }))
 );
 
+// Render each option with its subtitle (avoids fragile item.raw access in a custom slot).
+function approverItemProps(item) {
+    return { title: item.title, subtitle: item.subtitle };
+}
+
 const allAssigned = computed(() => requiredLevels.value.every((l) => !!assignments.value[l.level]));
 
 // Pre-fill each required level with its default approver (without clobbering user choices).
@@ -96,16 +101,13 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
                     :items="approverItems"
                     item-title="title"
                     item-value="value"
+                    :item-props="approverItemProps"
                     label="Approver"
                     density="compact"
                     hide-details
                     clearable
                     :disabled="disabled"
-                >
-                    <template #item="{ props: itemProps, item }">
-                        <v-list-item v-bind="itemProps" :subtitle="item.raw.subtitle" />
-                    </template>
-                </v-select>
+                />
             </div>
 
             <v-divider class="my-4" />
@@ -138,15 +140,12 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
                     :items="approverItems"
                     item-title="title"
                     item-value="value"
+                    :item-props="approverItemProps"
                     label="Approver"
                     density="compact"
                     hide-details
                     :disabled="disabled"
-                >
-                    <template #item="{ props: itemProps, item }">
-                        <v-list-item v-bind="itemProps" :subtitle="item.raw.subtitle" />
-                    </template>
-                </v-select>
+                />
                 <v-btn icon="mdi-close" variant="text" size="small" :disabled="disabled" @click="removeAdhoc(i)" />
             </div>
         </template>

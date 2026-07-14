@@ -32,6 +32,10 @@ const approverItems = computed(() =>
     }))
 );
 
+function approverItemProps(item) {
+    return { title: item.title, subtitle: item.subtitle };
+}
+
 async function load() {
     loading.value = true;
     try {
@@ -163,16 +167,13 @@ async function remove(level) {
                             :items="approverItems"
                             item-title="title"
                             item-value="value"
+                            :item-props="approverItemProps"
                             label="Default approver"
                             clearable
-                            hint="Pre-filled onto each request's chain for this level (requesters can change it)"
+                            hint="Pre-filled onto each request's chain for this level (Finance can change it)"
                             persistent-hint
                             class="mt-1"
-                        >
-                            <template #item="{ props: itemProps, item }">
-                                <v-list-item v-bind="itemProps" :subtitle="item.raw.subtitle" />
-                            </template>
-                        </v-select>
+                        />
                         <v-switch v-model="form.is_active" label="Active" color="success" hide-details class="mt-2" />
                     </v-form>
                 </v-card-text>

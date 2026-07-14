@@ -19,7 +19,7 @@ Structural/maintainability items (distinct from behavioral gaps in
 ## Backend
 
 - **Authorization is scattered.** Some checks are in `role:` middleware, some inline in
-  controllers, some in `ApprovalService`. There are no Policies / Form Requests. As the app
+  controllers, some in `PaymentRequestService`. There are no Policies / Form Requests. As the app
   grows, consolidating into Form Requests + Policies would reduce drift and duplication.
 - **Controllers do validation inline.** Fine at current size; extract Form Requests if rules
   start to be reused across store/update.
@@ -38,12 +38,15 @@ Structural/maintainability items (distinct from behavioral gaps in
 
 ## Testing & tooling
 
-- **No test suite** for domain behavior (see known-issues #3). This is the highest-leverage debt
-  to pay down before significant feature work.
+- **Partial test coverage.** 12 feature tests cover the PRF workflow + endpoint smoke; there are
+  no frontend tests and limited coverage of invoice edit/query edge cases. Grow it before major
+  feature work.
 - **No CI/CD**, no static analysis (PHPStan/Larastan), no frontend lint/format config beyond
   `.editorconfig`. Pint is available but not enforced.
 
-## Product-model debt
+## Product-model note
 
-- **Demo (8-stage) vs. implementation (threshold chain).** Decide the target model before
-  building further approval features; retrofitting later is costly. See known-issues #4.
+- The **demo's fixed 8-stage chain** was intentionally **not** adopted; the app uses a dynamic
+  per-PRF chain with level-based defaults (see
+  [ADR-002](../decisions/ADR-002-vendor-portal-workflow.md)). No action needed — recorded so the
+  divergence from `vendor-portal-demo` is not mistaken for a gap.

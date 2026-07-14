@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ApprovalLevel;
 use App\Models\Invoice;
+use App\Models\PaymentRequest;
 use App\Models\User;
 
 class MetaController extends Controller
@@ -17,6 +18,8 @@ class MetaController extends Controller
             'payment_methods' => config('paf.payment_methods'),
             'priorities' => config('paf.priorities'),
             'statuses' => Invoice::STATUSES,
+            'payment_statuses' => Invoice::PAYMENT_STATUSES,
+            'pr_statuses' => PaymentRequest::STATUSES,
             'roles' => User::ROLES,
             'approval_levels' => ApprovalLevel::with('defaultApprover:id,name')->orderBy('level')->get(),
             'upload' => [

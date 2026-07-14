@@ -23,17 +23,27 @@ export function fileSize(bytes) {
 }
 
 /**
- * Entity-stable status colors (CVD-validated ordering for the dashboard donut).
- * The same hex follows a status everywhere: chips, charts, legends.
+ * Entity-stable status colors. The same hex follows a status everywhere:
+ * chips, charts, legends. Covers invoice statuses, invoice payment statuses,
+ * and payment-request statuses (shared keys carry the same meaning).
  */
 export const STATUS_META = {
+    // Invoice Log lifecycle
+    submitted: { label: 'Submitted', color: '#2a78d6', icon: 'mdi-file-send-outline' },
+    posted: { label: 'Posted', color: '#008300', icon: 'mdi-checkbox-marked-circle-outline' },
+    query_raised: { label: 'Query Raised', color: '#e34948', icon: 'mdi-help-circle-outline' },
+    cancelled: { label: 'Cancelled', color: '#eb6834', icon: 'mdi-cancel' },
+
+    // Invoice payment status
+    not_initiated: { label: 'Not Initiated', color: '#898781', icon: 'mdi-timer-sand-empty' },
+    in_approval: { label: 'In Approval', color: '#eda100', icon: 'mdi-clock-outline' },
+    approved_for_payment: { label: 'Approved for Payment', color: '#1baf7a', icon: 'mdi-cash-check' },
     paid: { label: 'Paid', color: '#008300', icon: 'mdi-check-circle' },
-    scheduled: { label: 'Scheduled', color: '#2a78d6', icon: 'mdi-calendar-clock' },
-    pending_approval: { label: 'Pending Approval', color: '#eda100', icon: 'mdi-clock-outline' },
+
+    // Payment-request status (draft/approved/rejected in addition to the shared ones)
+    draft: { label: 'Draft', color: '#898781', icon: 'mdi-pencil-outline' },
     approved: { label: 'Approved', color: '#1baf7a', icon: 'mdi-thumb-up-outline' },
     rejected: { label: 'Rejected', color: '#e34948', icon: 'mdi-close-circle-outline' },
-    draft: { label: 'Draft', color: '#898781', icon: 'mdi-pencil-outline' },
-    cancelled: { label: 'Cancelled', color: '#eb6834', icon: 'mdi-cancel' },
 };
 
 export function statusLabel(status) {

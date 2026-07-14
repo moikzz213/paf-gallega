@@ -1,6 +1,5 @@
 <?php
 
-use App\Http\Controllers\ApprovalController;
 use App\Http\Controllers\ApprovalLevelController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\AuthController;
@@ -8,7 +7,7 @@ use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MetaController;
-use App\Http\Controllers\PaymentController;
+use App\Http\Controllers\PaymentRequestController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -29,30 +28,32 @@ Route::prefix('api')->group(function () {
 
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
-        // invoice payment requests
+        // Invoice Log — submission, review, ERP posting / query
         Route::get('/invoices', [InvoiceController::class, 'index']);
         Route::post('/invoices', [InvoiceController::class, 'store']);
         Route::get('/invoices/{invoice}', [InvoiceController::class, 'show']);
         Route::post('/invoices/{invoice}', [InvoiceController::class, 'update']); // POST for multipart updates
         Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy']);
-        Route::post('/invoices/{invoice}/submit', [InvoiceController::class, 'submit']);
         Route::post('/invoices/{invoice}/cancel', [InvoiceController::class, 'cancel']);
+
+        Route::middleware('role:finance,admin')->group(function () {
+            Route::post('/invoices/{invoice}/post', [InvoiceController::class, 'post']);
+            Route::post('/invoices/{invoice}/query', [InvoiceController::class, 'raiseQuery']);
+        });
 
         // documents
         Route::get('/documents/{document}/download', [DocumentController::class, 'download']);
         Route::delete('/documents/{document}', [DocumentController::class, 'destroy']);
 
-        // approvals
-        Route::get('/approvals/pending', [ApprovalController::class, 'pending']);
-        Route::post('/invoices/{invoice}/approve', [ApprovalController::class, 'approve']);
-        Route::post('/invoices/{invoice}/reject', [ApprovalController::class, 'reject']);
-
-        // payment processing (finance)
-        Route::middleware('role:finance,admin')->group(function () {
-            Route::get('/payments/queue', [PaymentController::class, 'queue']);
-            Route::post('/invoices/{invoice}/schedule', [PaymentController::class, 'schedule']);
-            Route::post('/invoices/{invoice}/mark-paid', [PaymentController::class, 'markPaid']);
-        });
+        // Payment requests (PRF) + approval chain
+        Route::get('/payment-requests/eligible', [PaymentRequestController::class, 'eligible'])->middleware('role:finance,admin');
+        Route::get('/payment-requests/pending', [PaymentRequestController::class, 'pending']);
+        Route::get('/payment-requests', [PaymentRequestController::class, 'index']);
+        Route::post('/payment-requests', [PaymentRequestController::class, 'store'])->middleware('role:finance,admin');
+        Route::get('/payment-requests/{paymentRequest}', [PaymentRequestController::class, 'show']);
+        Route::post('/payment-requests/{paymentRequest}/approve', [PaymentRequestController::class, 'approve']);
+        Route::post('/payment-requests/{paymentRequest}/reject', [PaymentRequestController::class, 'reject']);
+        Route::post('/payment-requests/{paymentRequest}/mark-paid', [PaymentRequestController::class, 'markPaid'])->middleware('role:finance,admin');
 
         // reports (data scoped by role visibility)
         Route::get('/reports', [ReportController::class, 'index']);

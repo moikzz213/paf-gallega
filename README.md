@@ -1,26 +1,27 @@
 # PAF — Payment Approval Form Platform
 
-A web application for submitting vendor invoices as **payment requests**, routing them through a
-multi-level **approval chain** based on amount thresholds, and processing approved payments — with
-a complete **audit trail**. Built as a session-authenticated Vue SPA on a Laravel API.
+A web application where departments submit vendor invoices, Finance logs and posts them to the
+ERP, then groups posted invoices into a **Payment Request (PRF)** routed through a **dynamic,
+per-request approval chain** and marked paid — with a complete **audit trail**. Built as a
+session-authenticated Vue SPA on a Laravel API.
 
 > **Documentation:** Human/agent knowledge base lives in [`/ai`](ai/) and the working rules in
-> [`AGENTS.md`](AGENTS.md). A detailed reference also exists at
-> [`docs/PAF-Documentation.html`](docs/PAF-Documentation.html).
+> [`AGENTS.md`](AGENTS.md); the current model is recorded in
+> [`ADR-002`](ai/decisions/ADR-002-vendor-portal-workflow.md).
 
 ## Overview
 
-Four roles collaborate on each request:
+Four roles:
 
-- **Requester** — creates and submits payment requests, attaches invoice copies.
-- **Approver** — approves/rejects requests routed to their approval level.
-- **Finance** — schedules and marks approved requests as paid.
+- **Requester** — submits vendor invoices, attaches invoice copies, tracks status.
+- **Finance** — posts invoices to ERP or raises queries; creates payment requests; marks paid.
+- **Approver** — approves/rejects the payment-request stages assigned to them.
 - **Admin** — manages users and approval levels, views the audit log; sees everything.
 
-Lifecycle: `draft → pending_approval → approved → scheduled → paid`, with `rejected` and
-`cancelled` branches. Approval routing is data-driven: a request must pass every active approval
-level whose `min_amount ≤ total_amount`, in order. See
-[`ai/features/feature-overview.md`](ai/features/feature-overview.md).
+Flow: **Submit Invoice → Invoice Log (post to ERP / raise query) → Payment Request (group posted
+invoices + build approval chain) → Payment Approval (sequential, per-stage) → Paid.** The chain
+pre-fills from `approval_levels` defaults (by amount) but every stage is editable and ad-hoc
+stages can be added. See [`ai/features/feature-overview.md`](ai/features/feature-overview.md).
 
 ## Technology stack
 

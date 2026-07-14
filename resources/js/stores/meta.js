@@ -9,6 +9,8 @@ export const useMetaStore = defineStore('meta', {
         payment_methods: {},
         priorities: [],
         statuses: [],
+        payment_statuses: [],
+        pr_statuses: [],
         roles: [],
         approval_levels: [],
         approvers: [],

@@ -12,15 +12,12 @@ const drawer = ref(true);
 const navItems = computed(() => {
     const items = [
         { title: 'Dashboard', icon: 'mdi-view-dashboard-outline', to: '/dashboard' },
-        { title: 'Payment Requests', icon: 'mdi-file-document-multiple-outline', to: '/invoices' },
+        { title: 'Invoice Log', icon: 'mdi-file-document-multiple-outline', to: '/invoices' },
+        { title: 'Payment Requests', icon: 'mdi-bank-transfer-out', to: '/payment-requests' },
     ];
 
     if (auth.canApprove) {
         items.push({ title: 'Approvals', icon: 'mdi-stamper', to: '/approvals' });
-    }
-
-    if (auth.canProcessPayments) {
-        items.push({ title: 'Payments', icon: 'mdi-bank-transfer-out', to: '/payments' });
     }
 
     items.push({ title: 'Reports', icon: 'mdi-chart-box-outline', to: '/reports' });

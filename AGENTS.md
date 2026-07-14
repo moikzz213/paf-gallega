@@ -11,9 +11,11 @@ repository. **Read the `/ai` knowledge base before making changes.**
 
 ## Project in one line
 
-PAF — a Laravel 13 + Vue 3 (Vuetify/Pinia) payment-approval platform: vendor invoices are
-submitted as payment requests, routed through an amount-threshold approval chain, then paid by
-finance, with a full audit trail. Session-authenticated same-origin SPA, SQLite by default.
+PAF — a Laravel 13 + Vue 3 (Vuetify/Pinia) vendor-invoice payment platform. Flow:
+**Submit Invoice → Invoice Log (Finance posts to ERP / raises a query) → Payment Request
+(Finance groups posted invoices into a PRF) → Payment Approval (a dynamic, per-request approval
+chain, each stage assigned to an approver, routed in sequence)**. Session-authenticated
+same-origin SPA, full audit trail. See [ADR-002](ai/decisions/ADR-002-vendor-portal-workflow.md).
 
 ## The LIFT workflow (follow for every task)
 
@@ -45,10 +47,10 @@ Learn  →  Intend  →  Forge  →  Tune
 ## Coding standards (summary — full detail in ai/coding-standards.md)
 
 - **Backend:** PHP 8.3 / Laravel 13. Controllers stay thin (validate → authorize → delegate →
-  return). Domain logic goes in **services** (see `ApprovalService`). Use model constants for
-  statuses/roles and `config('paf.*')` for enums — don't hard-code strings. Wrap multi-write
-  workflow ops in `DB::transaction`. **Always scope invoice queries with
-  `Invoice::scopeVisibleTo`.** Format with Pint.
+  return). Domain logic goes in **services** (see `PaymentRequestService`). Use model constants
+  for statuses/roles and `config('paf.*')` for enums — don't hard-code strings. Wrap multi-write
+  workflow ops in `DB::transaction`. **Always scope queries with `Invoice::scopeVisibleTo` /
+  `PaymentRequest::scopeVisibleTo`.** Format with Pint.
 - **Every state change is audited** via `AuditLogger::log(...)`. Add an audit call for any new
   state-changing action.
 - **Frontend:** Vue 3 `<script setup>` + Vuetify 4 + Pinia. All API calls go through

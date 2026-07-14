@@ -1,94 +1,78 @@
 # Project Context
 
-> Part of the `/ai` knowledge base. See [architecture.md](architecture.md), [database-schema.md](database-schema.md), [api-contracts.md](api-contracts.md).
+> Part of the `/ai` knowledge base. See [architecture.md](architecture.md),
+> [database-schema.md](database-schema.md), [api-contracts.md](api-contracts.md),
+> and [decisions/ADR-002](decisions/ADR-002-vendor-portal-workflow.md) (the current model).
 
 ## What this is
 
-**PAF — Payment Approval Form / Invoice Payment Approval Platform.** A web application for
-submitting vendor invoices as payment requests, routing them through a multi-level approval
-chain based on amount thresholds, and processing the approved payments through finance.
-
-It replaces a manual/email-and-spreadsheet invoice approval process with a single auditable
-system: fixed-format submission, a date-wise invoice register, threshold-driven approvals,
-payment scheduling, and a complete audit trail.
+**PAF — vendor-invoice payment platform.** Departments submit vendor invoices; Finance logs and
+posts them to the ERP; Finance then groups posted invoices into a **Payment Request (PRF)** that
+is routed through a **dynamic, per-request approval chain** and finally marked paid — all with a
+full audit trail.
 
 ## Target users (four roles)
 
 | Role | Who | Primary activity |
 |------|-----|------------------|
-| **Requester** | Department staff (Procurement, Operations, …) | Create and submit payment requests, attach invoice copies |
-| **Approver** | Managers / directors / CFO, each pinned to an `approval_level` | Approve or reject requests routed to their level |
-| **Finance** | AP accountants | Schedule and mark approved requests as paid |
-| **Admin** | System administrators | Manage users, configure approval levels, view audit logs; can see everything |
+| **Requester** | Department staff | Submit vendor invoices; track their status |
+| **Finance** | AP / accounts | Post invoices to ERP or raise queries; create payment requests; mark paid |
+| **Approver** | Managers / directors / CFO … | Approve or reject the payment-request stages assigned to them |
+| **Admin** | System administrators | Manage users & approval levels; view audit logs; can do everything |
 
-## Main business workflow
+## Main business workflow (the four steps)
 
 ```
-Requester creates request (draft)
-      │  attaches invoice documents
-      ▼
-Submit → status: pending_approval
-      │  ApprovalService builds one approval row per required level (by amount)
-      ▼
-Approval chain (level 1 → 2 → 3 …), sequential
-      │  each approver approves (advances current_level) or rejects (ends chain)
-      ▼
-status: approved
-      │
-      ▼
-Finance schedules payment → status: scheduled
-      │
-      ▼
-Finance marks paid → status: paid   (payment_reference recorded)
+1. Submit Invoice   requester submits a vendor invoice     → status: submitted
+2. Invoice Log      Finance posts to ERP  (erp_doc_no)      → status: posted
+                    or raises a query     (finance_remarks) → status: query_raised
+3. Payment Request  Finance selects posted invoices and
+                    groups them into a PRF + approval chain  → invoice payment_status: in_approval
+4. Payment Approval PRF routed stage-by-stage to each
+                    assigned approver (approve → next stage;
+                    reject → back to Finance, invoices freed)
+                    all approved → approved_for_payment
+                    Finance marks paid   (payment_reference) → paid
 ```
 
-Terminal/branch states: **rejected** (returned to requester, editable + resubmittable),
-**cancelled** (requester withdraws before completion).
+- **Invoice status:** `submitted → posted | query_raised`, plus `cancelled`.
+- **Invoice payment_status:** `not_initiated → in_approval → approved_for_payment → paid`
+  (a rejected PRF returns its invoices to `not_initiated`).
+- **PRF status:** `draft → in_approval → approved → paid`, or `rejected`.
 
-## Approval routing (amount-threshold model)
+## Approval chain (dynamic, with defaults)
 
-Approval levels are **data-driven**, stored in the `approval_levels` table and configurable by
-admins. Each level has a `min_amount`; a request must pass every active level whose
-`min_amount <= total_amount`, in ascending `level` order.
+The chain belongs to the **PRF**, not the individual invoice. When Finance creates a PRF:
 
-Seeded default chain:
+- The chain is **pre-filled** from the `approval_levels` a request's total must pass
+  (`min_amount ≤ total`), using each level's **default approver**.
+- Finance can **change any stage's approver, and add ad-hoc extra stages** — every approver is
+  chosen from the pool of **active users with the Approver or Admin role**.
+- Stages route **in sequence**; only the assigned approver (or an admin) can act on the current
+  stage.
 
-| Level | Name | Applies when total ≥ |
-|-------|------|----------------------|
-| 1 | Department Manager | 0 (always) |
-| 2 | Finance Director | 10,000 |
-| 3 | CFO | 50,000 |
-
-> **Note on the demo HTML vs. this system:** the `vendor-portal-demo` HTML mockup shows a
-> *fixed 8-stage* approval chain with hard-coded roles (Dept. Head → Finance Executive →
-> Finance Manager → Chief Accountant → Internal Audit → GM Finance → CFO → MD). The
-> implemented system instead uses a **configurable, amount-threshold** chain. Any change to
-> match the demo's 8-stage model is a product decision — see [issues/technical-debt.md](issues/technical-debt.md).
+Seeded default levels: L1 Department Manager (≥0), L2 Finance Director (≥10,000),
+L3 CFO (≥50,000), each with a seeded default approver.
 
 ## Current development status
 
-- **Stage:** Working prototype / early build. Core end-to-end flow is implemented (auth,
-  submission, documents, approval chain, payments, reports, audit, admin).
-- **Data:** SQLite with seeders (`UserSeeder`, `ApprovalLevelSeeder`, `DemoDataSeeder`)
-  producing demo users and ~59 sample invoices across all statuses.
-- **Tests:** Only Laravel's default example tests exist — **no domain test coverage yet**.
-- **Auth:** Session-based, same-origin SPA. No email verification, no password reset flow.
-- **Email/ERP:** Not integrated (mail driver = `log`). The demo's "email to approver" step is
-  represented in-app via the pending-approvals queue, not real email.
+- **Stage:** Working prototype, reworked to the vendor-portal scenario (see ADR-002).
+- **Data:** seeders produce demo users + ~46 invoices across statuses and 11 PRFs across states.
+- **Tests:** 12 feature tests (workflow + endpoint smoke). Verified via browser walkthrough.
+- **Auth:** session-based; no email verification / password reset.
+- **Email/ERP:** not integrated. "Post to ERP" records a doc number but calls no external system;
+  approvals happen in-app (no email is sent — mail driver is `log`).
 
 ## Technology stack (summary)
 
-- **Backend:** Laravel 13, PHP 8.3, SQLite (default), session auth.
+- **Backend:** Laravel 13, PHP 8.3, session auth. DB is portable SQL (`.env.example` ships
+  SQLite; this dev instance runs MySQL).
 - **Frontend:** Vue 3 SPA + Vuetify 4 + Pinia + Vue Router + Axios + Chart.js, built by Vite.
 - **Export:** `maatwebsite/excel` for report exports.
 
-See [architecture.md](architecture.md) for detail.
-
 ## External integrations
 
-- **None active.** Mail is logged, not sent. No ERP, no payment gateway, no third-party auth.
-- Production intent (per demo footer & existing docs): SMTP/email service, ERP integration,
-  role-based access — the last is already implemented.
+- **None active.** No real ERP, mailer, or payment gateway.
 
 ## Seeded demo accounts
 
@@ -102,3 +86,6 @@ All seeded users have password `password`.
 | approver2@paf.local | approver | 2 |
 | approver3@paf.local | approver | 3 |
 | finance@paf.local | finance | — |
+
+> Note: this dev instance's seeded users were customized to real names/emails; the demo logins
+> above reflect the seeder defaults. Passwords are set by an admin (no self-service reset).
