@@ -5,6 +5,7 @@ import api, { errorMessage } from '../../services/api';
 import { fileSize, money } from '../../utils/format';
 import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
+import ApprovalChainBuilder from '../../components/ApprovalChainBuilder.vue';
 
 const props = defineProps({ id: { type: String, default: null } });
 
@@ -18,6 +19,7 @@ const saving = ref(false);
 const formRef = ref(null);
 const files = ref([]);
 const existingDocuments = ref([]);
+const chain = ref({ assignments: {}, adhoc: [], valid: false });
 
 const form = ref({
     vendor_name: '',
@@ -50,8 +52,12 @@ const paymentMethodOptions = computed(() =>
     Object.entries(meta.payment_methods).map(([value, title]) => ({ value, title }))
 );
 
+function onChainChange(payload) {
+    chain.value = payload;
+}
+
 onMounted(async () => {
-    await meta.load();
+    await Promise.all([meta.load(), meta.loadApprovers()]);
     if (isEdit.value) {
         loading.value = true;
         try {
@@ -78,6 +84,11 @@ async function save(action) {
         return;
     }
 
+    if (action === 'submit' && !chain.value.valid) {
+        notify.error('Assign an approver for every approval level before submitting.');
+        return;
+    }
+
     saving.value = true;
     try {
         const payload = new FormData();
@@ -86,6 +97,17 @@ async function save(action) {
         });
         payload.append('action', action);
         files.value.forEach((file) => payload.append('documents[]', file));
+
+        if (action === 'submit') {
+            Object.entries(chain.value.assignments).forEach(([level, id]) => {
+                if (id) payload.append(`approvers[${level}]`, id);
+            });
+            chain.value.adhoc.forEach((stage, i) => {
+                if (!stage.approver_id) return;
+                payload.append(`adhoc_approvers[${i}][approver_id]`, stage.approver_id);
+                if (stage.label) payload.append(`adhoc_approvers[${i}][label]`, stage.label);
+            });
+        }
 
         const url = isEdit.value ? `/invoices/${props.id}` : '/invoices';
         const { data } = await api.post(url, payload, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -215,6 +237,14 @@ async function save(action) {
                         :hint="`Up to ${meta.upload.max_documents} files, ${Math.round(meta.upload.max_document_kb / 1024)}MB each (${meta.upload.mimes})`"
                         persistent-hint
                     />
+                </v-card-text>
+            </v-card>
+
+            <v-card class="mb-6">
+                <v-card-title class="text-subtitle-1">Approval Chain</v-card-title>
+                <v-card-subtitle>Only used when you submit for approval — drafts skip this step</v-card-subtitle>
+                <v-card-text>
+                    <ApprovalChainBuilder :total="totalAmount" @change="onChainChange" />
                 </v-card-text>
             </v-card>
 

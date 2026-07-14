@@ -83,9 +83,10 @@ class Invoice extends Model
         }
 
         if ($user->isApprover()) {
-            // approvers see invoices that have (or had) an approval row at their level, plus their own
+            // approvers see their own submissions, invoices assigned to them, and (legacy) any at their level
             return $query->where(function (Builder $q) use ($user) {
                 $q->where('submitted_by', $user->id)
+                    ->orWhereHas('approvals', fn (Builder $a) => $a->where('approver_id', $user->id))
                     ->orWhereHas('approvals', fn (Builder $a) => $a->where('level', $user->approval_level));
             });
         }

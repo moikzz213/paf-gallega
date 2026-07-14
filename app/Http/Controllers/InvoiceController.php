@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Invoice;
+use App\Models\User;
 use App\Services\ApprovalService;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
@@ -11,6 +12,8 @@ use Illuminate\Validation\Rule;
 
 class InvoiceController extends Controller
 {
+    private const MAX_ADHOC_APPROVERS = 10;
+
     public function __construct(private ApprovalService $approvals)
     {
     }
@@ -78,10 +81,11 @@ class InvoiceController extends Controller
         });
 
         if ($request->input('action') === 'submit') {
-            $this->approvals->submit($invoice);
+            [$assignments, $adhoc] = $this->approverPayload($request);
+            $this->approvals->submit($invoice, $assignments, $adhoc);
         }
 
-        return response()->json($invoice->load('documents', 'approvals'), 201);
+        return response()->json($invoice->load('documents', 'approvals.approver:id,name'), 201);
     }
 
     public function show(Request $request, Invoice $invoice)
@@ -120,10 +124,11 @@ class InvoiceController extends Controller
         AuditLogger::log('updated', "Request {$invoice->reference_no} updated", $invoice, $old, $data);
 
         if ($request->input('action') === 'submit') {
-            $this->approvals->submit($invoice);
+            [$assignments, $adhoc] = $this->approverPayload($request);
+            $this->approvals->submit($invoice, $assignments, $adhoc);
         }
 
-        return response()->json($invoice->refresh()->load('documents', 'approvals'));
+        return response()->json($invoice->refresh()->load('documents', 'approvals.approver:id,name'));
     }
 
     public function destroy(Request $request, Invoice $invoice)
@@ -152,7 +157,11 @@ class InvoiceController extends Controller
             abort(403, 'You can only submit your own requests.');
         }
 
-        return response()->json($this->approvals->submit($invoice)->load('approvals'));
+        [$assignments, $adhoc] = $this->approverPayload($request);
+
+        return response()->json(
+            $this->approvals->submit($invoice, $assignments, $adhoc)->load('approvals.approver:id,name')
+        );
     }
 
     public function cancel(Request $request, Invoice $invoice)
@@ -202,6 +211,45 @@ class InvoiceController extends Controller
         return $data;
     }
 
+    /**
+     * Validate and normalise the approver assignments sent with a submit.
+     *
+     * @return array{0: array<int, int>, 1: array<int, array{approver_id: int, label: string|null}>}
+     */
+    private function approverPayload(Request $request): array
+    {
+        $isApprover = Rule::exists('users', 'id')->where(function ($q) {
+            $q->where('is_active', true)->whereIn('role', [User::ROLE_APPROVER, User::ROLE_ADMIN]);
+        });
+
+        $request->validate([
+            'approvers' => ['nullable', 'array'],
+            'approvers.*' => ['nullable', 'integer', $isApprover],
+            'adhoc_approvers' => ['nullable', 'array', 'max:'.self::MAX_ADHOC_APPROVERS],
+            'adhoc_approvers.*.approver_id' => ['required', 'integer', $isApprover],
+            'adhoc_approvers.*.label' => ['nullable', 'string', 'max:100'],
+        ]);
+
+        $assignments = [];
+        foreach ((array) $request->input('approvers', []) as $level => $approverId) {
+            if ($approverId) {
+                $assignments[(int) $level] = (int) $approverId;
+            }
+        }
+
+        $adhoc = [];
+        foreach ((array) $request->input('adhoc_approvers', []) as $stage) {
+            if (! empty($stage['approver_id'])) {
+                $adhoc[] = [
+                    'approver_id' => (int) $stage['approver_id'],
+                    'label' => $stage['label'] ?? null,
+                ];
+            }
+        }
+
+        return [$assignments, $adhoc];
+    }
+
     private function storeDocuments(Request $request, Invoice $invoice): void
     {
         foreach ($request->file('documents', []) as $file) {
@@ -225,6 +273,7 @@ class InvoiceController extends Controller
 
         $visible = $user->canViewAllInvoices()
             || $invoice->submitted_by === $user->id
+            || $invoice->approvals()->where('approver_id', $user->id)->exists()
             || ($user->isApprover() && $invoice->approvals()->where('level', $user->approval_level)->exists());
 
         abort_unless($visible, 403, 'You do not have access to this request.');

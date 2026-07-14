@@ -1,0 +1,107 @@
+# AGENTS.md — AI Development Rules for the PAF Project
+
+This file governs how AI coding agents (and humans following the same process) work in this
+repository. **Read the `/ai` knowledge base before making changes.**
+
+- Start here: [ai/project-context.md](ai/project-context.md),
+  [ai/architecture.md](ai/architecture.md), [ai/database-schema.md](ai/database-schema.md),
+  [ai/api-contracts.md](ai/api-contracts.md), [ai/coding-standards.md](ai/coding-standards.md).
+- Before touching a feature, read [ai/features/feature-overview.md](ai/features/feature-overview.md)
+  and the relevant [ai/issues/](ai/issues/) notes.
+
+## Project in one line
+
+PAF — a Laravel 13 + Vue 3 (Vuetify/Pinia) payment-approval platform: vendor invoices are
+submitted as payment requests, routed through an amount-threshold approval chain, then paid by
+finance, with a full audit trail. Session-authenticated same-origin SPA, SQLite by default.
+
+## The LIFT workflow (follow for every task)
+
+```
+Learn  →  Intend  →  Forge  →  Tune
+```
+
+1. **Learn** — Read the relevant `/ai` docs and the actual code paths before writing anything.
+   Confirm assumptions against the source (docs may lag code). Identify the files, endpoints, and
+   data involved.
+2. **Intend** — State the plan: what changes, which files, what could break, how you'll verify.
+   For non-trivial or hard-to-reverse work, surface the plan before doing it.
+3. **Forge** — Implement, matching existing conventions (see coding-standards). Keep changes
+   scoped; don't opportunistically refactor unrelated code.
+4. **Tune** — Verify behavior (run/exercise the affected flow, add/adjust tests), run
+   `./vendor/bin/pint`, then **update the `/ai` docs** the change affects.
+
+## AI behavior rules
+
+- **Do not invent facts.** If a detail isn't in the docs or code, go read the code. Never answer
+  data-model/API questions from memory when the source is available.
+- **Stay in scope.** Implement what's asked; propose (don't silently perform) adjacent
+  refactors, deletions, or new dependencies.
+- **Prefer the safe/minimal change.** Match surrounding code style, naming, and altitude.
+- **Confirm irreversible or outward-facing actions** (destructive DB ops, force-push, deploys,
+  sending anything external) before doing them.
+- **Never commit secrets.** `.env` is git-ignored — keep it that way.
+
+## Coding standards (summary — full detail in ai/coding-standards.md)
+
+- **Backend:** PHP 8.3 / Laravel 13. Controllers stay thin (validate → authorize → delegate →
+  return). Domain logic goes in **services** (see `ApprovalService`). Use model constants for
+  statuses/roles and `config('paf.*')` for enums — don't hard-code strings. Wrap multi-write
+  workflow ops in `DB::transaction`. **Always scope invoice queries with
+  `Invoice::scopeVisibleTo`.** Format with Pint.
+- **Every state change is audited** via `AuditLogger::log(...)`. Add an audit call for any new
+  state-changing action.
+- **Frontend:** Vue 3 `<script setup>` + Vuetify 4 + Pinia. All API calls go through
+  `services/api.js`. Resolve status/priority colors from `utils/format.js` (`STATUS_META` /
+  `PRIORITY_META`) and render via `StatusChip`. Don't add Tailwind classes (not wired in).
+- **Authorization lives in two synced places** — server (`role:` middleware + inline/service
+  checks) and client (router `meta.roles` + `AppLayout` getters). Update **both** when adding
+  gated routes.
+
+## Documentation update rules
+
+When your change affects any of these, update the matching doc **in the same change**:
+
+| You changed… | Update… |
+|--------------|---------|
+| a migration / schema | [ai/database-schema.md](ai/database-schema.md) |
+| a route / controller / validation / response | [ai/api-contracts.md](ai/api-contracts.md) |
+| a feature's behavior | [ai/features/feature-overview.md](ai/features/feature-overview.md) |
+| architecture / a new layer or service | [ai/architecture.md](ai/architecture.md) |
+| a convention | [ai/coding-standards.md](ai/coding-standards.md) |
+| setup / env / deploy | [ai/deployment.md](ai/deployment.md) |
+
+Keep `README.md` accurate for setup/run instructions.
+
+## Issue tracking rules
+
+- Discovered a limitation or gap? Add it to [ai/issues/known-issues.md](ai/issues/known-issues.md)
+  (behavioral) or [ai/issues/technical-debt.md](ai/issues/technical-debt.md) (structural).
+- Fixed a bug? Move/record it in [ai/issues/bugs-fixed.md](ai/issues/bugs-fixed.md) with cause,
+  fix, and how it was verified.
+- Hit a recurring setup/runtime snag? Add it to
+  [ai/issues/troubleshooting.md](ai/issues/troubleshooting.md).
+
+## Architecture decision rules
+
+- Any significant, hard-to-reverse choice (new dependency, auth change, schema redesign, changing
+  the approval model, etc.) gets an ADR in [ai/decisions/](ai/decisions/):
+  `ADR-NNN-short-title.md` with **Context / Decision / Consequences**. Number sequentially after
+  [ADR-001](ai/decisions/ADR-001-project-initialization.md).
+
+## Testing
+
+- PHPUnit with in-memory SQLite (`php artisan test`). New domain code should ship with feature
+  tests — approval-chain transitions, authorization scoping, and payment lifecycle are the
+  priority areas (currently untested).
+
+## Quick commands
+
+```bash
+composer dev        # serve + queue + logs + vite (concurrently)
+php artisan serve   # backend only
+npm run dev         # frontend HMR
+php artisan test    # run tests
+./vendor/bin/pint   # format PHP
+php artisan migrate:fresh --seed   # reset DB with demo data
+```

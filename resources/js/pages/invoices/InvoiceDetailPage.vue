@@ -4,18 +4,22 @@ import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../../services/api';
 import { dateTime, fileSize, money, shortDate, PRIORITY_META } from '../../utils/format';
 import { useAuthStore } from '../../stores/auth';
+import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
 import StatusChip from '../../components/StatusChip.vue';
+import ApprovalChainBuilder from '../../components/ApprovalChainBuilder.vue';
 
 const props = defineProps({ id: { type: String, required: true } });
 
 const auth = useAuthStore();
+const meta = useMetaStore();
 const notify = useNotifyStore();
 const router = useRouter();
 
 const invoice = ref(null);
 const loading = ref(true);
 const acting = ref(false);
+const chain = ref({ assignments: {}, adhoc: [], valid: false });
 
 const dialog = ref({ show: false, kind: null, comments: '', scheduled_date: '', payment_reference: '' });
 
@@ -32,7 +36,15 @@ async function load() {
     }
 }
 
-onMounted(load);
+function onChainChange(payload) {
+    chain.value = payload;
+}
+
+onMounted(() => {
+    load();
+    meta.load();
+    meta.loadApprovers();
+});
 
 const isOwner = computed(() => invoice.value?.submitted_by === auth.user?.id);
 
@@ -41,9 +53,17 @@ const canSubmit = computed(() => canEdit.value);
 const canCancel = computed(() => (isOwner.value || auth.isAdmin) && ['draft', 'pending_approval'].includes(invoice.value?.status));
 const canDelete = computed(() => (isOwner.value || auth.isAdmin) && invoice.value?.status === 'draft');
 
+const currentStep = computed(() =>
+    invoice.value?.approvals?.find((s) => s.level === invoice.value?.current_level)
+);
+
 const canAct = computed(() => {
     if (invoice.value?.status !== 'pending_approval') return false;
     if (auth.isAdmin) return true;
+    const step = currentStep.value;
+    if (!step) return false;
+    if (step.approver_id) return step.approver_id === auth.user?.id;
+    // legacy / unassigned fallback: any approver whose level matches
     return auth.isApprover && auth.user?.approval_level === invoice.value?.current_level;
 });
 
@@ -55,6 +75,7 @@ function openDialog(kind) {
 }
 
 const dialogTitle = computed(() => ({
+    submit: 'Submit for Approval',
     approve: 'Approve Request',
     reject: 'Reject Request',
     schedule: 'Schedule Payment',
@@ -92,6 +113,17 @@ async function runAction(kind, payload = {}) {
 
 async function confirmDialog() {
     const { kind, comments, scheduled_date, payment_reference } = dialog.value;
+    if (kind === 'submit') {
+        if (!chain.value.valid) return notify.error('Assign an approver for every approval level.');
+        const approvers = {};
+        Object.entries(chain.value.assignments).forEach(([lvl, id]) => {
+            if (id) approvers[lvl] = id;
+        });
+        const adhoc_approvers = chain.value.adhoc
+            .filter((s) => s.approver_id)
+            .map((s) => ({ approver_id: s.approver_id, label: s.label || null }));
+        return runAction('submit', { approvers, adhoc_approvers });
+    }
     if (kind === 'approve') return runAction('approve', { comments });
     if (kind === 'reject') {
         if (!comments.trim()) return notify.error('A reason is required to reject.');
@@ -167,7 +199,7 @@ const auditIcons = {
             <v-btn v-if="canAct" color="error" variant="tonal" prepend-icon="mdi-close" @click="openDialog('reject')">Reject</v-btn>
             <v-btn v-if="canSchedule" color="info" prepend-icon="mdi-calendar-clock" @click="openDialog('schedule')">Schedule</v-btn>
             <v-btn v-if="canPay" color="success" prepend-icon="mdi-cash-check" @click="openDialog('pay')">Mark Paid</v-btn>
-            <v-btn v-if="canSubmit" color="primary" prepend-icon="mdi-send" :loading="acting" @click="runAction('submit')">Submit</v-btn>
+            <v-btn v-if="canSubmit" color="primary" prepend-icon="mdi-send" @click="openDialog('submit')">Submit</v-btn>
             <v-btn v-if="canEdit" variant="tonal" prepend-icon="mdi-pencil" :to="`/invoices/${invoice.id}/edit`">Edit</v-btn>
             <v-btn v-if="canCancel" variant="text" color="error" prepend-icon="mdi-cancel" :loading="acting" @click="runAction('cancel')">Cancel</v-btn>
             <v-btn v-if="canDelete" variant="text" color="error" icon="mdi-delete-outline" @click="deleteDraft" />
@@ -290,7 +322,9 @@ const auditIcons = {
                                 :icon-color="approvalColor(step.status)"
                             >
                                 <div class="text-body-2 font-weight-medium">
-                                    Level {{ step.level }} — {{ step.level_name }}
+                                    <template v-if="step.is_adhoc">Additional — {{ step.level_name }}</template>
+                                    <template v-else>Level {{ step.level }} — {{ step.level_name }}</template>
+                                    <v-chip v-if="step.is_adhoc" size="x-small" variant="tonal" class="ml-1">ad-hoc</v-chip>
                                     <v-chip
                                         v-if="step.level === invoice.current_level && step.status === 'pending'"
                                         size="x-small" variant="tonal" style="color: #b87a00" class="ml-1"
@@ -299,7 +333,10 @@ const auditIcons = {
                                     </v-chip>
                                 </div>
                                 <div class="text-caption text-medium-emphasis">
-                                    <template v-if="step.status === 'pending'">Awaiting decision</template>
+                                    <template v-if="step.status === 'pending'">
+                                        <template v-if="step.approver">Assigned to {{ step.approver.name }}</template>
+                                        <template v-else>Awaiting decision</template>
+                                    </template>
                                     <template v-else>
                                         {{ step.status === 'approved' ? 'Approved' : 'Rejected' }} by {{ step.approver?.name }}
                                         · {{ dateTime(step.acted_at) }}
@@ -335,11 +372,14 @@ const auditIcons = {
             </v-col>
         </v-row>
 
-        <v-dialog v-model="dialog.show" max-width="480">
+        <v-dialog v-model="dialog.show" :max-width="dialog.kind === 'submit' ? 760 : 480">
             <v-card>
                 <v-card-title>{{ dialogTitle }}</v-card-title>
                 <v-card-text>
-                    <template v-if="dialog.kind === 'approve' || dialog.kind === 'reject'">
+                    <template v-if="dialog.kind === 'submit'">
+                        <ApprovalChainBuilder :total="Number(invoice.total_amount)" @change="onChainChange" />
+                    </template>
+                    <template v-else-if="dialog.kind === 'approve' || dialog.kind === 'reject'">
                         <v-textarea
                             v-model="dialog.comments"
                             :label="dialog.kind === 'reject' ? 'Reason (required)' : 'Comments (optional)'"

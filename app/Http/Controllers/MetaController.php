@@ -18,12 +18,22 @@ class MetaController extends Controller
             'priorities' => config('paf.priorities'),
             'statuses' => Invoice::STATUSES,
             'roles' => User::ROLES,
-            'approval_levels' => ApprovalLevel::orderBy('level')->get(),
+            'approval_levels' => ApprovalLevel::with('defaultApprover:id,name')->orderBy('level')->get(),
             'upload' => [
                 'max_documents' => config('paf.max_documents'),
                 'max_document_kb' => config('paf.max_document_kb'),
                 'mimes' => config('paf.document_mimes'),
             ],
         ]);
+    }
+
+    /** Active users who can be assigned as approvers on a request (for the chain builder). */
+    public function approvers()
+    {
+        return User::query()
+            ->where('is_active', true)
+            ->whereIn('role', [User::ROLE_APPROVER, User::ROLE_ADMIN])
+            ->orderBy('name')
+            ->get(['id', 'name', 'role', 'approval_level', 'department', 'job_title']);
     }
 }

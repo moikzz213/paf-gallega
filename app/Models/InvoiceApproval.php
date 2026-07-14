@@ -10,12 +10,13 @@ class InvoiceApproval extends Model
     public const STATUS_APPROVED = 'approved';
     public const STATUS_REJECTED = 'rejected';
 
-    protected $fillable = ['invoice_id', 'level', 'level_name', 'status', 'approver_id', 'comments', 'acted_at'];
+    protected $fillable = ['invoice_id', 'level', 'level_name', 'is_adhoc', 'status', 'approver_id', 'comments', 'acted_at'];
 
     protected function casts(): array
     {
         return [
             'level' => 'integer',
+            'is_adhoc' => 'boolean',
             'acted_at' => 'datetime',
         ];
     }

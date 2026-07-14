@@ -25,6 +25,7 @@ Route::prefix('api')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
         Route::get('/meta', [MetaController::class, 'index']);
+        Route::get('/approvers', [MetaController::class, 'approvers']);
 
         Route::get('/dashboard', [DashboardController::class, 'index']);
 

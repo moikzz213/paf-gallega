@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref } from 'vue';
+import { computed, onMounted, ref } from 'vue';
 import api, { errorMessage } from '../../services/api';
 import { money } from '../../utils/format';
 import { useMetaStore } from '../../stores/meta';
@@ -22,10 +22,20 @@ const rules = {
     nonNegative: (v) => Number(v) >= 0 || 'Cannot be negative',
 };
 
+const approverItems = computed(() =>
+    (meta.approvers ?? []).map((a) => ({
+        value: a.id,
+        title: a.name,
+        subtitle:
+            (a.role === 'admin' ? 'Admin' : `Approver · L${a.approval_level ?? '—'}`) +
+            (a.department ? ` · ${a.department}` : ''),
+    }))
+);
+
 async function load() {
     loading.value = true;
     try {
-        const { data } = await api.get('/approval-levels');
+        const [{ data }] = await Promise.all([api.get('/approval-levels'), meta.loadApprovers()]);
         levels.value = data;
     } finally {
         loading.value = false;
@@ -36,13 +46,13 @@ onMounted(load);
 
 function openCreate() {
     editing.value = null;
-    form.value = { level: (levels.value.at(-1)?.level ?? 0) + 1, name: '', min_amount: 0, is_active: true };
+    form.value = { level: (levels.value.at(-1)?.level ?? 0) + 1, name: '', min_amount: 0, default_approver_id: null, is_active: true };
     dialog.value = true;
 }
 
 function openEdit(level) {
     editing.value = level;
-    form.value = { ...level };
+    form.value = { level: level.level, name: level.name, min_amount: level.min_amount, default_approver_id: level.default_approver_id ?? null, is_active: level.is_active };
     dialog.value = true;
 }
 
@@ -101,6 +111,7 @@ async function remove(level) {
                     { title: 'Level', key: 'level' },
                     { title: 'Name', key: 'name', sortable: false },
                     { title: 'Applies from (total ≥)', key: 'min_amount' },
+                    { title: 'Default approver', key: 'default_approver', sortable: false },
                     { title: 'Status', key: 'is_active', sortable: false },
                     { title: '', key: 'actions', align: 'end', sortable: false },
                 ]"
@@ -115,6 +126,10 @@ async function remove(level) {
                 </template>
                 <template #item.min_amount="{ item }">
                     {{ Number(item.min_amount) === 0 ? 'All requests' : money(item.min_amount) }}
+                </template>
+                <template #item.default_approver="{ item }">
+                    <span v-if="item.default_approver">{{ item.default_approver.name }}</span>
+                    <span v-else class="text-medium-emphasis">— none —</span>
                 </template>
                 <template #item.is_active="{ item }">
                     <v-chip size="small" variant="tonal" :style="{ color: item.is_active ? '#008300' : '#d03b3b' }">
@@ -143,6 +158,21 @@ async function remove(level) {
                             hint="0 means this level reviews every request"
                             persistent-hint
                         />
+                        <v-select
+                            v-model="form.default_approver_id"
+                            :items="approverItems"
+                            item-title="title"
+                            item-value="value"
+                            label="Default approver"
+                            clearable
+                            hint="Pre-filled onto each request's chain for this level (requesters can change it)"
+                            persistent-hint
+                            class="mt-1"
+                        >
+                            <template #item="{ props: itemProps, item }">
+                                <v-list-item v-bind="itemProps" :subtitle="item.raw.subtitle" />
+                            </template>
+                        </v-select>
                         <v-switch v-model="form.is_active" label="Active" color="success" hide-details class="mt-2" />
                     </v-form>
                 </v-card-text>
