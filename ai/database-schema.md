@@ -55,7 +55,7 @@ Base Laravel columns plus (`add_paf_fields_to_users_table`): `role`
 
 Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `PAF-{year}-00001`),
 `vendor_name` (idx), `vendor_email`, `vendor_trn`, `invoice_no`, `invoice_date`, `due_date`,
-`currency`, `amount`, `tax_amount`, `total_amount`, `category`, `department` (idx), `cost_center`,
+`currency`, `amount`, `tax_amount`, `total_amount`, `business_unit`, `department` (idx), `location`,
 `payment_method`, `priority`, `description`.
 
 Lifecycle & posting columns:

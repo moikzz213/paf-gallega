@@ -61,8 +61,8 @@ class ReportController extends Controller
             $query->where('department', $department);
         }
 
-        if ($category = $request->input('category')) {
-            $query->where('category', $category);
+        if ($businessUnit = $request->input('business_unit')) {
+            $query->where('business_unit', $businessUnit);
         }
 
         if ($vendor = trim((string) $request->input('vendor'))) {

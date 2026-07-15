@@ -11,7 +11,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 ## 2. Submit Invoice (Requester)
 
 - Fixed-format form: vendor details (name, email, TRN), invoice no/date/due date, currency,
-  amount + tax (total computed server-side), category, submitting department, cost center,
+  amount + tax (total computed server-side), business unit (GIL/GGL/GGH), submitting department, location,
   payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
 - System reference `PAF-{year}-{00001}`; submitted immediately (status `submitted`).
 - A **queried** invoice can be edited and it returns to `submitted`.
@@ -51,11 +51,11 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 - KPI cards (total invoices, awaiting posting, in approval, paid this month), an approver
   "queue waiting" alert, and Chart.js visuals (invoice-status distribution, monthly submitted vs
-  paid, top vendors, spend by category) plus a recent-invoices table. All scoped to the viewer.
+  paid, top vendors, spend by business unit) plus a recent-invoices table. All scoped to the viewer.
 
 ## 8. Reports & Excel export
 
-- Filterable report (status, department, category, vendor, date range) with per-status summary
+- Filterable report (status, department, business unit, vendor, date range) with per-status summary
   and a paginated table. **Export to Excel** (24-column XLSX incl. ERP posting + PRF payment
   columns); exports are audit-logged.
 

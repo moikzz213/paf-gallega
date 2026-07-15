@@ -163,9 +163,9 @@ const auditIcons = {
                                 ['Invoice #', invoice.invoice_no],
                                 ['Invoice date', shortDate(invoice.invoice_date)],
                                 ['Due date', shortDate(invoice.due_date)],
-                                ['Category', invoice.category],
+                                ['Business Unit', invoice.business_unit],
                                 ['Department', invoice.department],
-                                ['Cost center', invoice.cost_center || '—'],
+                                ['Location', invoice.location || '—'],
                             ]" :key="field[0]" cols="6" md="4">
                                 <div class="text-caption text-medium-emphasis">{{ field[0] }}</div>
                                 <div class="text-body-2 font-weight-medium">{{ field[1] }}</div>

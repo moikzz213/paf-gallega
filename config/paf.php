@@ -1,47 +1,44 @@
 <?php
 
+/*
+|--------------------------------------------------------------------------
+| PAF domain lists — driven by .env
+|--------------------------------------------------------------------------
+| Each list is a comma-separated env value (with a sensible default). Edit the
+| PAF_* keys in .env to change the options shown in the app.
+*/
+
+$list = static function (string $key, string $default): array {
+    return array_values(array_filter(array_map('trim', explode(',', (string) env($key, $default)))));
+};
+
+// payment_methods is a key:label map, e.g. "bank_transfer:Bank Transfer,cheque:Cheque"
+$paymentMethods = [];
+foreach (explode(',', (string) env('PAF_PAYMENT_METHODS', 'bank_transfer:Bank Transfer,cheque:Cheque,cash:Cash,card:Corporate Card')) as $pair) {
+    $parts = array_map('trim', explode(':', $pair, 2));
+    if ($parts[0] === '') {
+        continue;
+    }
+    $paymentMethods[$parts[0]] = $parts[1] ?? $parts[0];
+}
+
 return [
 
-    'categories' => [
-        'Goods / Inventory',
-        'Services',
-        'Utilities',
-        'Rent & Facilities',
-        'Marketing & Advertising',
-        'IT & Software',
-        'Logistics & Freight',
-        'Maintenance',
-        'Professional Fees',
-        'Travel & Accommodation',
-        'Other',
-    ],
+    'business_units' => $list('PAF_BUSINESS_UNITS', 'GIL,GGL,GGH'),
 
-    'departments' => [
-        'Finance',
-        'Procurement',
-        'IT',
-        'HR',
-        'Operations',
-        'Marketing',
-        'Sales',
-        'Logistics',
-        'Administration',
-    ],
+    'departments' => $list('PAF_DEPARTMENTS', 'Warehouse,Yard,Freight forwarding,Custom clearance,Land transportation,Service center'),
 
-    'currencies' => ['AED', 'USD', 'EUR', 'GBP', 'SAR'],
+    'locations' => $list('PAF_LOCATIONS', 'Head Office,Dubai,Abu Dhabi,Sharjah,Jebel Ali,Warehouse'),
 
-    'payment_methods' => [
-        'bank_transfer' => 'Bank Transfer',
-        'cheque' => 'Cheque',
-        'cash' => 'Cash',
-        'card' => 'Corporate Card',
-    ],
+    'currencies' => $list('PAF_CURRENCIES', 'AED,USD,EUR,GBP,SAR'),
 
-    'priorities' => ['low', 'normal', 'high', 'urgent'],
+    'priorities' => $list('PAF_PRIORITIES', 'low,normal,high,urgent'),
+
+    'payment_methods' => $paymentMethods,
 
     // upload constraints
-    'max_documents' => 10,
-    'max_document_kb' => 10240,
-    'document_mimes' => 'pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt',
+    'max_documents' => (int) env('PAF_MAX_DOCUMENTS', 10),
+    'max_document_kb' => (int) env('PAF_MAX_DOCUMENT_KB', 10240),
+    'document_mimes' => env('PAF_DOCUMENT_MIMES', 'pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt'),
 
 ];

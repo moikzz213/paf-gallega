@@ -3,8 +3,9 @@ import api from '../services/api';
 
 export const useMetaStore = defineStore('meta', {
     state: () => ({
-        categories: [],
+        business_units: [],
         departments: [],
+        locations: [],
         currencies: [],
         payment_methods: {},
         priorities: [],

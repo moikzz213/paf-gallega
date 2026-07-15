@@ -49,8 +49,9 @@ Laravel 13 (routes/web.php, prefix "api")
   - `Invoice::nextReferenceNo()` → `PAF-{year}-00001`; `PaymentRequest::nextReferenceNo()` →
     `PRF-{year}-00001`.
   - `ApprovalLevel::requiredFor(total)` — the levels (with defaults) that pre-fill a PRF chain.
-- **Config** — `config/paf.php` holds domain enums (categories, departments, currencies,
-  payment methods, priorities) and upload constraints. Surfaced to the SPA via `GET /api/meta`.
+- **Config** — `config/paf.php` holds domain enums (business_units, departments, locations,
+  currencies, payment methods, priorities) and upload constraints, all read from `PAF_*` env
+  vars (comma-separated). Surfaced to the SPA via `GET /api/meta`.
 
 ## Authentication & sessions
 

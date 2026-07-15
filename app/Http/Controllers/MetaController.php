@@ -12,8 +12,9 @@ class MetaController extends Controller
     public function index()
     {
         return response()->json([
-            'categories' => config('paf.categories'),
+            'business_units' => config('paf.business_units'),
             'departments' => config('paf.departments'),
+            'locations' => config('paf.locations'),
             'currencies' => config('paf.currencies'),
             'payment_methods' => config('paf.payment_methods'),
             'priorities' => config('paf.priorities'),

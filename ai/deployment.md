@@ -48,6 +48,12 @@ Driven by `.env` (see `.env.example`). Key settings for this project:
 
 > `config/app.php` sets timezone `Asia/Dubai` (note: this is a committed edit, not env-driven).
 
+**Domain lists** are env-driven via `config/paf.php`: `PAF_BUSINESS_UNITS`, `PAF_DEPARTMENTS`,
+`PAF_LOCATIONS`, `PAF_CURRENCIES`, `PAF_PRIORITIES`, `PAF_PAYMENT_METHODS` (key:label pairs),
+`PAF_MAX_DOCUMENTS`, `PAF_MAX_DOCUMENT_KB`, `PAF_DOCUMENT_MIMES` — all comma-separated with
+sensible defaults, so the app runs without them. If you run `php artisan config:cache`, re-cache
+after changing any `PAF_*` value.
+
 ## Database
 
 - Default **SQLite** (`database/database.sqlite`, git-ignored). Migrations in
