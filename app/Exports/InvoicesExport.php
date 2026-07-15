@@ -24,8 +24,8 @@ class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMap
     {
         return [
             'Reference No', 'Vendor', 'Invoice No', 'Invoice Date', 'Due Date',
-            'Currency', 'Amount', 'Tax', 'Total', 'Category', 'Department',
-            'Cost Center', 'Payment Method', 'Priority', 'Status', 'Payment Status',
+            'Currency', 'Amount', 'Tax', 'Total', 'Business Unit', 'Department',
+            'Location', 'Payment Method', 'Priority', 'Status', 'Payment Status',
             'ERP Doc No', 'Posting Date', 'Requested By', 'Submitted At', 'Posted By',
             'Payment Request', 'Paid At', 'Payment Reference',
         ];
@@ -44,9 +44,9 @@ class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMap
             (float) $invoice->amount,
             (float) $invoice->tax_amount,
             (float) $invoice->total_amount,
-            $invoice->category,
+            $invoice->business_unit,
             $invoice->department,
-            $invoice->cost_center,
+            $invoice->location,
             config('paf.payment_methods')[$invoice->payment_method] ?? $invoice->payment_method,
             ucfirst($invoice->priority),
             str_replace('_', ' ', ucfirst($invoice->status)),

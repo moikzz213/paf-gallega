@@ -30,9 +30,9 @@
 |--------|------|-------|
 | POST | `/api/login` | `email, password, remember?`; checks `is_active`; `{ user }` |
 | POST | `/api/logout` · GET `/api/me` | session |
-| GET | `/api/meta` | `categories, departments, currencies, payment_methods, priorities, statuses, payment_statuses, pr_statuses, roles, approval_levels (with defaultApprover), upload{…}` |
+| GET | `/api/meta` | `business_units, departments, locations, currencies, payment_methods, priorities, statuses, payment_statuses, pr_statuses, roles, approval_levels (with defaultApprover), upload{…}` (all lists are env-driven via `config/paf.php`) |
 | GET | `/api/approvers` | active users with role approver/admin — the chain-builder pool |
-| GET | `/api/dashboard` | scoped KPIs: `cards{total_invoices, awaiting_posting, in_approval, paid_this_month}, my_queue, status_distribution[], monthly[], top_vendors[], by_category[], recent[]` |
+| GET | `/api/dashboard` | scoped KPIs: `cards{total_invoices, awaiting_posting, in_approval, paid_this_month}, my_queue, status_distribution[], monthly[], top_vendors[], by_business_unit[], recent[]` |
 
 ## Invoices (Invoice Log)
 
@@ -49,7 +49,7 @@
 
 **Create/update validation:** vendor_name req; vendor_email nullable email; vendor_trn ≤50;
 invoice_no req ≤100; invoice_date req; due_date `after_or_equal:invoice_date`; currency in list;
-amount 0.01–1e12; tax_amount ≥0; category/department/payment_method/priority in config;
+amount 0.01–1e12; tax_amount ≥0; business_unit/department/location/payment_method/priority in config (Rule::in);
 description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 
 ## Payment Requests (PRF)
@@ -84,7 +84,7 @@ sets PRF `rejected`, and returns invoices to `not_initiated` (unlinked).
 |--------|------|-------|
 | GET | `/api/documents/{document}/download` | view rule as invoice show; streams file |
 | DELETE | `/api/documents/{document}` | uploader or admin; invoice must be editable |
-| GET | `/api/reports` · `/api/reports/export` | filters `status[], department, category, vendor, date_from/to`; export = 24-col XLSX, audit-logged |
+| GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; export = 24-col XLSX, audit-logged |
 | GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. Approval-level create/update accepts `default_approver_id` (nullable; must be an active approver/admin) |
 
 ## Notable quirks

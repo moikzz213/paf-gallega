@@ -37,7 +37,7 @@ class DynamicApprovalTest extends TestCase
             'reference_no' => Invoice::nextReferenceNo(),
             'vendor_name' => 'Vendor', 'invoice_no' => 'INV-'.uniqid(), 'invoice_date' => now()->toDateString(),
             'currency' => 'AED', 'amount' => $total, 'tax_amount' => 0, 'total_amount' => $total,
-            'category' => 'Services', 'department' => 'Finance', 'payment_method' => 'bank_transfer',
+            'business_unit' => 'GIL', 'department' => 'Warehouse', 'location' => 'Head Office', 'payment_method' => 'bank_transfer',
             'priority' => 'normal', 'status' => Invoice::STATUS_POSTED, 'payment_status' => Invoice::PAY_NOT_INITIATED,
             'submitted_by' => $owner->id, 'submitted_at' => now(),
         ]);
@@ -51,7 +51,7 @@ class DynamicApprovalTest extends TestCase
             'reference_no' => Invoice::nextReferenceNo(),
             'vendor_name' => 'V', 'invoice_no' => 'INV-1', 'invoice_date' => now()->toDateString(),
             'currency' => 'AED', 'amount' => 500, 'tax_amount' => 0, 'total_amount' => 500,
-            'category' => 'Services', 'department' => 'Finance', 'payment_method' => 'bank_transfer',
+            'business_unit' => 'GIL', 'department' => 'Warehouse', 'location' => 'Head Office', 'payment_method' => 'bank_transfer',
             'priority' => 'normal', 'status' => Invoice::STATUS_SUBMITTED, 'payment_status' => Invoice::PAY_NOT_INITIATED,
             'submitted_by' => $requester->id, 'submitted_at' => now(),
         ]);

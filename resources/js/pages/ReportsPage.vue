@@ -16,7 +16,7 @@ const options = reactive({ page: 1, itemsPerPage: 25 });
 const filters = reactive({
     status: [],
     department: null,
-    category: null,
+    business_unit: null,
     vendor: '',
     date_from: null,
     date_to: null,
@@ -29,7 +29,7 @@ const headers = [
     { title: 'Vendor', key: 'vendor_name', sortable: false },
     { title: 'Invoice #', key: 'invoice_no', sortable: false },
     { title: 'Date', key: 'invoice_date', sortable: false },
-    { title: 'Category', key: 'category', sortable: false },
+    { title: 'Business Unit', key: 'business_unit', sortable: false },
     { title: 'Department', key: 'department', sortable: false },
     { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
     { title: 'Status', key: 'status', sortable: false },
@@ -39,7 +39,7 @@ function params() {
     return {
         status: filters.status.length ? filters.status.join(',') : undefined,
         department: filters.department || undefined,
-        category: filters.category || undefined,
+        business_unit: filters.business_unit || undefined,
         vendor: filters.vendor || undefined,
         date_from: filters.date_from || undefined,
         date_to: filters.date_to || undefined,
@@ -111,7 +111,7 @@ onMounted(() => meta.load());
                         <v-select v-model="filters.department" :items="meta.departments" label="Department" clearable hide-details />
                     </v-col>
                     <v-col cols="12" sm="6" md="2">
-                        <v-select v-model="filters.category" :items="meta.categories" label="Category" clearable hide-details />
+                        <v-autocomplete v-model="filters.business_unit" :items="meta.business_units" label="Business Unit" autocomplete="off" clearable hide-details />
                     </v-col>
                     <v-col cols="12" sm="6" md="2">
                         <v-text-field v-model="filters.vendor" label="Vendor" clearable hide-details />

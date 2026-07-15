@@ -75,10 +75,10 @@ const vendorData = computed(() => ({
     }],
 }));
 
-const categoryData = computed(() => ({
-    labels: (dash.value?.by_category ?? []).map((c) => c.category),
+const businessUnitData = computed(() => ({
+    labels: (dash.value?.by_business_unit ?? []).map((c) => c.business_unit),
     datasets: [{
-        data: (dash.value?.by_category ?? []).map((c) => Number(c.amount)),
+        data: (dash.value?.by_business_unit ?? []).map((c) => Number(c.amount)),
         backgroundColor: '#199e70', // second sequential context: aqua, darkened to clear 3:1
         borderRadius: { topRight: 4, bottomRight: 4 },
         maxBarThickness: 18,
@@ -204,9 +204,9 @@ const recentHeaders = [
                 </v-col>
                 <v-col cols="12" md="6">
                     <v-card>
-                        <v-card-title class="text-subtitle-1">Spend by Category</v-card-title>
+                        <v-card-title class="text-subtitle-1">Spend by Business Unit</v-card-title>
                         <v-card-text>
-                            <ChartCanvas type="bar" :data="categoryData" :options="hbarOptions" :height="240" />
+                            <ChartCanvas type="bar" :data="businessUnitData" :options="hbarOptions" :height="240" />
                         </v-card-text>
                     </v-card>
                 </v-col>

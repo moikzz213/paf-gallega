@@ -43,7 +43,7 @@ class Invoice extends Model
         'reference_no', 'vendor_name', 'vendor_email', 'vendor_trn',
         'invoice_no', 'invoice_date', 'due_date', 'currency',
         'amount', 'tax_amount', 'total_amount',
-        'category', 'department', 'cost_center', 'payment_method',
+        'business_unit', 'department', 'location', 'payment_method',
         'priority', 'description', 'status', 'submitted_by', 'submitted_at',
         'posting_date', 'erp_doc_no', 'finance_remarks', 'posted_by', 'posted_at',
         'payment_status', 'payment_request_id',

@@ -74,10 +74,10 @@ class DashboardController extends Controller
             ->limit(5)
             ->get();
 
-        $byCategory = $visible()
+        $byBusinessUnit = $visible()
             ->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->select('category', DB::raw('sum(total_amount) as amount'))
-            ->groupBy('category')
+            ->select('business_unit', DB::raw('sum(total_amount) as amount'))
+            ->groupBy('business_unit')
             ->orderByDesc('amount')
             ->get();
 
@@ -93,7 +93,7 @@ class DashboardController extends Controller
             'status_distribution' => $statusDistribution,
             'monthly' => $monthly,
             'top_vendors' => $topVendors,
-            'by_category' => $byCategory,
+            'by_business_unit' => $byBusinessUnit,
             'recent' => $recent,
         ]);
     }

@@ -29,9 +29,9 @@ const form = ref({
     currency: 'AED',
     amount: null,
     tax_amount: 0,
-    category: null,
+    business_unit: null,
     department: null,
-    cost_center: '',
+    location: null,
     payment_method: 'bank_transfer',
     priority: 'normal',
     description: '',
@@ -115,7 +115,7 @@ async function save() {
             <v-progress-circular indeterminate color="primary" size="48" />
         </div>
 
-        <v-form v-else ref="formRef" @submit.prevent>
+        <v-form v-else ref="formRef" autocomplete="off" @submit.prevent>
             <v-card class="mb-4">
                 <v-card-title class="text-subtitle-1">Vendor & Invoice</v-card-title>
                 <v-card-text>
@@ -170,13 +170,13 @@ async function save() {
                 <v-card-text>
                     <v-row dense>
                         <v-col cols="12" sm="6" md="4">
-                            <v-select v-model="form.category" :items="meta.categories" label="Category *" :rules="[rules.required]" />
+                            <v-autocomplete v-model="form.business_unit" :items="meta.business_units" label="Business Unit *" autocomplete="off" :rules="[rules.required]" />
                         </v-col>
                         <v-col cols="12" sm="6" md="4">
                             <v-select v-model="form.department" :items="meta.departments" label="Submitting department *" :rules="[rules.required]" />
                         </v-col>
                         <v-col cols="12" sm="6" md="4">
-                            <v-text-field v-model="form.cost_center" label="Cost center" />
+                            <v-autocomplete v-model="form.location" :items="meta.locations" label="Location *" autocomplete="off" :rules="[rules.required]" />
                         </v-col>
                         <v-col cols="12" sm="6" md="4">
                             <v-select v-model="form.payment_method" :items="paymentMethodOptions" label="Payment method *" />
