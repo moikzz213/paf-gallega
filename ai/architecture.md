@@ -110,9 +110,18 @@ Laravel 13 (routes/web.php, prefix "api")
   `erp_doc_no`) or `query_raised` (with `finance_remarks`).
 - **Create PRF:** `POST /api/payment-requests` (finance/admin) with `invoice_ids` + chain
   (`approvers` per level + `adhoc_approvers`) → `PaymentRequestService::create()` builds the
-  ordered chain, reserves the invoices (`in_approval`), routes to stage 1.
+  ordered chain, reserves the invoices (`in_approval`), routes to stage 1, and sends an email
+  notification to the stage-1 approver.
 - **Approve/reject:** `POST /api/payment-requests/{id}/approve|reject` → advances `current_stage`
   / finalizes to `approved` (invoices `approved_for_payment`), or rejects and frees the invoices.
 - **Pay:** `POST /api/payment-requests/{id}/mark-paid` (finance/admin) → PRF & invoices `paid`.
 - **Reports export:** `GET /api/reports/export` streams an XLSX via `maatwebsite/excel`
   (`InvoicesExport`), opened in a new tab (bypasses Axios, uses the session cookie).
+- **Daily approval reminders:** `prf:send-reminders` Artisan command (scheduled daily at 09:00
+  in `routes/console.php`) finds all PRFs `in_approval` where `last_reminder_sent_at` is null or
+  before today, emails each pending approver, and updates `last_reminder_sent_at`.
+- **Public PRF view & action:** `GET /prf/view/{id}/{token}` — token-gated page (no auth
+  required) showing PRF details, invoices, and attachments. Accepts either the PRF's `view_token`
+  (view-only) or an approval stage's `view_token` (can approve/reject). Each approval stage has
+  its own unique token. After approval, the old token becomes view-only and a new email with the
+  next approver's token is sent. After final approval, all tokens grant view-only access.

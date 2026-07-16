@@ -8,6 +8,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MetaController;
 use App\Http\Controllers\PaymentRequestController;
+use App\Http\Controllers\PublicPaymentRequestController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -75,6 +76,29 @@ Route::prefix('api')->group(function () {
         });
     });
 });
+
+/*
+|--------------------------------------------------------------------------
+| Public routes (no auth required)
+|--------------------------------------------------------------------------
+*/
+Route::get('/prf/view/{id}/{token}', [PublicPaymentRequestController::class, 'show'])
+    ->name('payment-request.public')
+    ->where('id', '[0-9]+')
+    ->where('token', '[a-zA-Z0-9]+');
+Route::post('/prf/view/{id}/{token}/approve', [PublicPaymentRequestController::class, 'approve'])
+    ->name('payment-request.public.approve')
+    ->where('id', '[0-9]+')
+    ->where('token', '[a-zA-Z0-9]+');
+Route::post('/prf/view/{id}/{token}/reject', [PublicPaymentRequestController::class, 'reject'])
+    ->name('payment-request.public.reject')
+    ->where('id', '[0-9]+')
+    ->where('token', '[a-zA-Z0-9]+');
+Route::get('/prf/view/{id}/{token}/document/{document}', [PublicPaymentRequestController::class, 'downloadDocument'])
+    ->name('payment-request.public.document')
+    ->where('id', '[0-9]+')
+    ->where('token', '[a-zA-Z0-9]+')
+    ->where('document', '[0-9]+');
 
 /*
 |--------------------------------------------------------------------------
