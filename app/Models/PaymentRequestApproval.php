@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Support\Str;
 
 class PaymentRequestApproval extends Model
 {
@@ -13,7 +14,7 @@ class PaymentRequestApproval extends Model
     public const STATUS_REJECTED = 'rejected';
 
     protected $fillable = [
-        'payment_request_id', 'sequence', 'level', 'label', 'is_adhoc',
+        'payment_request_id', 'view_token', 'sequence', 'level', 'label', 'is_adhoc',
         'status', 'approver_id', 'comments', 'acted_at',
     ];
 
@@ -25,6 +26,15 @@ class PaymentRequestApproval extends Model
             'is_adhoc' => 'boolean',
             'acted_at' => 'datetime',
         ];
+    }
+
+    protected static function booted(): void
+    {
+        static::creating(function (PaymentRequestApproval $approval) {
+            if (empty($approval->view_token)) {
+                $approval->view_token = Str::random(64);
+            }
+        });
     }
 
     public function paymentRequest()

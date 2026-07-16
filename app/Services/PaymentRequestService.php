@@ -2,11 +2,13 @@
 
 namespace App\Services;
 
+use App\Mail\PaymentRequestSubmitted;
 use App\Models\Invoice;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 class PaymentRequestService
@@ -37,7 +39,7 @@ class PaymentRequestService
             throw ValidationException::withMessages(['approvers' => 'Add at least one approver to the chain.']);
         }
 
-        return DB::transaction(function () use ($invoices, $creator, $stages) {
+        $pr = DB::transaction(function () use ($invoices, $creator, $stages) {
             $pr = PaymentRequest::create([
                 'reference_no' => PaymentRequest::nextReferenceNo(),
                 'created_by' => $creator->id,
@@ -45,6 +47,7 @@ class PaymentRequestService
                 'current_stage' => 1,
                 'total_amount' => $invoices->sum('total_amount'),
                 'sent_at' => now(),
+                'last_reminder_sent_at' => now(),
             ]);
 
             foreach ($stages as $i => $stage) {
@@ -72,6 +75,13 @@ class PaymentRequestService
 
             return $pr->refresh();
         });
+
+        $approver = $pr->currentApproval()?->approver;
+        if ($approver && $approver->email) {
+            Mail::to($approver->email)->send(new PaymentRequestSubmitted($pr));
+        }
+
+        return $pr;
     }
 
     public function approve(PaymentRequest $pr, User $actor, ?string $comments = null): PaymentRequest

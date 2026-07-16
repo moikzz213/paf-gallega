@@ -93,3 +93,12 @@ sets PRF `rejected`, and returns invoices to `not_initiated` (unlinked).
 - Invoice update is POST (multipart); users/approval-levels use PUT.
 - Authorization is mixed (middleware + inline + service). Reports/dashboard are data-scoped only.
 - The approval chain lives on the **PRF**, not the invoice.
+
+## Public routes (no auth)
+
+| Method | Path | Notes |
+|--------|------|-------|
+| GET | `/prf/view/{id}/{token}` | Token-gated PRF view. `{token}` can be the PRF `view_token` (view-only) or an approval stage `view_token` (can act if current stage). |
+| POST | `/prf/view/{id}/{token}/approve` | Approve the current stage. Token must match the current stage's `view_token`. Emails next approver with their token. |
+| POST | `/prf/view/{id}/{token}/reject` | Reject with required `comments`. Token must match the current stage's `view_token`. |
+| GET | `/prf/view/{id}/{token}/document/{document}` | Download an invoice attachment. Token-gated; document must belong to the PRF. |

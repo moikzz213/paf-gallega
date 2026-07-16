@@ -84,6 +84,7 @@ Lifecycle & posting columns:
 |--------|------|-------|
 | `id` | bigint PK | |
 | `reference_no` | string, **unique** | `PRF-{year}-00001` |
+| `view_token` | string(64), **unique** | random token for public read-only link |
 | `created_by` | FK users | Finance user who initiated |
 | `status` | string, default `draft` | `draft \| in_approval \| approved \| rejected \| paid` (idx) |
 | `current_stage` | uint, nullable | sequence of the stage awaiting action |
@@ -93,6 +94,7 @@ Lifecycle & posting columns:
 | `paid_at` | timestamp, nullable | |
 | `payment_reference` | string, nullable | |
 | `paid_by` | FK users, nullable | |
+| `last_reminder_sent_at` | timestamp, nullable | last daily reminder email sent |
 | timestamps | | |
 
 ### payment_request_approvals
@@ -103,6 +105,7 @@ One row per chain stage, sequence-ordered.
 |--------|------|-------|
 | `id` | bigint PK | |
 | `payment_request_id` | FK, **cascade delete** | |
+| `view_token` | string(64), **unique** | per-stage token for public approval link |
 | `sequence` | uint | position in the chain (1..N) |
 | `level` | tinyint, nullable | source approval level; null for ad-hoc |
 | `label` | string | role / stage name |

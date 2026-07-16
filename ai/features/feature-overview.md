@@ -32,6 +32,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Builds the **approval chain** for the PRF total (pre-filled from level defaults, fully
   editable, ad-hoc stages allowed) and sends it for approval in one step.
 - Selected invoices are reserved (`payment_status = in_approval`) and linked to the PRF.
+- An **email notification** is sent to the stage-1 approver when the PRF is created.
+  The email includes a **unique token-gated link** (no login required) to view and approve/reject
+  the PRF. Each approval stage has its own token — after approval, the old token becomes
+  view-only and the next approver receives their own link via email.
+- A **daily reminder email** is sent to each approver with a pending PRF (scheduled at 09:00
+  via `prf:send-reminders` Artisan command).
 
 ## 5. Payment Approval (Approver / Admin)
 
@@ -86,7 +92,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 ## Not yet implemented
 
-- Real email/notifications (mail driver is `log`) and real ERP/payment-gateway integration.
+- Real ERP/payment-gateway integration.
 - Password reset / email verification.
 - Concurrency guard against selecting one invoice into two PRFs — see
   [../issues/known-issues.md](../issues/known-issues.md).

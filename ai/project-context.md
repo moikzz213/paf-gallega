@@ -60,8 +60,10 @@ L3 CFO (≥50,000), each with a seeded default approver.
 - **Data:** seeders produce demo users + ~46 invoices across statuses and 11 PRFs across states.
 - **Tests:** 12 feature tests (workflow + endpoint smoke). Verified via browser walkthrough.
 - **Auth:** session-based; no email verification / password reset.
-- **Email/ERP:** not integrated. "Post to ERP" records a doc number but calls no external system;
-  approvals happen in-app (no email is sent — mail driver is `log`).
+- **Email:** PRF submission triggers an email to the stage-1 approver. A daily reminder is
+  scheduled for all pending approvals. Mail driver is `log` by default (Office 365 SMTP in
+  production `.env`).
+- **ERP:** not integrated. "Post to ERP" records a doc number but calls no external system.
 
 ## Technology stack (summary)
 
