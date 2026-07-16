@@ -24,6 +24,7 @@ const headers = [
     { title: 'Stage', key: 'stage', sortable: false },
     { title: 'Status', key: 'status', sortable: false },
     { title: 'Created', key: 'created_at', sortable: false },
+    { title: '', key: 'actions', sortable: false, width: '40px' },
 ];
 
 async function load() {
@@ -145,6 +146,9 @@ async function submitCreate() {
                 </template>
                 <template #item.created_at="{ item }">
                     {{ shortDate(item.created_at) }}
+                </template>
+                <template #item.actions="{ item }">
+                    <v-btn icon="mdi-file-pdf-box" size="small" variant="text" :href="`/api/payment-requests/${item.id}/pdf`" target="_blank" title="Download PDF" />
                 </template>
             </v-data-table-server>
         </v-card>

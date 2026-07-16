@@ -114,6 +114,7 @@ function approvalColor(status) {
             <v-btn v-if="canAct" color="success" prepend-icon="mdi-check" @click="openDialog('approve')">Approve</v-btn>
             <v-btn v-if="canAct" color="error" variant="tonal" prepend-icon="mdi-close" @click="openDialog('reject')">Reject</v-btn>
             <v-btn v-if="canPay" color="success" prepend-icon="mdi-cash-check" @click="openDialog('pay')">Mark Paid</v-btn>
+            <v-btn variant="tonal" prepend-icon="mdi-file-pdf-box" :href="`/api/payment-requests/${id}/pdf`" target="_blank">Download PDF</v-btn>
         </div>
 
         <v-alert v-if="pr.status === 'rejected'" type="error" variant="tonal" class="mb-4" icon="mdi-close-circle-outline">

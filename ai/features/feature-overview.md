@@ -53,6 +53,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Once a PRF is fully `approved`, Finance records a `payment_reference` → PRF `paid`, invoices
   `paid`.
 
+## 7. PDF Export
+
+- Every PRF has a **Download PDF** button (detail page and list page) that generates a PDF
+  containing: PRF header with status and amount, all invoice line items, the approval chain
+  timeline, and embedded invoice attachments (images inlined, PDFs embedded, other files listed).
+
 ## 7. Dashboard
 
 - KPI cards (total invoices, awaiting posting, in approval, paid this month), an approver
@@ -87,6 +93,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | Create payment request | | | ✓ | ✓ |
 | Approve / reject a PRF stage | | ✓ (assigned) | | ✓ |
 | Mark PRF paid | | | ✓ | ✓ |
+| Download PRF PDF | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Audit log viewer, manage users/levels | | | | ✓ |
 

@@ -64,6 +64,7 @@ description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 | POST | `/api/payment-requests/{paymentRequest}/approve` | admin or assigned current-stage approver | `comments` nullable ≤2000 |
 | POST | `/api/payment-requests/{paymentRequest}/reject` | admin or assigned current-stage approver | `comments` **required** ≤2000 → PRF rejected, invoices freed |
 | POST | `/api/payment-requests/{paymentRequest}/mark-paid` | `role:finance,admin`; PRF must be `approved` | `payment_reference` req ≤100 → `paid` |
+| GET | `/api/payment-requests/{paymentRequest}/pdf` | scoped `visibleTo` | Downloads a PDF with PRF details, invoices, approval chain, and embedded attachments |
 
 **Create payload (JSON):**
 - `invoice_ids`: required array of eligible invoice ids.
