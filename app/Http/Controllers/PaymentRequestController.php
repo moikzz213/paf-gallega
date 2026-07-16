@@ -7,6 +7,7 @@ use App\Models\Invoice;
 use App\Models\PaymentRequest;
 use App\Models\User;
 use App\Services\PaymentRequestService;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 
@@ -112,6 +113,27 @@ class PaymentRequestController extends Controller
         $pr = $this->service->markPaid($paymentRequest, $request->user(), $data['payment_reference']);
 
         return response()->json($pr->load('invoices'));
+    }
+
+    public function downloadPdf(Request $request, PaymentRequest $paymentRequest)
+    {
+        abort_unless(
+            PaymentRequest::whereKey($paymentRequest->id)->visibleTo($request->user())->exists(),
+            403, 'You do not have access to this payment request.'
+        );
+
+        $paymentRequest->load([
+            'creator:id,name', 'payer:id,name',
+            'invoices.submitter:id,name', 'invoices.documents',
+            'approvals.approver:id,name',
+        ]);
+
+        $pdf = Pdf::loadView('pdf.payment-request', ['paymentRequest' => $paymentRequest])
+            ->setPaper('a4', 'portrait')
+            ->setOption('isRemoteEnabled', true)
+            ->setOption('isHtml5ParserEnabled', true);
+
+        return $pdf->download("{$paymentRequest->reference_no}.pdf");
     }
 
     /** Turn the client's level/ad-hoc assignments into an ordered chain. */

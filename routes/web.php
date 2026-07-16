@@ -55,6 +55,7 @@ Route::prefix('api')->group(function () {
         Route::post('/payment-requests/{paymentRequest}/approve', [PaymentRequestController::class, 'approve']);
         Route::post('/payment-requests/{paymentRequest}/reject', [PaymentRequestController::class, 'reject']);
         Route::post('/payment-requests/{paymentRequest}/mark-paid', [PaymentRequestController::class, 'markPaid'])->middleware('role:finance,admin');
+        Route::get('/payment-requests/{paymentRequest}/pdf', [PaymentRequestController::class, 'downloadPdf']);
 
         // reports (data scoped by role visibility)
         Route::get('/reports', [ReportController::class, 'index']);

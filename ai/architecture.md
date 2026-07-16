@@ -115,6 +115,8 @@ Laravel 13 (routes/web.php, prefix "api")
 - **Approve/reject:** `POST /api/payment-requests/{id}/approve|reject` → advances `current_stage`
   / finalizes to `approved` (invoices `approved_for_payment`), or rejects and frees the invoices.
 - **Pay:** `POST /api/payment-requests/{id}/mark-paid` (finance/admin) → PRF & invoices `paid`.
+- **PDF export:** `GET /api/payment-requests/{id}/pdf` → downloads a PDF with PRF details, all
+  invoices, approval chain, and embedded invoice attachments (images inlined, PDFs embedded).
 - **Reports export:** `GET /api/reports/export` streams an XLSX via `maatwebsite/excel`
   (`InvoicesExport`), opened in a new tab (bypasses Axios, uses the session cookie).
 - **Daily approval reminders:** `prf:send-reminders` Artisan command (scheduled daily at 09:00
