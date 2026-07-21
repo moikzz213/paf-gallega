@@ -55,9 +55,16 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 ## 7. PDF Export
 
-- Every PRF has a **Download PDF** button (detail page and list page) that generates a PDF
-  containing: PRF header with status and amount, all invoice line items, the approval chain
-  timeline, and embedded invoice attachments (images inlined, PDFs embedded, other files listed).
+- Every PRF has a **Download PDF** button (detail page and list page) that generates a landscape
+  Payment Approval Form matching the company PAF layout, including the Gallega logo and aligned
+  approval-flow connectors: voucher/request and accounts-document
+  details, supplier line items, totals and amount in words, payment-approval limits, comments,
+  separate requisition/approval/accounts sign-off areas, and invoice attachments on following
+  pages. The PRF status is intentionally omitted. Approval stages are grouped directly from their
+  configured approval levels: levels with `min_amount = 0.00` appear in **For Requisition Dept.
+  Use**, while levels above zero (plus ad-hoc stages) appear in **For Approval**. The accounts area
+  stays outside the approval chain. Images are inlined, while every source file is embedded in the
+  PDF and listed by invoice.
 
 ## 7. Dashboard
 
