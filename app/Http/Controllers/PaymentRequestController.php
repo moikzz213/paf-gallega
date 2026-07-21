@@ -124,14 +124,32 @@ class PaymentRequestController extends Controller
 
         $paymentRequest->load([
             'creator:id,name', 'payer:id,name',
-            'invoices.submitter:id,name', 'invoices.documents',
-            'approvals.approver:id,name',
+            'invoices.submitter:id,name', 'invoices.poster:id,name', 'invoices.documents',
+            'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
         ]);
 
         $pdf = Pdf::loadView('pdf.payment-request', ['paymentRequest' => $paymentRequest])
-            ->setPaper('a4', 'portrait')
+            ->setPaper('a4', 'landscape')
             ->setOption('isRemoteEnabled', true)
             ->setOption('isHtml5ParserEnabled', true);
+
+        $pdf->render();
+        $canvas = $pdf->getDomPDF()->getCanvas();
+        if (method_exists($canvas, 'get_cpdf')) {
+            foreach ($paymentRequest->invoices as $invoice) {
+                foreach ($invoice->documents as $document) {
+                    $path = storage_path('app/private/'.$document->file_path);
+                    if (is_file($path)) {
+                        $canvas->get_cpdf()->addEmbeddedFile(
+                            $path,
+                            $document->original_name,
+                            "{$invoice->reference_no} - {$invoice->vendor_name}",
+                            $document->mime_type,
+                        );
+                    }
+                }
+            }
+        }
 
         return $pdf->download("{$paymentRequest->reference_no}.pdf");
     }

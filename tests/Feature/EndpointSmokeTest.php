@@ -4,9 +4,11 @@ namespace Tests\Feature;
 
 use App\Models\ApprovalLevel;
 use App\Models\Invoice;
+use App\Models\InvoiceDocument;
 use App\Models\User;
 use App\Services\PaymentRequestService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\File;
 use Tests\TestCase;
 
 class EndpointSmokeTest extends TestCase
@@ -32,7 +34,7 @@ class EndpointSmokeTest extends TestCase
         $this->approver1 = User::create(['name' => 'A1', 'email' => 'a1@t.local', 'password' => 'password', 'role' => User::ROLE_APPROVER, 'approval_level' => 1, 'is_active' => true]);
         $this->approver2 = User::create(['name' => 'A2', 'email' => 'a2@t.local', 'password' => 'password', 'role' => User::ROLE_APPROVER, 'approval_level' => 2, 'is_active' => true]);
 
-        ApprovalLevel::create(['level' => 1, 'name' => 'Manager', 'min_amount' => 0, 'default_approver_id' => $this->approver1->id, 'is_active' => true]);
+        ApprovalLevel::create(['level' => 1, 'name' => 'Department Manager', 'min_amount' => 0, 'default_approver_id' => $this->approver1->id, 'is_active' => true]);
         ApprovalLevel::create(['level' => 2, 'name' => 'Director', 'min_amount' => 10000, 'default_approver_id' => $this->approver2->id, 'is_active' => true]);
 
         $inv = Invoice::create([
@@ -47,7 +49,7 @@ class EndpointSmokeTest extends TestCase
         $this->pr = app(PaymentRequestService::class)->create(
             [$inv->id], $this->finance,
             [
-                ['approver_id' => $this->approver1->id, 'label' => 'Manager', 'level' => 1, 'is_adhoc' => false],
+                ['approver_id' => $this->approver1->id, 'label' => 'Department Manager', 'level' => 1, 'is_adhoc' => false],
                 ['approver_id' => $this->approver2->id, 'label' => 'Director', 'level' => 2, 'is_adhoc' => false],
             ],
         );
@@ -85,6 +87,61 @@ class EndpointSmokeTest extends TestCase
 
         // approver can view the PRF routed to them and its invoices
         $this->getJson("/api/payment-requests/{$this->pr->id}")->assertOk();
+    }
+
+    public function test_finance_can_download_the_payment_request_pdf(): void
+    {
+        $invoice = $this->pr->invoices()->firstOrFail();
+        $relativePath = 'tests/payment-request-attachment.txt';
+        $absolutePath = storage_path('app/private/'.$relativePath);
+        File::ensureDirectoryExists(dirname($absolutePath));
+        File::put($absolutePath, 'attachment body');
+        InvoiceDocument::create([
+            'invoice_id' => $invoice->id,
+            'uploaded_by' => $this->requester->id,
+            'original_name' => 'supporting-document.txt',
+            'file_path' => $relativePath,
+            'mime_type' => 'text/plain',
+            'size' => File::size($absolutePath),
+        ]);
+
+        $view = view('pdf.payment-request', [
+            'paymentRequest' => $this->pr->load([
+                'creator:id,name', 'payer:id,name',
+                'invoices.submitter:id,name', 'invoices.poster:id,name', 'invoices.documents',
+                'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
+            ]),
+        ])->render();
+        $this->assertStringNotContainsString('APPROVAL STATUS', $view);
+        $this->assertStringNotContainsString('IN APPROVAL', $view);
+        $this->assertStringContainsString('class="company-logo"', $view);
+        $this->assertStringContainsString('For Accounts Dept. Use', $view);
+        $this->assertStringContainsString('Verified / Posted By', $view);
+        $this->assertSame(1, substr_count($view, 'Department Manager'));
+        $this->assertSame(
+            ['Department Manager'],
+            $this->pr->approvals
+                ->filter(fn ($approval) => (float) $approval->approvalLevel?->min_amount === 0.0)
+                ->pluck('label')
+                ->all(),
+        );
+        $this->assertSame(
+            ['Director'],
+            $this->pr->approvals
+                ->filter(fn ($approval) => (float) $approval->approvalLevel?->min_amount > 0.0)
+                ->pluck('label')
+                ->all(),
+        );
+
+        $response = $this->actingAs($this->finance)
+            ->get("/api/payment-requests/{$this->pr->id}/pdf")
+            ->assertOk()
+            ->assertHeader('content-type', 'application/pdf');
+
+        $this->assertStringStartsWith('%PDF-', $response->getContent());
+        $this->assertStringContainsString('/EmbeddedFiles', $response->getContent());
+
+        File::delete($absolutePath);
     }
 
     public function test_requester_cannot_create_payment_request(): void

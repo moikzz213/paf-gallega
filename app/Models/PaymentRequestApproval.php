@@ -46,4 +46,9 @@ class PaymentRequestApproval extends Model
     {
         return $this->belongsTo(User::class, 'approver_id');
     }
+
+    public function approvalLevel()
+    {
+        return $this->belongsTo(ApprovalLevel::class, 'level', 'level');
+    }
 }

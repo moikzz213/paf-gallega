@@ -49,6 +49,8 @@ Laravel 13 (routes/web.php, prefix "api")
   - `Invoice::nextReferenceNo()` → `PAF-{year}-00001`; `PaymentRequest::nextReferenceNo()` →
     `PRF-{year}-00001`.
   - `ApprovalLevel::requiredFor(total)` — the levels (with defaults) that pre-fill a PRF chain.
+  - `PaymentRequestApproval::approvalLevel()` resolves the stage's snapshotted level number to
+    its current approval-level configuration for PDF grouping by `min_amount`.
 - **Config** — `config/paf.php` holds domain enums (business_units, departments, locations,
   currencies, payment methods, priorities) and upload constraints, all read from `PAF_*` env
   vars (comma-separated). Surfaced to the SPA via `GET /api/meta`.
