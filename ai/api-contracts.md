@@ -32,6 +32,7 @@
 | POST | `/api/logout` · GET `/api/me` | session |
 | GET | `/api/meta` | `business_units, departments, locations, currencies, payment_methods, priorities, statuses, payment_statuses, pr_statuses, roles, approval_levels (with defaultApprover), upload{…}` (all lists are env-driven via `config/paf.php`) |
 | GET | `/api/approvers` | active users with role approver/admin — the chain-builder pool |
+| GET | `/api/vendors` | distinct vendor names from invoices (for filter dropdowns) |
 | GET | `/api/dashboard` | scoped KPIs: `cards{total_invoices, awaiting_posting, in_approval, paid_this_month}, my_queue, status_distribution[], monthly[], top_vendors[], by_business_unit[], recent[]` |
 
 ## Invoices (Invoice Log)
@@ -58,7 +59,7 @@ description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 |--------|------|------|-------|
 | GET | `/api/payment-requests/eligible` | `role:finance,admin` | invoices payable (not_initiated & posted/submitted); paginated 100 |
 | GET | `/api/payment-requests/pending` | approver (own stage) / admin (all) | PRFs `in_approval` awaiting the current user's stage |
-| GET | `/api/payment-requests` | scoped `visibleTo` | filters `status[], q`; paginated 15 |
+| GET | `/api/payment-requests` | scoped `visibleTo` | filters `status[], department, vendor, q` (searches reference_no, invoice_no); paginated 15 |
 | POST | `/api/payment-requests` | `role:finance,admin` | create from `invoice_ids` + chain (see below); **201** |
 | GET | `/api/payment-requests/{paymentRequest}` | scoped `visibleTo` | loads creator, payer, invoices, approvals.approver, auditLogs |
 | POST | `/api/payment-requests/{paymentRequest}/approve` | admin or assigned current-stage approver | `comments` nullable ≤2000 |

@@ -15,6 +15,8 @@ const notify = useNotifyStore();
 const loading = ref(false);
 const items = ref([]);
 const total = ref(0);
+const search = ref('');
+const filters = reactive({ department: null, vendor: null });
 const options = reactive({ page: 1, itemsPerPage: 15 });
 
 const headers = [
@@ -31,7 +33,13 @@ async function load() {
     loading.value = true;
     try {
         const { data } = await api.get('/payment-requests', {
-            params: { page: options.page, per_page: options.itemsPerPage },
+            params: {
+                page: options.page,
+                per_page: options.itemsPerPage,
+                q: search.value || undefined,
+                department: filters.department || undefined,
+                vendor: filters.vendor || undefined,
+            },
         });
         items.value = data.data;
         total.value = data.total;
@@ -45,6 +53,16 @@ async function load() {
 onMounted(() => {
     meta.load();
     meta.loadApprovers();
+    meta.loadVendors();
+});
+
+let debounce = null;
+watch([search, () => filters.department, () => filters.vendor], () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+        options.page = 1;
+        load();
+    }, 350);
 });
 
 // ---- create flow ----
@@ -113,6 +131,40 @@ async function submitCreate() {
             <v-btn v-if="auth.canProcessPayments" color="primary" prepend-icon="mdi-plus" @click="openCreate">New Payment Request</v-btn>
         </div>
 
+        <v-card class="mb-4">
+            <v-card-text>
+                <v-row dense>
+                    <v-col cols="12" md="4">
+                        <v-text-field
+                            v-model="search"
+                            label="Search reference, invoice"
+                            prepend-inner-icon="mdi-magnify"
+                            clearable
+                            hide-details
+                        />
+                    </v-col>
+                    <v-col cols="12" sm="6" md="3">
+                        <v-select
+                            v-model="filters.vendor"
+                            :items="meta.vendors"
+                            label="Vendor"
+                            clearable
+                            hide-details
+                        />
+                    </v-col>
+                    <v-col cols="12" sm="6" md="3">
+                        <v-select
+                            v-model="filters.department"
+                            :items="meta.departments"
+                            label="Department"
+                            clearable
+                            hide-details
+                        />
+                    </v-col>
+                </v-row>
+            </v-card-text>
+        </v-card>
+
         <v-card>
             <v-data-table-server
                 v-model:page="options.page"
@@ -138,7 +190,12 @@ async function submitCreate() {
                     <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">{{ money(item.total_amount) }}</span>
                 </template>
                 <template #item.stage="{ item }">
-                    <span v-if="item.status === 'in_approval'">{{ item.current_stage }} / {{ item.approvals?.length }}</span>
+                    <template v-if="item.status === 'in_approval'">
+                        {{ item.current_stage }} / {{ item.approvals?.length }}
+                        <div v-if="item.approvals?.find(a => a.sequence === item.current_stage)?.approver?.name" class="text-caption text-medium-emphasis">
+                            {{ item.approvals.find(a => a.sequence === item.current_stage).approver.name }}
+                        </div>
+                    </template>
                     <span v-else class="text-medium-emphasis">—</span>
                 </template>
                 <template #item.status="{ item }">
@@ -154,12 +211,12 @@ async function submitCreate() {
         </v-card>
 
         <!-- Create dialog -->
-        <v-dialog v-model="create.show" max-width="900" scrollable>
+        <v-dialog v-model="create.show" max-width="100%" scrollable>
             <v-card>
                 <v-card-title>New Payment Request</v-card-title>
                 <v-card-subtitle>Select posted invoices, then build the approval chain</v-card-subtitle>
                 <v-divider />
-                <v-card-text style="max-height: 70vh">
+                <v-card-text style="max-height: 90vh">
                     <div v-if="create.loadingEligible" class="d-flex justify-center py-8">
                         <v-progress-circular indeterminate color="primary" />
                     </div>

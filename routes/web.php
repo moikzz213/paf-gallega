@@ -26,6 +26,7 @@ Route::prefix('api')->group(function () {
         Route::get('/me', [AuthController::class, 'me']);
         Route::get('/meta', [MetaController::class, 'index']);
         Route::get('/approvers', [MetaController::class, 'approvers']);
+        Route::get('/vendors', [MetaController::class, 'vendors']);
 
         Route::get('/dashboard', [DashboardController::class, 'index']);
 
