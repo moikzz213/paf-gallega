@@ -1,7 +1,7 @@
 <script setup>
 import { onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../../services/api';
-import { money, shortDate, statusLabel } from '../../utils/format';
+import { money, shortDate, statusLabel, PRIORITY_META } from '../../utils/format';
 import { useMetaStore } from '../../stores/meta';
 import { useAuthStore } from '../../stores/auth';
 import { useNotifyStore } from '../../stores/notify';
@@ -19,11 +19,12 @@ const filters = reactive({
     q: '',
     status: [],
     department: null,
+    priority: null,
     date_from: null,
     date_to: null,
 });
 
-const options = reactive({ page: 1, itemsPerPage: 15 });
+const options = reactive({ page: 1, itemsPerPage: 15, sortBy: [{ key: 'submitted_at', order: 'desc' }] });
 
 const dialog = ref({ show: false, kind: 'post', invoice: null, erp_doc_no: '', posting_date: '', finance_remarks: '' });
 
@@ -35,6 +36,7 @@ const headers = [
     { title: 'Posted', key: 'posting_date', sortable: false },
     { title: 'Status', key: 'status', sortable: false },
     { title: 'O/S Days', key: 'aging', sortable: false },
+    { title: 'Priority', key: 'priority' },
     { title: '', key: 'actions', align: 'end', sortable: false },
 ];
 
@@ -52,6 +54,7 @@ function agingColor(d) {
 async function load() {
     loading.value = true;
     try {
+        const sort = options.sortBy?.[0];
         const { data } = await api.get('/invoices', {
             params: {
                 page: options.page,
@@ -59,8 +62,11 @@ async function load() {
                 q: filters.q || undefined,
                 status: filters.status.length ? filters.status.join(',') : undefined,
                 department: filters.department || undefined,
+                priority: filters.priority || undefined,
                 date_from: filters.date_from || undefined,
                 date_to: filters.date_to || undefined,
+                sort: sort?.key || 'submitted_at',
+                dir: sort?.order || 'desc',
             },
         });
         items.value = data.data;
@@ -152,6 +158,15 @@ async function confirmDialog() {
                             hide-details
                         />
                     </v-col>
+                    <v-col cols="12" sm="6" md="2">
+                        <v-select
+                            v-model="filters.priority"
+                            :items="meta.priorities.map(p => ({ value: p, title: PRIORITY_META[p]?.label ?? p }))"
+                            label="Priority"
+                            clearable
+                            hide-details
+                        />
+                    </v-col>
                     <v-col cols="6" md="1.5">
                         <v-text-field v-model="filters.date_from" label="From" type="date" hide-details />
                     </v-col>
@@ -166,6 +181,7 @@ async function confirmDialog() {
             <v-data-table-server
                 v-model:page="options.page"
                 v-model:items-per-page="options.itemsPerPage"
+                v-model:sort-by="options.sortBy"
                 :headers="headers"
                 :items="items"
                 :items-length="total"
@@ -200,6 +216,11 @@ async function confirmDialog() {
                     <span v-else class="font-weight-bold" :style="{ color: agingColor(osDays(item.submitted_at)) }">
                         {{ osDays(item.submitted_at) }} d
                     </span>
+                </template>
+                <template #item.priority="{ item }">
+                    <v-chip size="small" variant="tonal" :style="{ color: PRIORITY_META[item.priority]?.color }">
+                        {{ PRIORITY_META[item.priority]?.label ?? item.priority }}
+                    </v-chip>
                 </template>
                 <template #item.actions="{ item }">
                     <template v-if="auth.canProcessPayments && ['submitted', 'query_raised'].includes(item.status)">

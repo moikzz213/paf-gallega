@@ -35,6 +35,10 @@ class InvoiceController extends Controller
             $query->where('department', $department);
         }
 
+        if ($priority = $request->input('priority')) {
+            $query->whereIn('priority', is_array($priority) ? $priority : explode(',', $priority));
+        }
+
         if ($request->filled('date_from')) {
             $query->whereDate('submitted_at', '>=', $request->date('date_from'));
         }
@@ -51,7 +55,7 @@ class InvoiceController extends Controller
             });
         }
 
-        $sort = in_array($request->input('sort'), ['submitted_at', 'invoice_date', 'due_date', 'total_amount', 'status'], true)
+        $sort = in_array($request->input('sort'), ['submitted_at', 'invoice_date', 'due_date', 'total_amount', 'status', 'priority'], true)
             ? $request->input('sort') : 'submitted_at';
 
         return $query->orderBy($sort, $request->input('dir') === 'asc' ? 'asc' : 'desc')
