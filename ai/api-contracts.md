@@ -38,7 +38,7 @@
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET | `/api/invoices` | scoped `visibleTo` | filters `mine, status[], payment_status[], department, date_from/to, q`; `sort∈{submitted_at,invoice_date,due_date,total_amount,status}`; paginated 15 |
+| GET | `/api/invoices` | scoped `visibleTo` | filters `mine, status[], payment_status[], department, priority[], date_from/to, q`; `sort∈{submitted_at,invoice_date,due_date,total_amount,status,priority}`; paginated 15 |
 | POST | `/api/invoices` | any auth | create → status `submitted`; **201** with `documents` |
 | GET | `/api/invoices/{invoice}` | canViewAll / owner / assigned approver (via PRF) | loads submitter, poster, documents, `paymentRequest.approvals.approver`, auditLogs |
 | POST | `/api/invoices/{invoice}` | owner or admin; must be editable | update (multipart); a queried invoice returns to `submitted` |
