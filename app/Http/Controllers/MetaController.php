@@ -40,4 +40,15 @@ class MetaController extends Controller
             ->orderBy('name')
             ->get(['id', 'name', 'role', 'approval_level', 'department', 'job_title']);
     }
+
+    /** Distinct vendor names from invoices, for filter dropdowns. */
+    public function vendors()
+    {
+        return Invoice::query()
+            ->whereNotNull('vendor_name')
+            ->where('vendor_name', '!=', '')
+            ->distinct()
+            ->orderBy('vendor_name')
+            ->pluck('vendor_name');
+    }
 }

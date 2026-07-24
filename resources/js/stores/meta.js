@@ -15,9 +15,11 @@ export const useMetaStore = defineStore('meta', {
         roles: [],
         approval_levels: [],
         approvers: [],
+        vendors: [],
         upload: { max_documents: 10, max_document_kb: 10240, mimes: '' },
         loaded: false,
         approversLoaded: false,
+        vendorsLoaded: false,
     }),
 
     actions: {
@@ -32,6 +34,13 @@ export const useMetaStore = defineStore('meta', {
             const { data } = await api.get('/approvers');
             this.approvers = data;
             this.approversLoaded = true;
+        },
+
+        async loadVendors(force = false) {
+            if (this.vendorsLoaded && !force) return;
+            const { data } = await api.get('/vendors');
+            this.vendors = data;
+            this.vendorsLoaded = true;
         },
     },
 });

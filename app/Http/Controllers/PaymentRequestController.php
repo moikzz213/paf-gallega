@@ -36,8 +36,21 @@ class PaymentRequestController extends Controller
             $query->whereIn('status', is_array($status) ? $status : explode(',', $status));
         }
 
+        if ($department = $request->input('department')) {
+            $query->whereHas('invoices', fn ($iq) => $iq->where('department', $department));
+        }
+
+        if ($vendor = trim((string) $request->input('vendor'))) {
+            $query->whereHas('invoices', fn ($iq) => $iq->where('vendor_name', 'like', "%{$vendor}%"));
+        }
+
         if ($q = trim((string) $request->input('q'))) {
-            $query->where('reference_no', 'like', "%{$q}%");
+            $query->where(function ($sub) use ($q) {
+                $sub->where('reference_no', 'like', "%{$q}%")
+                    ->orWhereHas('invoices', fn ($iq) => $iq
+                        ->where('vendor_name', 'like', "%{$q}%")
+                        ->orWhere('invoice_no', 'like', "%{$q}%"));
+            });
         }
 
         return $query->latest()->paginate((int) $request->input('per_page', 15));
