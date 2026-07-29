@@ -6,7 +6,7 @@ markers. Severity is a triage judgment.
 
 | # | Area | Issue | Severity |
 |---|------|-------|----------|
-| 1 | Notifications | No email/notifications. Approvers learn of pending PRFs only by visiting **Approvals**; departments see a query only by opening the invoice. `MAIL_MAILER=log`. | High (product) |
+| 1 | Notifications | Email is now wired (SMTP): approver-invite + public-link on each stage, daily reminders, **invoice-query → submitter**, and **final-approval → requestors**. Emails send **synchronously** (no queue) inside the request, so SMTP latency/failure can slow or break the triggering action; move to queued mail for production. | Medium |
 | 2 | ERP | "Post to ERP" records a doc number but calls **no external system** — there is no real ERP integration. | Medium (product) |
 | 3 | Auth | No password reset or email verification. Passwords are set only by an admin. | Medium |
 | 4 | Concurrency | **No guard against double-selecting an invoice into two PRFs.** Two Finance users could each pull the same eligible invoice before sending; whoever creates first reserves it, the other 422s at submit — but there is no lock, so a race on the reservation is possible. | Medium |

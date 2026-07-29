@@ -11,6 +11,7 @@ class DatabaseSeeder extends Seeder
         $this->call([
             UserSeeder::class,          // users first so levels can reference default approvers
             ApprovalLevelSeeder::class,
+            MasterDataSeeder::class,    // vendors, business units, departments, locations
             DemoDataSeeder::class,
         ]);
     }

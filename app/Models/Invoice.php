@@ -40,7 +40,7 @@ class Invoice extends Model
     ];
 
     protected $fillable = [
-        'reference_no', 'vendor_name', 'vendor_email', 'vendor_trn',
+        'reference_no', 'vendor_name',
         'invoice_no', 'invoice_date', 'due_date', 'currency',
         'amount', 'tax_amount', 'total_amount',
         'business_unit', 'department', 'location', 'payment_method',
@@ -81,6 +81,11 @@ class Invoice extends Model
     public function documents()
     {
         return $this->hasMany(InvoiceDocument::class);
+    }
+
+    public function items()
+    {
+        return $this->hasMany(InvoiceItem::class)->orderBy('sort_order');
     }
 
     public function auditLogs()

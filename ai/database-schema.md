@@ -17,11 +17,13 @@
 ```
 users ──< invoices >── payment_requests ──< payment_request_approvals
   │           │                 │
+  │           ├──< invoice_items >── customers?
   │           └── belongs to a  │  (invoice.payment_request_id, nullable)
   │                             │
   └──< audit_logs (actor) ; audit_logs ── invoice_id? / payment_request_id?
 
 approval_levels  (config: threshold + default approver; pre-fills a PRF chain)
+vendors, customers, business_units, departments, locations  (master lists)
 invoice_documents  ──< invoices
 ```
 
@@ -51,12 +53,40 @@ Base Laravel columns plus (`add_paf_fields_to_users_table`): `role`
 | `is_active` | boolean | inactive levels are skipped |
 | timestamps | | |
 
+### vendors
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint PK | |
+| `name` | string, **unique** | |
+| `vendor_code` | string(50), nullable, unique | short code |
+| `credit_limit` | decimal(15,2), default 0 | |
+| `credit_days` | unsigned int, default 0 | auto-calculated due date |
+| `is_active` | boolean | inactive vendors are excluded from dropdowns |
+| timestamps | | |
+
+### customers
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint PK | |
+| `name` | string, **unique** | |
+| `customer_code` | string(50), nullable, unique | short code |
+| `credit_limit` | decimal(15,2), default 0 | |
+| `credit_days` | unsigned int, default 0 | |
+| `is_active` | boolean | |
+| timestamps | | |
+
+### business_units · departments · locations
+
+Identical schema: `id`, `name` (unique), `is_active` (boolean), timestamps.
+
 ### invoices
 
 Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `PAF-{year}-00001`),
-`vendor_name` (idx), `vendor_email`, `vendor_trn`, `invoice_no`, `invoice_date`, `due_date`,
-`currency`, `amount`, `tax_amount`, `total_amount`, `business_unit`, `department` (idx), `location`,
-`payment_method`, `priority`, `description`.
+`vendor_name` (idx), `invoice_no`, `invoice_date`, `due_date`, `currency`, `amount`
+(sum of items), `tax_amount` (sum of items), `total_amount` (sum of items),
+`business_unit`, `department` (idx), `location`, `payment_method`, `priority`, `description`.
 
 Lifecycle & posting columns:
 
@@ -117,6 +147,24 @@ One row per chain stage, sequence-ordered.
 | timestamps | | |
 
 **Unique:** `(payment_request_id, sequence)`.
+
+### invoice_items
+
+Line items on an invoice (replaces the single amount/tax on the invoice itself).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint PK | |
+| `invoice_id` | FK invoices | cascade delete |
+| `sort_order` | unsigned smallint | display order |
+| `job_no` | string(100), nullable | |
+| `customer_id` | FK customers, nullable | nullOnDelete |
+| `description` | text, nullable | |
+| `currency` | string(3) | |
+| `amount` | decimal(15,2) | |
+| `tax_amount` | decimal(15,2) | default 0 |
+| `total_amount` | decimal(15,2) | amount + tax |
+| timestamps | | |
 
 ### invoice_documents
 

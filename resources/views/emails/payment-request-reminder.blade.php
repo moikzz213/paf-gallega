@@ -49,7 +49,7 @@
             <a href="{{ route('payment-request.public', ['id' => $paymentRequest->id, 'token' => $paymentRequest->currentApproval()?->view_token]) }}" class="btn">Review & Approve</a>
         </div>
         <div class="footer">
-            This is an automated reminder from the Payment Approval Flow (PAF) system.
+            This is an automated reminder from the Invoice Payment Approval Platform.
         </div>
     </div>
 </body>

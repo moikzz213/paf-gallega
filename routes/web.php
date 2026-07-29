@@ -6,6 +6,7 @@ use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\InvoiceController;
+use App\Http\Controllers\MasterDataController;
 use App\Http\Controllers\MetaController;
 use App\Http\Controllers\PaymentRequestController;
 use App\Http\Controllers\PublicPaymentRequestController;
@@ -75,6 +76,11 @@ Route::prefix('api')->group(function () {
             Route::post('/approval-levels', [ApprovalLevelController::class, 'store']);
             Route::put('/approval-levels/{approvalLevel}', [ApprovalLevelController::class, 'update']);
             Route::delete('/approval-levels/{approvalLevel}', [ApprovalLevelController::class, 'destroy']);
+
+            Route::get('/master-data/{entity}', [MasterDataController::class, 'index']);
+            Route::post('/master-data/{entity}', [MasterDataController::class, 'store']);
+            Route::put('/master-data/{entity}/{id}', [MasterDataController::class, 'update']);
+            Route::delete('/master-data/{entity}/{id}', [MasterDataController::class, 'destroy']);
         });
     });
 });

@@ -158,8 +158,6 @@ const auditIcons = {
                         <v-row dense>
                             <v-col v-for="field in [
                                 ['Vendor', invoice.vendor_name],
-                                ['Vendor email', invoice.vendor_email || '—'],
-                                ['Vendor TRN', invoice.vendor_trn || '—'],
                                 ['Invoice #', invoice.invoice_no],
                                 ['Invoice date', shortDate(invoice.invoice_date)],
                                 ['Due date', shortDate(invoice.due_date)],
@@ -172,19 +170,39 @@ const auditIcons = {
                             </v-col>
                         </v-row>
                         <v-divider class="my-4" />
-                        <v-row dense>
-                            <v-col cols="6" md="3">
-                                <div class="text-caption text-medium-emphasis">Amount</div>
-                                <div class="text-body-1">{{ money(invoice.amount, invoice.currency) }}</div>
-                            </v-col>
-                            <v-col cols="6" md="3">
-                                <div class="text-caption text-medium-emphasis">Tax / VAT</div>
-                                <div class="text-body-1">{{ money(invoice.tax_amount, invoice.currency) }}</div>
-                            </v-col>
-                            <v-col cols="6" md="3">
-                                <div class="text-caption text-medium-emphasis">Total</div>
-                                <div class="text-h6 font-weight-bold">{{ money(invoice.total_amount, invoice.currency) }}</div>
-                            </v-col>
+                        <div class="text-caption text-medium-emphasis mb-2">Line Items</div>
+                        <v-table v-if="invoice.items?.length" density="compact">
+                            <thead>
+                                <tr>
+                                    <th class="text-left">Job No</th>
+                                    <th class="text-left">Customer</th>
+                                    <th class="text-left">Description</th>
+                                    <th class="text-right">Amount</th>
+                                    <th class="text-right">Tax</th>
+                                    <th class="text-right">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(item, idx) in invoice.items" :key="idx">
+                                    <td>{{ item.job_no || '—' }}</td>
+                                    <td>{{ item.customer?.name || '—' }}</td>
+                                    <td>{{ item.description || '—' }}</td>
+                                    <td class="text-right">{{ money(item.amount, item.currency) }}</td>
+                                    <td class="text-right">{{ money(item.tax_amount, item.currency) }}</td>
+                                    <td class="text-right font-weight-bold">{{ money(item.total_amount, item.currency) }}</td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr class="font-weight-bold">
+                                    <td colspan="3" class="text-right">Total</td>
+                                    <td class="text-right">{{ money(invoice.amount, invoice.currency) }}</td>
+                                    <td class="text-right">{{ money(invoice.tax_amount, invoice.currency) }}</td>
+                                    <td class="text-right">{{ money(invoice.total_amount, invoice.currency) }}</td>
+                                </tr>
+                            </tfoot>
+                        </v-table>
+                        <div v-else class="text-body-2 text-medium-emphasis">No line items.</div>
+                        <v-row dense class="mt-4">
                             <v-col cols="6" md="3">
                                 <div class="text-caption text-medium-emphasis">Priority</div>
                                 <v-chip size="small" variant="tonal" :style="{ color: PRIORITY_META[invoice.priority]?.color }">

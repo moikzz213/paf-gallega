@@ -2,10 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\InvoiceQueryRaised;
+use App\Models\Department;
 use App\Models\Invoice;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 
 class InvoiceController extends Controller
@@ -65,8 +68,9 @@ class InvoiceController extends Controller
     public function store(Request $request)
     {
         $data = $this->validated($request);
+        $itemsData = $this->validatedItems($request);
 
-        $invoice = DB::transaction(function () use ($request, $data) {
+        $invoice = DB::transaction(function () use ($request, $data, $itemsData) {
             $invoice = Invoice::create([
                 ...$data,
                 'reference_no' => Invoice::nextReferenceNo(),
@@ -74,6 +78,18 @@ class InvoiceController extends Controller
                 'payment_status' => Invoice::PAY_NOT_INITIATED,
                 'submitted_by' => $request->user()->id,
                 'submitted_at' => now(),
+                // placeholders — recomputed from line items immediately below
+                'amount' => 0,
+                'tax_amount' => 0,
+                'total_amount' => 0,
+            ]);
+
+            $this->syncItems($invoice, $itemsData);
+
+            $invoice->update([
+                'amount' => $invoice->items()->sum('amount'),
+                'tax_amount' => $invoice->items()->sum('tax_amount'),
+                'total_amount' => $invoice->items()->sum('total_amount'),
             ]);
 
             AuditLogger::log('submitted', "Invoice {$invoice->reference_no} submitted to Finance for {$invoice->vendor_name} ({$invoice->currency} {$invoice->total_amount})", $invoice);
@@ -83,7 +99,7 @@ class InvoiceController extends Controller
             return $invoice;
         });
 
-        return response()->json($invoice->load('documents'), 201);
+        return response()->json($invoice->load('items.customer', 'documents'), 201);
     }
 
     public function show(Request $request, Invoice $invoice)
@@ -94,6 +110,7 @@ class InvoiceController extends Controller
             $invoice->load([
                 'submitter:id,name,email,department',
                 'poster:id,name',
+                'items.customer:id,name,customer_code',
                 'documents.uploader:id,name',
                 'paymentRequest.approvals.approver:id,name',
                 'auditLogs.user:id,name',
@@ -114,20 +131,28 @@ class InvoiceController extends Controller
         }
 
         $data = $this->validated($request);
+        $itemsData = $this->validatedItems($request);
         $old = $invoice->only(array_keys($data));
 
-        // Editing a queried invoice puts it back into the review queue.
         if ($invoice->status === Invoice::STATUS_QUERY) {
             $data['status'] = Invoice::STATUS_SUBMITTED;
             $data['finance_remarks'] = null;
         }
 
         $invoice->update($data);
+        $this->syncItems($invoice, $itemsData);
+
+        $invoice->update([
+            'amount' => $invoice->items()->sum('amount'),
+            'tax_amount' => $invoice->items()->sum('tax_amount'),
+            'total_amount' => $invoice->items()->sum('total_amount'),
+        ]);
+
         $this->storeDocuments($request, $invoice);
 
         AuditLogger::log('updated', "Invoice {$invoice->reference_no} updated", $invoice, $old, $data);
 
-        return response()->json($invoice->refresh()->load('documents'));
+        return response()->json($invoice->refresh()->load('items.customer', 'documents'));
     }
 
     /** Finance posts the invoice in the ERP. */
@@ -172,7 +197,13 @@ class InvoiceController extends Controller
 
         AuditLogger::log('query_raised', "Query raised on {$invoice->reference_no}: {$data['finance_remarks']}", $invoice);
 
-        return response()->json($invoice->refresh());
+        // Notify the person who submitted the invoice so they can correct and resubmit.
+        $invoice->refresh()->loadMissing('submitter');
+        if ($invoice->submitter?->email) {
+            Mail::to($invoice->submitter->email)->send(new InvoiceQueryRaised($invoice));
+        }
+
+        return response()->json($invoice);
     }
 
     public function cancel(Request $request, Invoice $invoice)
@@ -205,7 +236,7 @@ class InvoiceController extends Controller
             abort(422, 'Invoices already in a payment cycle cannot be deleted.');
         }
 
-        AuditLogger::log('deleted', "Invoice {$invoice->reference_no} deleted");
+        AuditLogger::log('deleted', "Invoice {$invoice->reference_no} deleted", $invoice);
         $invoice->delete();
 
         return response()->json(['message' => 'Deleted']);
@@ -214,18 +245,14 @@ class InvoiceController extends Controller
     private function validated(Request $request): array
     {
         $data = $request->validate([
-            'vendor_name' => ['required', 'string', 'max:255'],
-            'vendor_email' => ['nullable', 'email', 'max:255'],
-            'vendor_trn' => ['nullable', 'string', 'max:50'],
+            'vendor_name' => ['required', 'string', 'max:255', Rule::exists('vendors', 'name')->where('is_active', true)],
             'invoice_no' => ['required', 'string', 'max:100'],
             'invoice_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
             'currency' => ['required', Rule::in(config('paf.currencies'))],
-            'amount' => ['required', 'numeric', 'min:0.01', 'max:999999999999'],
-            'tax_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
-            'business_unit' => ['required', Rule::in(config('paf.business_units'))],
-            'department' => ['required', Rule::in(config('paf.departments'))],
-            'location' => ['required', Rule::in(config('paf.locations'))],
+            'business_unit' => ['required', 'string', Rule::exists('business_units', 'name')->where('is_active', true)],
+            'department' => ['required', 'string', Rule::exists('departments', 'name')->where('is_active', true)],
+            'location' => ['required', 'string', Rule::exists('locations', 'name')->where('is_active', true)],
             'payment_method' => ['required', Rule::in(array_keys(config('paf.payment_methods')))],
             'priority' => ['required', Rule::in(config('paf.priorities'))],
             'description' => ['nullable', 'string', 'max:5000'],
@@ -233,11 +260,47 @@ class InvoiceController extends Controller
             'documents.*' => ['file', 'mimes:'.config('paf.document_mimes'), 'max:'.config('paf.max_document_kb')],
         ]);
 
-        $data['tax_amount'] = $data['tax_amount'] ?? 0;
-        $data['total_amount'] = round($data['amount'] + $data['tax_amount'], 2);
         unset($data['documents']);
 
         return $data;
+    }
+
+    private function validatedItems(Request $request): array
+    {
+        $items = $request->validate([
+            'items' => ['required', 'array', 'min:1'],
+            'items.*.job_no' => ['nullable', 'string', 'max:100'],
+            'items.*.customer_id' => ['nullable', 'integer', Rule::exists('customers', 'id')->where('is_active', true)],
+            'items.*.description' => ['nullable', 'string', 'max:2000'],
+            'items.*.currency' => ['required', Rule::in(config('paf.currencies'))],
+            'items.*.amount' => ['required', 'numeric', 'min:0.01', 'max:999999999999'],
+            'items.*.tax_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
+        ]);
+
+        foreach ($items['items'] as &$item) {
+            $item['tax_amount'] = $item['tax_amount'] ?? 0;
+            $item['total_amount'] = round($item['amount'] + $item['tax_amount'], 2);
+        }
+
+        return $items['items'];
+    }
+
+    private function syncItems(Invoice $invoice, array $itemsData): void
+    {
+        $invoice->items()->delete();
+
+        foreach ($itemsData as $index => $item) {
+            $invoice->items()->create([
+                'sort_order' => $index,
+                'job_no' => $item['job_no'] ?? null,
+                'customer_id' => $item['customer_id'] ?? null,
+                'description' => $item['description'] ?? null,
+                'currency' => $item['currency'],
+                'amount' => $item['amount'],
+                'tax_amount' => $item['tax_amount'],
+                'total_amount' => $item['total_amount'],
+            ]);
+        }
     }
 
     private function storeDocuments(Request $request, Invoice $invoice): void
