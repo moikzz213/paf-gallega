@@ -58,11 +58,37 @@ fonts are cp1252-encoded and would otherwise mangle non-ASCII characters.
 - Merged files are larger and generation cost scales with attachment count and size.
 - Link URLs come from `url()`, so they resolve only if `APP_URL` is the real host — a localhost
   `APP_URL` yields links that work for nobody but the developer.
-- FPDI cannot import encrypted or some compressed PDFs; those raise an error page and merging
-  continues rather than failing the download.
+- A PDF that cannot be imported degrades to a download link on the same Additional Documents page,
+  annotated with a short reason, rather than failing the export or producing a dead-end error page.
+  See "Encrypted attachments" below.
 - `tests/Feature/PdfMergeTest.php` guards the split and, via
   `test_non_mergeable_documents_produce_real_link_annotations`, the annotation defect above —
   which is invisible to visual inspection.
+
+## Encrypted attachments
+
+Observed with a real vendor LPO (`... PRF 20266_encrypted_.pdf`, AES-128):
+
+```
+/Encrypt 1051 0 R
+<< /Filter /Standard /V 4 /R 4 /Length 128 /CFM AESV2 /P -1292 ... >>
+```
+
+FPDI rejects it outright — `CrossReferenceException` code `0x010C` (`ENCRYPTED`), *"This PDF document
+is encrypted and cannot be processed with FPDI."* The free FPDI has no decryption support at all.
+
+Such files are easy to mistake for unprotected because they **open without prompting**: the user
+password is empty and only an owner password is set, so the encryption exists purely to enforce
+permissions. Decoding `/P -1292` on the file above shows printing and text copying allowed, but
+**modify contents** and **assemble (insert/rotate/delete pages)** denied — and "assemble" is
+precisely the operation merging performs. So for this class of file the restriction is intentional,
+not incidental.
+
+Accordingly the merge does **not** attempt to strip protection. `reasonFor()` maps the FPDI error
+code to `password-protected PDF - could not be merged`, and the attachment is listed as a download
+link; the original opens normally for the approver who clicks it. Stripping an owner password would
+need an external binary (`qpdf --decrypt`, `pdftk`) and would override a restriction the document's
+author set deliberately, so it stays out of scope unless the business explicitly asks for it.
 
 ## Alternatives considered
 

@@ -66,6 +66,35 @@ class PdfMergeTest extends TestCase
         $this->assertContains('image/png', PdfMergeService::MERGEABLE_MIMES);
     }
 
+    /**
+     * FPDI cannot parse an encrypted PDF at all (CrossReferenceException::ENCRYPTED), and such a
+     * file usually also denies page assembly in its /P permissions. Rather than failing the export
+     * or emitting a dead-end error page, the attachment degrades to a download link.
+     */
+    public function test_encrypted_pdf_falls_back_to_a_download_link(): void
+    {
+        $path = tempnam(sys_get_temp_dir(), 'enc_');
+        file_put_contents($path, $this->createEncryptedPdf());
+
+        $merged = (new PdfMergeService())->mergePdfs($this->createMinimalPdf('Main Document'), [[
+            'path' => $path,
+            'name' => 'LPO - IT Assets - PRF 20266_encrypted_.pdf',
+            'url' => 'https://paf.test/api/documents/42/download',
+            'mime_type' => 'application/pdf',
+            'size' => filesize($path),
+            'group' => 'INV-2026-00031 - Jawed WH Operations',
+        ]]);
+
+        unlink($path);
+
+        $this->assertStringStartsWith('%PDF', $merged);
+        // Deferred to the links page: a merged PDF would carry no annotation at all.
+        $this->assertStringContainsString('/Annots', $merged);
+        $this->assertStringContainsString('/URI', $merged);
+        $this->assertStringContainsString('https://paf.test/api/documents/42/download', $merged);
+        $this->assertStringNotContainsString('Could not process this attachment', $merged);
+    }
+
     public function test_merge_service_handles_missing_files(): void
     {
         $mainPdf = $this->createMinimalPdf('Main Document');
@@ -125,6 +154,39 @@ startxref
 412
 %%EOF
 EOF;
+
+        return $pdf;
+    }
+
+    /**
+     * Minimal PDF whose trailer carries /Encrypt, which is what FPDI checks before it will read a
+     * document. Built with computed xref offsets so the parser gets far enough to see the entry.
+     */
+    private function createEncryptedPdf(): string
+    {
+        $objects = [
+            1 => '<< /Type /Catalog /Pages 2 0 R >>',
+            2 => '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+            3 => '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] >>',
+            4 => '<< /Filter /Standard /V 1 /R 2 /O (0123456789abcdef) /U (0123456789abcdef) /P -1292 >>',
+        ];
+
+        $pdf = "%PDF-1.4\n";
+        $offsets = [];
+        foreach ($objects as $id => $body) {
+            $offsets[$id] = strlen($pdf);
+            $pdf .= "{$id} 0 obj\n{$body}\nendobj\n";
+        }
+
+        $startxref = strlen($pdf);
+        $size = count($objects) + 1;
+
+        // Every xref entry must be exactly 20 bytes.
+        $pdf .= "xref\n0 {$size}\n0000000000 65535 f \n";
+        foreach ($offsets as $offset) {
+            $pdf .= sprintf("%010d 00000 n \n", $offset);
+        }
+        $pdf .= "trailer\n<< /Size {$size} /Root 1 0 R /Encrypt 4 0 R >>\nstartxref\n{$startxref}\n%%EOF\n";
 
         return $pdf;
     }

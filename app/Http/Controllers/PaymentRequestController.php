@@ -206,20 +206,20 @@ class PaymentRequestController extends Controller
                     continue;
                 }
 
+                $entry = [
+                    'name' => $document->original_name,
+                    'url' => url("/api/documents/{$document->id}/download"),
+                    'mime_type' => $document->mime_type,
+                    'size' => $document->size,
+                    'group' => "{$invoice->reference_no} - {$invoice->vendor_name}",
+                ];
+
                 if (in_array($document->mime_type, PdfMergeService::MERGEABLE_MIMES, true)) {
-                    $attachments[] = [
-                        'path' => $path,
-                        'name' => $document->original_name,
-                        'mime_type' => $document->mime_type,
-                    ];
+                    // Carries the link fields too: a PDF that turns out to be encrypted or
+                    // damaged falls back to the download list instead of failing the export.
+                    $attachments[] = $entry + ['path' => $path];
                 } else {
-                    $links[] = [
-                        'name' => $document->original_name,
-                        'url' => url("/api/documents/{$document->id}/download"),
-                        'mime_type' => $document->mime_type,
-                        'size' => $document->size,
-                        'group' => "{$invoice->reference_no} - {$invoice->vendor_name}",
-                    ];
+                    $links[] = $entry;
                 }
             }
         }

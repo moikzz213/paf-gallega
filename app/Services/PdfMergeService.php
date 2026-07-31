@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use Illuminate\Support\Facades\Log;
 use setasign\Fpdi\Fpdi;
+use setasign\Fpdi\PdfParser\CrossReference\CrossReferenceException;
 use setasign\Fpdi\PdfParser\StreamReader;
 
 class PdfMergeService
@@ -25,80 +27,88 @@ class PdfMergeService
     public function mergePdfs(string $mainPdfContent, array $attachments, array $links = []): string
     {
         $pdf = new Fpdi();
-        $pageCount = 0;
 
-        // Add main PDF first
         try {
-            $mainPageCount = $this->addPdfToPdf($pdf, $mainPdfContent, null);
-            $pageCount += $mainPageCount;
-        } catch (\Exception $e) {
-            // If main PDF fails, we still want to continue
-            \Log::error('Failed to process main PDF: '.$e->getMessage());
+            $this->addPdfToPdf($pdf, $mainPdfContent);
+        } catch (\Throwable $e) {
+            Log::error('Failed to process the payment request sheet: '.$e->getMessage());
         }
 
-        // Add each attachment
+        // An attachment that cannot be rendered is not a dead end: it falls through to the link
+        // list below, so the approver can still reach the original file.
+        $deferred = [];
+
         foreach ($attachments as $attachment) {
-            if (!is_file($attachment['path'])) {
+            if (! is_file($attachment['path'])) {
+                Log::warning("Attachment missing on disk: {$attachment['path']}");
+
                 continue;
             }
 
-            $isPdf = $attachment['mime_type'] === 'application/pdf';
+            try {
+                if ($attachment['mime_type'] === 'application/pdf') {
+                    $this->addPdfToPdf($pdf, file_get_contents($attachment['path']));
+                } else {
+                    $this->addImagePage($pdf, $attachment['path']);
+                }
+            } catch (\Throwable $e) {
+                Log::warning("Could not render attachment '{$attachment['name']}' into the PRF PDF", [
+                    'mime_type' => $attachment['mime_type'],
+                    'reason' => $e->getMessage(),
+                ]);
 
-            if ($isPdf) {
-                try {
-                    $attachmentPageCount = $this->addPdfToPdf($pdf, file_get_contents($attachment['path']), $attachment['name']);
-                    $pageCount += $attachmentPageCount;
-                } catch (\Exception $e) {
-                    \Log::error("Failed to merge PDF attachment {$attachment['name']}: ".$e->getMessage());
-                    $this->addErrorPage($pdf, $attachment['name']);
-                }
-            } elseif (in_array($attachment['mime_type'], ['image/jpeg', 'image/png', 'image/webp', 'image/gif'])) {
-                try {
-                    $this->addImagePage($pdf, $attachment['path'], $attachment['name'], $attachment['mime_type']);
-                } catch (\Exception $e) {
-                    \Log::error("Failed to add image attachment {$attachment['name']}: ".$e->getMessage());
-                    $this->addErrorPage($pdf, $attachment['name']);
-                }
+                $deferred[] = $attachment + ['note' => $this->reasonFor($e)];
             }
         }
 
-        // Anything that cannot be rendered inline is listed on a final page. This page must be
-        // drawn by FPDF rather than dompdf: FPDI's importPage() copies page content only, so a
-        // link annotation coming from the dompdf view would be dropped by the merge above.
-        if (! empty($links)) {
-            $this->addLinksPage($pdf, $links);
+        // Anything not rendered inline is listed on a final page. This page must be drawn by FPDF
+        // rather than dompdf: FPDI's importPage() copies page content only, so a link annotation
+        // coming from the dompdf view would be dropped by the merge above.
+        $listed = array_merge($links, $deferred);
+
+        if ($listed) {
+            $this->addLinksPage($pdf, $listed);
         }
 
         return $pdf->Output('S');
     }
 
-    /**
-     * Add a PDF file's pages to the main PDF.
-     */
-    private function addPdfToPdf(Fpdi $pdf, string $pdfContent, ?string $title): int
+    /** Short, approver-readable explanation of why a file could not be rendered inline. */
+    private function reasonFor(\Throwable $e): string
     {
-        try {
-            $pageCount = $pdf->setSourceFile(StreamReader::createByString($pdfContent));
-
-            for ($i = 1; $i <= $pageCount; $i++) {
-                $templateId = $pdf->importPage($i);
-                $size = $pdf->getTemplateSize($templateId);
-
-                $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
-                $pdf->AddPage($orientation, [$size['width'], $size['height']]);
-                $pdf->useTemplate($templateId);
-            }
-
-            return $pageCount;
-        } catch (\Exception $e) {
-            throw new \RuntimeException("Failed to process PDF: ".$e->getMessage());
+        if ($e->getCode() === CrossReferenceException::ENCRYPTED) {
+            // Usually permissions-only encryption: opens fine in a viewer, but the document
+            // denies page assembly, and FPDI cannot parse encrypted PDFs at all.
+            return 'password-protected PDF - could not be merged';
         }
+
+        return 'could not be merged';
+    }
+
+    /**
+     * Append every page of a PDF, preserving each page's own size and orientation.
+     * Exceptions propagate unwrapped so the caller can inspect the FPDI error code.
+     */
+    private function addPdfToPdf(Fpdi $pdf, string $pdfContent): int
+    {
+        $pageCount = $pdf->setSourceFile(StreamReader::createByString($pdfContent));
+
+        for ($i = 1; $i <= $pageCount; $i++) {
+            $templateId = $pdf->importPage($i);
+            $size = $pdf->getTemplateSize($templateId);
+
+            $orientation = $size['width'] > $size['height'] ? 'L' : 'P';
+            $pdf->AddPage($orientation, [$size['width'], $size['height']]);
+            $pdf->useTemplate($templateId);
+        }
+
+        return $pageCount;
     }
 
     /**
      * Add an image as a page to the PDF.
      */
-    private function addImagePage(Fpdi $pdf, string $imagePath, string $title, string $mimeType): void
+    private function addImagePage(Fpdi $pdf, string $imagePath): void
     {
         $pdf->AddPage();
 
@@ -140,7 +150,7 @@ class PdfMergeService
 
         $pdf->SetFont('Helvetica', 'I', 8);
         $pdf->SetTextColor(102, 102, 102);
-        $pdf->Cell(0, 5, $this->text('These file types cannot be displayed inside a PDF. Click a name to download it.'), 0, 1);
+        $pdf->Cell(0, 5, $this->text('These files could not be displayed inside this PDF. Click a name to download it.'), 0, 1);
         $pdf->Ln(3);
 
         $group = null;
@@ -155,15 +165,21 @@ class PdfMergeService
                 }
             }
 
-            $name = $this->text($link['name']);
             $pdf->SetFont('Helvetica', 'U', 10);
             $pdf->SetTextColor(0, 102, 204);
-            // Width is measured from the string so the clickable area matches the visible text.
-            $pdf->Cell($pdf->GetStringWidth($name) + 1, 6, $name, 0, 1, 'L', false, $link['url']);
+            // Write() wraps at the right margin and links each line it lays down, so long
+            // filenames stay on the page instead of overflowing past the MediaBox.
+            $pdf->Write(5, $this->text($link['name']), $link['url'] ?? '');
+            $pdf->Ln(6);
+
+            $meta = $link['mime_type'].'  |  '.round(($link['size'] ?? 0) / 1024, 1).' KB';
+            if (! empty($link['note'])) {
+                $meta .= '  |  '.$link['note'];
+            }
 
             $pdf->SetFont('Helvetica', '', 7.5);
             $pdf->SetTextColor(102, 102, 102);
-            $pdf->Cell(0, 4, $this->text($link['mime_type'].'  |  '.round(($link['size'] ?? 0) / 1024, 1).' KB'), 0, 1);
+            $pdf->Cell(0, 4, $this->text($meta), 0, 1);
             $pdf->Ln(1);
         }
 
@@ -176,17 +192,4 @@ class PdfMergeService
         return @iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', $value) ?: $value;
     }
 
-    /**
-     * Add an error page for failed attachments.
-     */
-    private function addErrorPage(Fpdi $pdf, string $title): void
-    {
-        $pdf->AddPage();
-        $pdf->SetFont('Helvetica', 'B', 12);
-        $pdf->Cell(0, 10, 'Attachment: '.$title, 0, 1);
-        $pdf->SetFont('Helvetica', 'I', 10);
-        $pdf->SetTextColor(200, 0, 0);
-        $pdf->Cell(0, 10, 'Error: Could not process this attachment', 0, 1);
-        $pdf->SetTextColor(0, 0, 0);
-    }
 }
