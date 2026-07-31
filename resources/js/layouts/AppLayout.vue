@@ -63,7 +63,7 @@ const roleLabel = computed(() => {
     <v-app-bar flat border color="surface">
         <v-app-bar-nav-icon @click="drawer = !drawer" />
         <v-toolbar-title class="text-subtitle-1 font-weight-medium">
-            Invoice Payment Approval Platform
+            Vendor Portal
         </v-toolbar-title>
         <v-spacer />
         <v-menu>
