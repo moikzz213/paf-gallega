@@ -2,25 +2,20 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\BusinessUnit;
-use App\Models\Customer;
-use App\Models\Department;
-use App\Models\Location;
-use App\Models\Vendor;
+use App\Exports\MasterDataTemplateExport;
 use App\Services\AuditLogger;
+use App\Services\MasterDataImportService;
+use App\Support\MasterDataDefinition;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\Rules\Unique;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class MasterDataController extends Controller
 {
-    private const ENTITIES = [
-        'vendors' => Vendor::class,
-        'customers' => Customer::class,
-        'business-units' => BusinessUnit::class,
-        'departments' => Department::class,
-        'locations' => Location::class,
-    ];
+    public function __construct(private readonly MasterDataImportService $importService) {}
 
     public function index(string $entity)
     {
@@ -41,6 +36,29 @@ class MasterDataController extends Controller
         AuditLogger::log('master_data_created', ucfirst($entity)." \"{$item->name}\" created");
 
         return response()->json($item, 201);
+    }
+
+    public function template(string $entity): BinaryFileResponse
+    {
+        $this->resolveDefinition($entity);
+        $filename = $entity.'-import-template.xlsx';
+
+        return Excel::download(new MasterDataTemplateExport($entity), $filename);
+    }
+
+    public function import(Request $request, string $entity)
+    {
+        $definition = $this->resolveDefinition($entity);
+        $data = $request->validate([
+            'file' => ['required', File::types(['xlsx', 'xls'])->max(5 * 1024)],
+        ]);
+
+        $count = $this->importService->import($entity, $data['file']);
+
+        return response()->json([
+            'message' => "{$definition['label']} import completed: {$count} record".($count === 1 ? '' : 's').' created.',
+            'imported_count' => $count,
+        ]);
     }
 
     public function update(Request $request, string $entity, int $id)
@@ -114,10 +132,15 @@ class MasterDataController extends Controller
 
     private function resolveModel(string $entity): string
     {
-        $class = self::ENTITIES[$entity] ?? null;
+        return $this->resolveDefinition($entity)['model'];
+    }
 
-        abort_unless($class, 404, 'Unknown master data entity.');
+    private function resolveDefinition(string $entity): array
+    {
+        $definition = MasterDataDefinition::find($entity);
 
-        return $class;
+        abort_unless($definition, 404, 'Unknown master data entity.');
+
+        return $definition;
     }
 }

@@ -99,6 +99,11 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   `approval_level` for approvers.
 - **Approval levels:** CRUD of the threshold levels used to **pre-fill** PRF chains, each with a
   **default approver**.
+- **Master data:** CRUD for vendors, customers, business units, departments and locations.
+  Administrators can also download a formatted entity-specific Excel template and bulk import up
+  to 1,000 new rows. Imports validate all rows first, reject database/workbook duplicates with
+  Excel row numbers, default every new record to active, and commit atomically so a partial
+  master-data load cannot occur. The templates omit status and retain normal Excel gridlines.
 
 ## Role → feature matrix
 

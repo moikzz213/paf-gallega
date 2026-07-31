@@ -40,8 +40,14 @@ Laravel 13 (routes/web.php, prefix "api")
     (from level defaults + ad-hoc stages) and reserves the invoices; `approve()` advances
     `current_stage` or finalizes; `reject()` frees the invoices; `markPaid()`. All in DB
     transactions. Invoice posting/query lives in `InvoiceController`.
+  - `MasterDataImportService` — parses and validates admin-uploaded Excel rows, then creates and
+    audits the complete batch in one transaction.
   - `AuditLogger` — static `log(action, description, ?invoice, ?old, ?new, ?paymentRequest)`
     writing `audit_logs` with the current user + request IP.
+- **Spreadsheet import/export** — Laravel Excel reads the first template sheet through
+  `MasterDataSpreadsheetImport`; `MasterDataTemplateExport` builds the entry and instructions
+  sheets. `MasterDataDefinition` is the shared entity/column map used by the controller, importer
+  and template exporter.
 - **Models** — Eloquent. Domain constants live on the models (`Invoice::STATUS_*` /
   `PAY_*`, `PaymentRequest::STATUS_*`, `User::ROLE_*`). Notable model behavior:
   - `Invoice::scopeVisibleTo(User)` / `PaymentRequest::scopeVisibleTo(User)` — the central

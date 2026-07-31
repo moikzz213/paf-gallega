@@ -1,0 +1,84 @@
+<?php
+
+namespace App\Support;
+
+use App\Models\BusinessUnit;
+use App\Models\Customer;
+use App\Models\Department;
+use App\Models\Location;
+use App\Models\Vendor;
+
+final class MasterDataDefinition
+{
+    public static function find(string $entity): ?array
+    {
+        return self::all()[$entity] ?? null;
+    }
+
+    public static function all(): array
+    {
+        return [
+            'vendors' => [
+                'model' => Vendor::class,
+                'table' => 'vendors',
+                'label' => 'Vendors',
+                'code_key' => 'vendor_code',
+                'columns' => [
+                    self::column('name', 'Name', true, 'Vendor name. Must be unique.', 34),
+                    self::column('vendor_code', 'Vendor Code', false, 'Optional unique vendor code.', 20),
+                    self::column('credit_limit', 'Credit Limit', false, 'Non-negative amount. Blank defaults to 0.', 18),
+                    self::column('credit_days', 'Credit Days', false, 'Whole number from 0 to 365. Blank defaults to 0.', 16),
+                ],
+            ],
+            'customers' => [
+                'model' => Customer::class,
+                'table' => 'customers',
+                'label' => 'Customers',
+                'code_key' => 'customer_code',
+                'columns' => [
+                    self::column('name', 'Name', true, 'Customer name. Must be unique.', 34),
+                    self::column('customer_code', 'Customer Code', false, 'Optional unique customer code.', 20),
+                    self::column('credit_limit', 'Credit Limit', false, 'Non-negative amount. Blank defaults to 0.', 18),
+                    self::column('credit_days', 'Credit Days', false, 'Whole number from 0 to 365. Blank defaults to 0.', 16),
+                ],
+            ],
+            'business-units' => [
+                'model' => BusinessUnit::class,
+                'table' => 'business_units',
+                'label' => 'Business Units',
+                'code_key' => null,
+                'columns' => [
+                    self::column('name', 'Name', true, 'Business unit name. Must be unique.', 34),
+                ],
+            ],
+            'departments' => [
+                'model' => Department::class,
+                'table' => 'departments',
+                'label' => 'Departments',
+                'code_key' => null,
+                'columns' => [
+                    self::column('name', 'Name', true, 'Department name. Must be unique.', 34),
+                ],
+            ],
+            'locations' => [
+                'model' => Location::class,
+                'table' => 'locations',
+                'label' => 'Locations',
+                'code_key' => null,
+                'columns' => [
+                    self::column('name', 'Name', true, 'Location name. Must be unique.', 34),
+                ],
+            ],
+        ];
+    }
+
+    private static function column(
+        string $key,
+        string $heading,
+        bool $required,
+        string $description,
+        int $width,
+    ): array {
+        return compact('key', 'heading', 'required', 'description', 'width');
+    }
+}

@@ -95,7 +95,9 @@ approver go out via the `SendPendingApprovalReminders` console command (`Payment
 | GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; export = 24-col XLSX, audit-logged |
 | GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. Approval-level create/update accepts `default_approver_id` (nullable; must be an active approver/admin) |
 | GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations`. GET returns all (ordered by name); POST creates (vendors: `name`, `vendor_code?`, `credit_limit?`, `credit_days?`; customers: `name`, `customer_code?`, `credit_limit?`, `credit_days?`; others: `name` only). |
-| PUT/DELETE | `/api/master-data/{entity}/{id}` | `role:admin`. PUT updates name/email/trn/is_active; DELETE removes. |
+| PUT/DELETE | `/api/master-data/{entity}/{id}` | `role:admin`. PUT updates the entity's create fields plus `is_active`; DELETE removes. |
+| GET | `/api/master-data/{entity}/template` | `role:admin`. Downloads an XLSX import template with an **Import Data** sheet and entity-specific instructions. |
+| POST | `/api/master-data/{entity}/import` | `role:admin`; multipart `file` (`xlsx`/`xls`, max 5 MB). Create-only, maximum 1,000 rows, and atomic: any missing header, invalid value, or duplicate name/code returns `422` and creates nothing. Imported rows default to `is_active = 1`; status is not included in templates. Success returns `{message, imported_count}`; every created row is audit-logged. |
 
 ## Notable quirks
 
