@@ -182,6 +182,44 @@ class MasterDataImportTest extends TestCase
             ->assertForbidden();
     }
 
+    public function test_admin_can_edit_a_user_with_a_department_from_master_data(): void
+    {
+        $this->actingAs($this->admin)
+            ->post('/api/master-data/departments/import', [
+                'file' => $this->workbookUpload('departments.xlsx', [
+                    ['Name *'],
+                    ['Imported Operations'],
+                ]),
+            ])
+            ->assertOk();
+
+        $user = User::create([
+            'name' => 'Department User',
+            'email' => 'department-user@t.local',
+            'password' => 'password',
+            'role' => User::ROLE_REQUESTER,
+            'is_active' => true,
+        ]);
+
+        $this->actingAs($this->admin)
+            ->putJson("/api/users/{$user->id}", [
+                'name' => $user->name,
+                'email' => $user->email,
+                'role' => $user->role,
+                'approval_level' => null,
+                'department' => 'Imported Operations',
+                'job_title' => 'Coordinator',
+                'is_active' => true,
+            ])
+            ->assertOk()
+            ->assertJsonPath('department', 'Imported Operations');
+
+        $this->assertDatabaseHas('users', [
+            'id' => $user->id,
+            'department' => 'Imported Operations',
+        ]);
+    }
+
     private function workbookUpload(string $name, array $rows): UploadedFile
     {
         $workbook = new Spreadsheet;
