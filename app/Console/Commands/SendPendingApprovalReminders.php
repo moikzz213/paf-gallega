@@ -20,7 +20,7 @@ class SendPendingApprovalReminders extends Command
                 $query->whereNull('last_reminder_sent_at')
                     ->orWhere('last_reminder_sent_at', '<', now()->startOfDay());
             })
-            ->with('approvals.approver', 'creator', 'invoices')
+            ->with('approvals.approver', 'creator', 'invoices.submitter', 'invoices.items.customer')
             ->get();
 
         $sentCount = 0;

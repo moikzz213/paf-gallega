@@ -58,10 +58,10 @@ description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | GET | `/api/payment-requests/eligible` | `role:finance,admin` | invoices payable (not_initiated & posted/submitted); filters `department, currency, vendor, invoice_no, job_no` (via items), `customer` (via items.customer name); paginated 100 |
-| GET | `/api/payment-requests/pending` | approver (own stage) / admin (all) | PRFs `in_approval` awaiting the current user's stage |
+| GET | `/api/payment-requests/pending` | approver (own stage) / admin (all) | PRFs `in_approval` awaiting the current user's stage; invoice payload includes submitter and `items.customer` for the decision dialog |
 | GET | `/api/payment-requests` | scoped `visibleTo` | filters `status[], department, vendor, q` (searches reference_no, invoice_no); paginated 15 |
 | POST | `/api/payment-requests` | `role:finance,admin` | create from `invoice_ids` + chain (see below); **201** |
-| GET | `/api/payment-requests/{paymentRequest}` | scoped `visibleTo` | loads creator, payer, invoices, approvals.approver, auditLogs |
+| GET | `/api/payment-requests/{paymentRequest}` | scoped `visibleTo` | loads creator, payer, invoices with submitter and `items.customer`, approvals.approver, auditLogs |
 | POST | `/api/payment-requests/{paymentRequest}/approve` | admin or assigned current-stage approver | `comments` nullable ≤2000 |
 | POST | `/api/payment-requests/{paymentRequest}/reject` | admin or assigned current-stage approver | `comments` **required** ≤2000 → PRF rejected, invoices freed |
 | POST | `/api/payment-requests/{paymentRequest}/mark-paid` | `role:finance,admin`; PRF must be `approved` | `payment_reference` req ≤100 → `paid` |
@@ -110,7 +110,7 @@ approver go out via the `SendPendingApprovalReminders` console command (`Payment
 
 | Method | Path | Notes |
 |--------|------|-------|
-| GET | `/prf/view/{id}/{token}` | Token-gated PRF view. `{token}` can be the PRF `view_token` (view-only) or an approval stage `view_token` (can act if current stage). |
+| GET | `/prf/view/{id}/{token}` | Token-gated PRF view with invoice submitter and line details (job no., customer, description, currency). `{token}` can be the PRF `view_token` (view-only) or an approval stage `view_token` (can act if current stage). |
 | POST | `/prf/view/{id}/{token}/approve` | Approve the current stage. Token must match the current stage's `view_token`. Emails next approver with their token. |
 | POST | `/prf/view/{id}/{token}/reject` | Reject with required `comments`. Token must match the current stage's `view_token`. |
 | GET | `/prf/view/{id}/{token}/document/{document}` | Download an invoice attachment. Token-gated; document must belong to the PRF. |

@@ -37,7 +37,9 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - An **email notification** is sent to the stage-1 approver when the PRF is created.
   The email includes a **unique token-gated link** (no login required) to view and approve/reject
   the PRF. Each approval stage has its own token — after approval, the old token becomes
-  view-only and the next approver receives their own link via email.
+  view-only and the next approver receives their own link via email. Approval and reminder emails
+  show each invoice submitter and the invoice-line job no., customer, description, and
+  currency-prefixed line total.
 - A **daily reminder email** is sent to each approver with a pending PRF (scheduled at 09:00
   via `prf:send-reminders` Artisan command).
 
@@ -51,6 +53,9 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   public-link approval paths.
 - **Reject** → PRF `rejected`; its invoices are returned to the eligible pool for re-initiation.
 - **Approvals queue** lists the PRFs awaiting the current user's stage.
+- The approval decision dialog, authenticated PRF detail, and token-gated approval page show each
+  invoice submitter and the invoice-line job no., customer, description, and currency-prefixed
+  line total for review.
 
 ## 6. Mark Paid (Finance)
 

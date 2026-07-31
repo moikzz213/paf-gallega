@@ -11,7 +11,7 @@
         .header { background: #1a237e; color: #fff; padding: 24px 32px; }
         .header h1 { font-size: 20px; font-weight: 600; }
         .header .ref { opacity: 0.8; font-size: 14px; margin-top: 4px; }
-        .container { max-width: 800px; margin: 24px auto; padding: 0 16px; }
+        .container { max-width: 1200px; margin: 24px auto; padding: 0 16px; }
         .card { background: #fff; border-radius: 8px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 20px; overflow: hidden; }
         .card-header { background: #f9f9f9; padding: 16px 20px; border-bottom: 1px solid #eee; font-weight: 600; font-size: 15px; }
         .card-body { padding: 20px; }
@@ -24,6 +24,7 @@
         th { background: #f5f5f5; padding: 10px 16px; text-align: left; font-size: 12px; text-transform: uppercase; color: #666; letter-spacing: 0.5px; border-bottom: 2px solid #eee; }
         td { padding: 12px 16px; border-bottom: 1px solid #f0f0f0; font-size: 14px; }
         tr:last-child td { border-bottom: none; }
+        .table-wrap { overflow-x: auto; }
         .badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600; text-transform: uppercase; }
         .badge-pending { background: #fff3e0; color: #e65100; }
         .badge-approved { background: #e8f5e9; color: #2e7d32; }
@@ -150,26 +151,47 @@
 
         <div class="card">
             <div class="card-header">Invoices ({{ $paymentRequest->invoices->count() }})</div>
-            <div class="card-body" style="padding: 0;">
+            <div class="card-body table-wrap" style="padding: 0;">
                 <table>
                     <thead>
                         <tr>
                             <th>Reference</th>
                             <th>Vendor</th>
                             <th>Invoice No.</th>
-                            <th style="text-align:right">Amount</th>
+                            <th>Invoice Submitted By</th>
+                            <th>Job No.</th>
+                            <th>Customer</th>
+                            <th>Description</th>
+                            <th style="text-align:right">Line Total</th>
                         </tr>
                     </thead>
                     <tbody>
                         @forelse($paymentRequest->invoices as $invoice)
-                        <tr>
-                            <td>{{ $invoice->reference_no }}</td>
-                            <td>{{ $invoice->vendor_name }}</td>
-                            <td>{{ $invoice->invoice_no }}</td>
-                            <td style="text-align:right">{{ number_format($invoice->total_amount, 2) }}</td>
-                        </tr>
+                            @forelse($invoice->items as $item)
+                            <tr>
+                                <td>{{ $invoice->reference_no }}</td>
+                                <td>{{ $invoice->vendor_name }}</td>
+                                <td>{{ $invoice->invoice_no }}</td>
+                                <td>{{ $invoice->submitter?->name ?? '—' }}</td>
+                                <td>{{ $item->job_no ?: '—' }}</td>
+                                <td>{{ $item->customer?->name ?? '—' }}</td>
+                                <td>{{ $item->description ?: ($invoice->description ?: '—') }}</td>
+                                <td style="text-align:right">{{ $item->currency ?: $invoice->currency }} {{ number_format($item->total_amount, 2) }}</td>
+                            </tr>
+                            @empty
+                            <tr>
+                                <td>{{ $invoice->reference_no }}</td>
+                                <td>{{ $invoice->vendor_name }}</td>
+                                <td>{{ $invoice->invoice_no }}</td>
+                                <td>{{ $invoice->submitter?->name ?? '—' }}</td>
+                                <td>—</td>
+                                <td>—</td>
+                                <td>{{ $invoice->description ?: '—' }}</td>
+                                <td style="text-align:right">{{ $invoice->currency }} {{ number_format($invoice->total_amount, 2) }}</td>
+                            </tr>
+                            @endforelse
                         @empty
-                        <tr><td colspan="4" style="text-align:center;color:#999;">No invoices</td></tr>
+                        <tr><td colspan="8" style="text-align:center;color:#999;">No invoices</td></tr>
                         @endforelse
                     </tbody>
                 </table>

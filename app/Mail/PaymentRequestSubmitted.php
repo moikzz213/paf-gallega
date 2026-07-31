@@ -26,6 +26,13 @@ class PaymentRequestSubmitted extends Mailable
 
     public function content(): Content
     {
+        $this->paymentRequest->loadMissing([
+            'creator:id,name',
+            'invoices.submitter:id,name',
+            'invoices.items.customer:id,name',
+            'approvals.approver:id,name',
+        ]);
+
         return new Content(
             view: 'emails.payment-request-submitted',
         );

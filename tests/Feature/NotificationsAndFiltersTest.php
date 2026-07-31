@@ -4,6 +4,8 @@ namespace Tests\Feature;
 
 use App\Mail\InvoiceQueryRaised;
 use App\Mail\PaymentRequestApproved;
+use App\Mail\PaymentRequestReminder;
+use App\Mail\PaymentRequestSubmitted;
 use App\Models\ApprovalLevel;
 use App\Models\Customer;
 use App\Models\Invoice;
@@ -48,6 +50,7 @@ class NotificationsAndFiltersTest extends TestCase
                 'sort_order' => $i,
                 'job_no' => $item['job_no'] ?? null,
                 'customer_id' => $item['customer_id'] ?? null,
+                'description' => $item['description'] ?? null,
                 'currency' => $item['currency'] ?? 'AED',
                 'amount' => $item['amount'] ?? 500,
                 'tax_amount' => 0,
@@ -143,5 +146,66 @@ class NotificationsAndFiltersTest extends TestCase
         $this->assertSame([$match->id], collect($byCurrency->json('data'))->pluck('id')->all());
 
         $this->assertCount(2, $this->getJson('/api/payment-requests/eligible')->json('data'));
+    }
+
+    public function test_approval_views_and_emails_include_invoice_line_details_and_submitter(): void
+    {
+        Mail::fake();
+        ApprovalLevel::create(['level' => 1, 'name' => 'Manager', 'min_amount' => 0, 'is_active' => true]);
+        $finance = $this->user(User::ROLE_FINANCE);
+        $requester = $this->user(User::ROLE_REQUESTER, ['name' => 'Invoice Submitter']);
+        $approver = $this->user(User::ROLE_APPROVER, ['approval_level' => 1]);
+        $customer = Customer::create(['name' => 'Blue Ocean Customer', 'is_active' => true]);
+        $invoice = $this->postedInvoice($requester, ['vendor_name' => 'Gulf Vendor'], [[
+            'job_no' => 'JOB-2048',
+            'customer_id' => $customer->id,
+            'description' => 'Warehouse handling service',
+            'currency' => 'USD',
+            'amount' => 500,
+        ]]);
+
+        $pr = app(PaymentRequestService::class)->create([$invoice->id], $finance, [[
+            'approver_id' => $approver->id,
+            'label' => 'Manager',
+            'level' => 1,
+            'is_adhoc' => false,
+        ]]);
+
+        $this->actingAs($approver)
+            ->getJson("/api/payment-requests/{$pr->id}")
+            ->assertOk()
+            ->assertJsonPath('invoices.0.submitter.name', 'Invoice Submitter')
+            ->assertJsonPath('invoices.0.items.0.job_no', 'JOB-2048')
+            ->assertJsonPath('invoices.0.items.0.description', 'Warehouse handling service')
+            ->assertJsonPath('invoices.0.items.0.currency', 'USD')
+            ->assertJsonPath('invoices.0.items.0.customer.name', 'Blue Ocean Customer');
+
+        $this->getJson('/api/payment-requests/pending')
+            ->assertOk()
+            ->assertJsonPath('data.0.invoices.0.submitter.name', 'Invoice Submitter')
+            ->assertJsonPath('data.0.invoices.0.items.0.job_no', 'JOB-2048')
+            ->assertJsonPath('data.0.invoices.0.items.0.customer.name', 'Blue Ocean Customer');
+
+        $token = $pr->currentApproval()->view_token;
+        $this->get(route('payment-request.public', ['id' => $pr->id, 'token' => $token]))
+            ->assertOk()
+            ->assertSeeText('Invoice Submitted By')
+            ->assertSeeText('Invoice Submitter')
+            ->assertSeeText('JOB-2048')
+            ->assertSeeText('Blue Ocean Customer')
+            ->assertSeeText('Warehouse handling service')
+            ->assertSeeText('USD 500.00')
+            ->assertDontSeeText('Currency');
+
+        foreach ([new PaymentRequestSubmitted($pr), new PaymentRequestReminder($pr)] as $mail) {
+            $html = $mail->render();
+            $this->assertStringContainsString('Invoice submitted by:', $html);
+            $this->assertStringContainsString('Invoice Submitter', $html);
+            $this->assertStringContainsString('JOB-2048', $html);
+            $this->assertStringContainsString('Blue Ocean Customer', $html);
+            $this->assertStringContainsString('Warehouse handling service', $html);
+            $this->assertStringContainsString('USD 500.00', $html);
+            $this->assertStringNotContainsString('>Currency<', $html);
+        }
     }
 }

@@ -4,7 +4,7 @@
     <meta charset="utf-8">
     <style>
         body { font-family: Arial, sans-serif; color: #333; line-height: 1.6; }
-        .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+        .container { max-width: 800px; margin: 0 auto; padding: 20px; }
         .header { background-color: #e65100; color: #fff; padding: 20px; border-radius: 4px 4px 0 0; }
         .body { background-color: #f9f9f9; padding: 20px; border: 1px solid #ddd; }
         .footer { background-color: #eee; padding: 15px; border-radius: 0 0 4px 4px; font-size: 12px; color: #666; }
@@ -43,6 +43,8 @@
             <div class="detail-row">
                 <span class="label">Your Stage:</span> {{ $paymentRequest->currentApproval()?->label }}
             </div>
+
+            @include('emails.partials.payment-request-invoice-lines')
 
             <p>Please review and take action on this payment request through the PAF system.</p>
 
