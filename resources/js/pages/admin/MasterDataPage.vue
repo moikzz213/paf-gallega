@@ -12,6 +12,9 @@ const tab = ref('vendors');
 const loading = ref(false);
 const items = ref([]);
 const saving = ref(false);
+const importing = ref(false);
+const importDialog = ref(false);
+const importFile = ref(null);
 
 const dialog = ref(false);
 const editing = ref(null);
@@ -87,6 +90,37 @@ function openCreate() {
     dialog.value = true;
 }
 
+function downloadTemplate() {
+    window.open(`/api/master-data/${tab.value}/template`, '_blank');
+}
+
+function openImport() {
+    importFile.value = null;
+    importDialog.value = true;
+}
+
+async function importExcel() {
+    if (!importFile.value) {
+        notify.error('Select an Excel file to import.');
+        return;
+    }
+
+    importing.value = true;
+    try {
+        const payload = new FormData();
+        payload.append('file', importFile.value);
+        const { data } = await api.post(`/master-data/${tab.value}/import`, payload);
+        notify.success(data.message);
+        importDialog.value = false;
+        await load();
+        await meta.load(true);
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        importing.value = false;
+    }
+}
+
 function openEdit(item) {
     editing.value = item;
     form.value = formFromItem(item);
@@ -145,12 +179,18 @@ async function remove(item) {
 
 <template>
     <div style="max-width: 1100px">
-        <div class="d-flex align-center mb-6">
+        <div class="d-flex flex-wrap align-center ga-2 mb-6">
             <div>
                 <h1 class="text-h5 font-weight-bold">Master Data</h1>
                 <div class="text-body-2 text-medium-emphasis">Manage vendors, customers, business units, departments and locations</div>
             </div>
             <v-spacer />
+            <v-btn variant="outlined" prepend-icon="mdi-file-download-outline" @click="downloadTemplate">
+                Export Template
+            </v-btn>
+            <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="openImport">
+                Import Excel
+            </v-btn>
             <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">New {{ tabs.find(t => t.value === tab)?.label?.replace(/s$/, '') }}</v-btn>
         </div>
 
@@ -213,6 +253,33 @@ async function remove(item) {
                     <v-spacer />
                     <v-btn variant="text" @click="dialog = false">Cancel</v-btn>
                     <v-btn color="primary" variant="flat" :loading="saving" @click="save">Save</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <v-dialog v-model="importDialog" max-width="560">
+            <v-card>
+                <v-card-title>Import {{ tabs.find(t => t.value === tab)?.label }}</v-card-title>
+                <v-card-text>
+                    <v-alert type="info" variant="tonal" class="mb-4">
+                        Download the template, keep its column headers unchanged, and upload the completed Excel file.
+                        The import is create-only; if any row is invalid or duplicated, no records will be created.
+                    </v-alert>
+                    <v-file-input
+                        v-model="importFile"
+                        label="Excel file *"
+                        accept=".xlsx,.xls"
+                        prepend-icon="mdi-microsoft-excel"
+                        show-size
+                        clearable
+                    />
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" :disabled="importing" @click="importDialog = false">Cancel</v-btn>
+                    <v-btn color="primary" variant="flat" :loading="importing" :disabled="!importFile" @click="importExcel">
+                        Import
+                    </v-btn>
                 </v-card-actions>
             </v-card>
         </v-dialog>
