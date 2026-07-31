@@ -31,11 +31,9 @@ async function submit() {
     <v-main class="bg-background d-flex align-center justify-center" style="min-height: 100vh">
         <v-card class="pa-4" width="420" elevation="4">
             <v-card-item class="text-center">
-                <v-avatar color="primary" size="56" class="mb-3">
-                    <v-icon color="white" size="30">mdi-file-sign</v-icon>
-                </v-avatar>
-                <v-card-title class="text-h5 font-weight-bold">PAF</v-card-title>
-                <v-card-subtitle>Invoice Payment Approval Platform</v-card-subtitle>
+                <img :src="'/assets/images/icon.png'" alt="Gallega" style="max-width: 50px; height: auto;" class="mb-2" />
+                <v-card-title class="text-h5 font-weight-bold">Gallega</v-card-title>
+                <v-card-subtitle>Vendor Portal</v-card-subtitle>
             </v-card-item>
             <v-card-text>
                 <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mb-4">
