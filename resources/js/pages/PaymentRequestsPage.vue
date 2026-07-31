@@ -53,7 +53,6 @@ async function load() {
 onMounted(() => {
     meta.load();
     meta.loadApprovers();
-    meta.loadVendors();
 });
 
 let debounce = null;
@@ -66,18 +65,28 @@ watch([search, () => filters.department, () => filters.vendor], () => {
 });
 
 // ---- create flow ----
-const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], saving: false });
+const emptyEligibleFilters = () => ({ department: null, currency: null, vendor: null, invoice_no: '', job_no: '', customer: null });
+const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], saving: false, filters: emptyEligibleFilters() });
 const chain = ref({ assignments: {}, adhoc: [], valid: false });
 
 const selectedInvoices = computed(() => create.eligible.filter((i) => create.selected.includes(i.id)));
 const selectedTotal = computed(() => selectedInvoices.value.reduce((s, i) => s + Number(i.total_amount), 0));
 
-async function openCreate() {
-    create.show = true;
-    create.selected = [];
+async function loadEligible() {
     create.loadingEligible = true;
     try {
-        const { data } = await api.get('/payment-requests/eligible', { params: { per_page: 200 } });
+        const f = create.filters;
+        const { data } = await api.get('/payment-requests/eligible', {
+            params: {
+                per_page: 200,
+                department: f.department || undefined,
+                currency: f.currency || undefined,
+                vendor: f.vendor || undefined,
+                invoice_no: f.invoice_no || undefined,
+                job_no: f.job_no || undefined,
+                customer: f.customer || undefined,
+            },
+        });
         create.eligible = data.data;
     } catch (e) {
         notify.error(errorMessage(e));
@@ -85,6 +94,20 @@ async function openCreate() {
         create.loadingEligible = false;
     }
 }
+
+function openCreate() {
+    create.selected = [];
+    create.filters = emptyEligibleFilters();
+    create.show = true;
+    loadEligible();
+}
+
+let eligDebounce = null;
+watch(() => create.filters, () => {
+    if (!create.show) return;
+    clearTimeout(eligDebounce);
+    eligDebounce = setTimeout(loadEligible, 350);
+}, { deep: true });
 
 function onChainChange(payload) {
     chain.value = payload;
@@ -140,25 +163,28 @@ async function submitCreate() {
                             label="Search reference, invoice"
                             prepend-inner-icon="mdi-magnify"
                             clearable
-                            hide-details
+                            hide-details="auto"
+                            autocomplete="off"
                         />
                     </v-col>
                     <v-col cols="12" sm="6" md="3">
-                        <v-select
+                        <v-autocomplete
                             v-model="filters.vendor"
-                            :items="meta.vendors"
+                            :items="(meta.vendors ?? []).map(v => v.name)"
                             label="Vendor"
                             clearable
-                            hide-details
+                            hide-details="auto"
+                            autocomplete="off"
                         />
                     </v-col>
                     <v-col cols="12" sm="6" md="3">
-                        <v-select
+                        <v-autocomplete
                             v-model="filters.department"
                             :items="meta.departments"
                             label="Department"
                             clearable
-                            hide-details
+                            hide-details="auto"
+                            autocomplete="off"
                         />
                     </v-col>
                 </v-row>
@@ -205,7 +231,7 @@ async function submitCreate() {
                     {{ shortDate(item.created_at) }}
                 </template>
                 <template #item.actions="{ item }">
-                    <v-btn icon="mdi-file-pdf-box" size="small" variant="text" :href="`/api/payment-requests/${item.id}/pdf`" target="_blank" title="Download PDF" />
+                    <v-btn v-if="item.status === 'approved' || item.status === 'paid'" icon="mdi-file-pdf-box" size="small" variant="text" :href="`/api/payment-requests/${item.id}/pdf`" target="_blank" title="Download PDF" />
                 </template>
             </v-data-table-server>
         </v-card>
@@ -221,12 +247,33 @@ async function submitCreate() {
                         <v-progress-circular indeterminate color="primary" />
                     </div>
                     <template v-else>
+                        <v-row dense class="mb-1">
+                            <v-col cols="12" sm="6" md="2">
+                                <v-autocomplete v-model="create.filters.department" :items="meta.departments" label="Department" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-autocomplete v-model="create.filters.vendor" :items="(meta.vendors ?? []).map(v => v.name)" label="Vendor name" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-text-field v-model="create.filters.invoice_no" label="Invoice No" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-text-field v-model="create.filters.job_no" label="Job No" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-autocomplete v-model="create.filters.customer" :items="(meta.customers ?? []).map(c => c.name)" label="Customer Name" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-autocomplete v-model="create.filters.currency" :items="meta.currencies" label="Currency" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                        </v-row>
                         <div class="text-subtitle-2 mb-2">Eligible invoices ({{ create.eligible.length }})</div>
                         <v-data-table
                             v-model="create.selected"
                             :headers="[
                                 { title: 'Reference', key: 'reference_no', sortable: false },
                                 { title: 'Vendor / Invoice #', key: 'vendor_name', sortable: false },
+                                { title: 'Job / Customer', key: 'jobs', sortable: false },
                                 { title: 'Dept', key: 'department', sortable: false },
                                 { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
                             ]"
@@ -236,11 +283,17 @@ async function submitCreate() {
                             density="compact"
                             hide-default-footer
                             :items-per-page="-1"
-                            no-data-text="No posted invoices are waiting for payment."
+                            no-data-text="No posted invoices match these filters."
                         >
                             <template #item.vendor_name="{ item }">
                                 {{ item.vendor_name }}
                                 <div class="text-caption text-medium-emphasis">{{ item.invoice_no }}</div>
+                            </template>
+                            <template #item.jobs="{ item }">
+                                <div v-for="(it, idx) in (item.items || [])" :key="idx" class="text-caption">
+                                    {{ it.job_no || '—' }}<span v-if="it.customer"> · {{ it.customer.name }}</span>
+                                </div>
+                                <span v-if="!(item.items || []).length" class="text-caption text-medium-emphasis">—</span>
                             </template>
                             <template #item.total_amount="{ item }">
                                 {{ money(item.total_amount, item.currency) }}

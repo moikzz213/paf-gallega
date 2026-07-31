@@ -22,13 +22,15 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   red >14 days from submission).
 - Finance actions per invoice:
   - **Post to ERP** — record `erp_doc_no` (+ posting date) → status `posted`.
-  - **Raise Query** — record `finance_remarks` back to the department → status `query_raised`.
+  - **Raise Query** — record `finance_remarks` back to the department → status `query_raised`;
+    **emails the invoice submitter** (`InvoiceQueryRaised`) so they can correct and resubmit.
 - Filter by status, department, date range, and free-text search.
 
 ## 4. Payment Request / PRF (Finance)
 
 - Finance selects **multiple eligible invoices** (posted or submitted, not already in a cycle)
-  and groups them into one PRF.
+  and groups them into one PRF. The selection list can be **filtered** by department, vendor name,
+  invoice no, job no, customer name, and currency.
 - Builds the **approval chain** for the PRF total (pre-filled from level defaults, fully
   editable, ad-hoc stages allowed) and sends it for approval in one step.
 - Selected invoices are reserved (`payment_status = in_approval`) and linked to the PRF.
@@ -44,7 +46,9 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Each PRF routes **stage-by-stage**; the request sits at `current_stage` and only the assigned
   approver (or an admin) can act.
 - **Approve** → advances to the next stage, or finalizes the PRF to `approved` (invoices →
-  `approved_for_payment`).
+  `approved_for_payment`). On **final approval**, the requestors are emailed
+  (`PaymentRequestApproved` → the PRF creator + every invoice submitter), from both the in-app and
+  public-link approval paths.
 - **Reject** → PRF `rejected`; its invoices are returned to the eligible pool for re-initiation.
 - **Approvals queue** lists the PRFs awaiting the current user's stage.
 
@@ -63,8 +67,13 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   pages. The PRF status is intentionally omitted. Approval stages are grouped directly from their
   configured approval levels: levels with `min_amount = 0.00` appear in **For Requisition Dept.
   Use**, while levels above zero (plus ad-hoc stages) appear in **For Approval**. The accounts area
-  stays outside the approval chain. Images are inlined, while every source file is embedded in the
-  PDF and listed by invoice.
+  stays outside the approval chain.
+- Attachments are merged into that single file by `PdfMergeService`: PDF attachments are appended
+  page for page, images get one centred page each, and file types that cannot be rendered (Excel,
+  Word, archives) are listed per invoice on a trailing **Additional Documents** page as clickable
+  download links. That link page is drawn by FPDF rather than the Blade view because the FPDI merge
+  step discards dompdf's link annotations — see
+  [../decisions/ADR-003](../decisions/ADR-003-pdf-attachment-merging.md).
 
 ## 7. Dashboard
 

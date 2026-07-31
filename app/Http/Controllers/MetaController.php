@@ -3,18 +3,25 @@
 namespace App\Http\Controllers;
 
 use App\Models\ApprovalLevel;
+use App\Models\BusinessUnit;
+use App\Models\Customer;
+use App\Models\Department;
 use App\Models\Invoice;
+use App\Models\Location;
 use App\Models\PaymentRequest;
 use App\Models\User;
+use App\Models\Vendor;
 
 class MetaController extends Controller
 {
     public function index()
     {
         return response()->json([
-            'business_units' => config('paf.business_units'),
-            'departments' => config('paf.departments'),
-            'locations' => config('paf.locations'),
+            'business_units' => BusinessUnit::where('is_active', true)->orderBy('name')->pluck('name'),
+            'departments' => Department::where('is_active', true)->orderBy('name')->pluck('name'),
+            'locations' => Location::where('is_active', true)->orderBy('name')->pluck('name'),
+            'vendors' => Vendor::where('is_active', true)->orderBy('name')->get(['id', 'name', 'vendor_code', 'credit_limit', 'credit_days']),
+            'customers' => Customer::where('is_active', true)->orderBy('name')->get(['id', 'name', 'customer_code', 'credit_limit', 'credit_days']),
             'currencies' => config('paf.currencies'),
             'payment_methods' => config('paf.payment_methods'),
             'priorities' => config('paf.priorities'),
@@ -41,14 +48,11 @@ class MetaController extends Controller
             ->get(['id', 'name', 'role', 'approval_level', 'department', 'job_title']);
     }
 
-    /** Distinct vendor names from invoices, for filter dropdowns. */
+    /** Active vendor names, for filter dropdowns. */
     public function vendors()
     {
-        return Invoice::query()
-            ->whereNotNull('vendor_name')
-            ->where('vendor_name', '!=', '')
-            ->distinct()
-            ->orderBy('vendor_name')
-            ->pluck('vendor_name');
+        return Vendor::where('is_active', true)
+            ->orderBy('name')
+            ->pluck('name');
     }
 }

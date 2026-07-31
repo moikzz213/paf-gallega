@@ -32,7 +32,7 @@ return [
 
     'currencies' => $list('PAF_CURRENCIES', 'AED,USD,EUR,GBP,SAR'),
 
-    'priorities' => $list('PAF_PRIORITIES', 'low,normal,high,urgent'),
+    'priorities' => $list('PAF_PRIORITIES', 'normal,high,urgent'),
 
     'payment_methods' => $paymentMethods,
 

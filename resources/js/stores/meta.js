@@ -16,6 +16,7 @@ export const useMetaStore = defineStore('meta', {
         approval_levels: [],
         approvers: [],
         vendors: [],
+        customers: [],
         upload: { max_documents: 10, max_document_kb: 10240, mimes: '' },
         loaded: false,
         approversLoaded: false,

@@ -6,7 +6,9 @@ use App\Models\ApprovalLevel;
 use App\Models\Invoice;
 use App\Models\PaymentRequest;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Services\PaymentRequestService;
+use App\Services\PdfMergeService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -18,12 +20,36 @@ class PaymentRequestController extends Controller
     /** Invoices eligible to be pulled into a new payment request (Finance only). */
     public function eligible(Request $request)
     {
-        return Invoice::query()
+        $query = Invoice::query()
             ->where('payment_status', Invoice::PAY_NOT_INITIATED)
             ->whereIn('status', [Invoice::STATUS_POSTED, Invoice::STATUS_SUBMITTED])
-            ->with(['submitter:id,name,department'])
-            ->orderByDesc('submitted_at')
-            ->paginate((int) $request->input('per_page', 100));
+            ->with(['submitter:id,name,department', 'items:id,invoice_id,job_no,customer_id', 'items.customer:id,name']);
+
+        if ($department = $request->input('department')) {
+            $query->where('department', $department);
+        }
+
+        if ($currency = $request->input('currency')) {
+            $query->where('currency', $currency);
+        }
+
+        if ($vendor = trim((string) $request->input('vendor'))) {
+            $query->where('vendor_name', 'like', "%{$vendor}%");
+        }
+
+        if ($invoiceNo = trim((string) $request->input('invoice_no'))) {
+            $query->where('invoice_no', 'like', "%{$invoiceNo}%");
+        }
+
+        if ($jobNo = trim((string) $request->input('job_no'))) {
+            $query->whereHas('items', fn ($iq) => $iq->where('job_no', 'like', "%{$jobNo}%"));
+        }
+
+        if ($customer = trim((string) $request->input('customer'))) {
+            $query->whereHas('items.customer', fn ($cq) => $cq->where('name', 'like', "%{$customer}%"));
+        }
+
+        return $query->orderByDesc('submitted_at')->paginate((int) $request->input('per_page', 100));
     }
 
     public function index(Request $request)
@@ -135,33 +161,75 @@ class PaymentRequestController extends Controller
             403, 'You do not have access to this payment request.'
         );
 
+        abort_unless(
+            in_array($paymentRequest->status, [PaymentRequest::STATUS_APPROVED, PaymentRequest::STATUS_PAID], true),
+            422, 'PDF is available only after the request is fully approved.'
+        );
+
         $paymentRequest->load([
             'creator:id,name', 'payer:id,name',
             'invoices.submitter:id,name', 'invoices.poster:id,name', 'invoices.documents',
+            'invoices.items',
             'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
         ]);
 
-        $pdf = Pdf::loadView('pdf.payment-request', ['paymentRequest' => $paymentRequest])
+        // Supplier code comes from the vendor master, keyed by the invoice's vendor name.
+        $supplierCodes = Vendor::whereIn('name', $paymentRequest->invoices->pluck('vendor_name')->filter()->unique())
+            ->pluck('vendor_code', 'name');
+
+        // Every active approval level, so the PDF can show reached (required) and
+        // not-reached (still displayed) approvers regardless of this PRF's amount.
+        $approvalLevels = ApprovalLevel::where('is_active', true)
+            ->with('defaultApprover:id,name')
+            ->orderBy('level')
+            ->get();
+
+        $pdf = Pdf::loadView('pdf.payment-request', [
+            'paymentRequest' => $paymentRequest,
+            'supplierCodes' => $supplierCodes,
+            'approvalLevels' => $approvalLevels,
+        ])
             ->setPaper('a4', 'landscape')
             ->setOption('isRemoteEnabled', true)
             ->setOption('isHtml5ParserEnabled', true);
 
-        $pdf->render();
-        $canvas = $pdf->getDomPDF()->getCanvas();
-        if (method_exists($canvas, 'get_cpdf')) {
-            foreach ($paymentRequest->invoices as $invoice) {
-                foreach ($invoice->documents as $document) {
-                    $path = storage_path('app/private/'.$document->file_path);
-                    if (is_file($path)) {
-                        $canvas->get_cpdf()->addEmbeddedFile(
-                            $path,
-                            $document->original_name,
-                            "{$invoice->reference_no} - {$invoice->vendor_name}",
-                            $document->mime_type,
-                        );
-                    }
+        $mainPdfContent = $pdf->output();
+
+        // PDFs and images are rendered into the document; everything else (Excel, Word, ...)
+        // can only be offered as a download link on a trailing page.
+        $attachments = [];
+        $links = [];
+        foreach ($paymentRequest->invoices as $invoice) {
+            foreach ($invoice->documents as $document) {
+                $path = storage_path('app/private/'.$document->file_path);
+                if (! is_file($path)) {
+                    continue;
+                }
+
+                if (in_array($document->mime_type, PdfMergeService::MERGEABLE_MIMES, true)) {
+                    $attachments[] = [
+                        'path' => $path,
+                        'name' => $document->original_name,
+                        'mime_type' => $document->mime_type,
+                    ];
+                } else {
+                    $links[] = [
+                        'name' => $document->original_name,
+                        'url' => url("/api/documents/{$document->id}/download"),
+                        'mime_type' => $document->mime_type,
+                        'size' => $document->size,
+                        'group' => "{$invoice->reference_no} - {$invoice->vendor_name}",
+                    ];
                 }
             }
+        }
+
+        if ($attachments || $links) {
+            $merged = app(PdfMergeService::class)->mergePdfs($mainPdfContent, $attachments, $links);
+
+            return response($merged, 200)
+                ->header('Content-Type', 'application/pdf')
+                ->header('Content-Disposition', "attachment; filename=\"{$paymentRequest->reference_no}.pdf\"");
         }
 
         return $pdf->download("{$paymentRequest->reference_no}.pdf");

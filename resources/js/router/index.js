@@ -26,6 +26,7 @@ const routes = [
             { path: 'audit-log', name: 'audit-log', component: () => import('../pages/AuditLogPage.vue'), meta: { roles: ['admin'] } },
             { path: 'admin/users', name: 'users', component: () => import('../pages/admin/UsersPage.vue'), meta: { roles: ['admin'] } },
             { path: 'admin/approval-levels', name: 'approval-levels', component: () => import('../pages/admin/ApprovalLevelsPage.vue'), meta: { roles: ['admin'] } },
+            { path: 'admin/master-data', name: 'master-data', component: () => import('../pages/admin/MasterDataPage.vue'), meta: { roles: ['admin'] } },
         ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },

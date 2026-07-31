@@ -49,6 +49,7 @@
         .arrow-link { height: 1px; margin-top: 24px; border-top: 1.5px solid #315d93; line-height: 0; }
         .arrow-link span { float: right; width: 0; height: 0; margin-top: -4px; margin-right: -1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid #315d93; font-size: 0; line-height: 0; }
         .signature-box { height: 38px; padding: 3px 2px; border: 1px solid #555; font-size: 6px; font-weight: bold; text-align: center; }
+        .signature-box.not-required { border-style: dashed; border-color: #aaa; background: #f4f4f4; color: #999; font-weight: normal; }
         .signature-date { margin-top: 2px; font-size: 5px; font-weight: normal; }
         .signature-action { min-height: 25px; padding: 5px 1px 1px; font-size: 6px; font-weight: bold; }
         .signature-role { min-height: 35px; padding: 5px 1px 2px; font-size: 5.5px; font-weight: bold; }
@@ -67,7 +68,6 @@
 </head>
 <body>
     @php
-        $appUrl = config('app.url', 'http://localhost');
         $companyLogo = base64_encode(file_get_contents(public_path('images/gallega-global-logistics-logo.png')));
         $invoices = $paymentRequest->invoices;
         $approvals = $paymentRequest->approvals;
@@ -91,7 +91,6 @@
         }
         $companyName = 'GALLEGA GLOBAL LOGISTICS SINGLE OWNER L.L.C (DUBAI BRANCH)';
         $approvalLimit = 'Up to AED 50,000 by Finance Manager. All above AED 50,000 by Gallega CEO or SVP - Group Finance';
-        $allDocs = $invoices->flatMap->documents;
         $requisitionApprovals = $approvals->filter(
             fn ($approval) => $approval->approvalLevel
                 && (float) $approval->approvalLevel->min_amount === 0.0
@@ -107,6 +106,42 @@
             'action' => 'Approved By',
             'role' => $approval->label,
         ]));
+
+        // For Approval column: show EVERY configured approval level above the requisition
+        // threshold. Levels the amount reached are the required (in-chain) approvers; levels
+        // not reached are still displayed (as their default approver) but marked Not Required.
+        $reachedByLevel = $approvals->whereNotNull('level')->keyBy('level');
+        $forApprovalCards = collect();
+        foreach ($approvalLevels->filter(fn ($lvl) => (float) $lvl->min_amount > 0.0) as $lvl) {
+            if ($reachedByLevel->has($lvl->level)) {
+                $ap = $reachedByLevel->get($lvl->level);
+                $forApprovalCards->push([
+                    'name' => $ap->approver?->name ?? '',
+                    'date' => $ap->acted_at?->format('d/m/Y'),
+                    'action' => $ap->status === 'approved' ? 'Approved By' : ($ap->status === 'rejected' ? 'Rejected By' : 'Pending Approval'),
+                    'role' => $lvl->name,
+                    'required' => true,
+                ]);
+            } else {
+                $forApprovalCards->push([
+                    'name' => $lvl->defaultApprover?->name ?? '',
+                    'date' => null,
+                    'action' => 'Approved By',
+                    'role' => $lvl->name,
+                    'required' => false,
+                ]);
+            }
+        }
+        // Ad-hoc stages (no approval level) are always required — append them.
+        foreach ($approvals->whereNull('level') as $ap) {
+            $forApprovalCards->push([
+                'name' => $ap->approver?->name ?? '',
+                'date' => $ap->acted_at?->format('d/m/Y'),
+                'action' => $ap->status === 'approved' ? 'Approved By' : ($ap->status === 'rejected' ? 'Rejected By' : 'Pending Approval'),
+                'role' => $ap->label,
+                'required' => true,
+            ]);
+        }
         $accountsCards = [
             ['name' => $paymentRequest->payer?->name ?? '', 'date' => $paymentRequest->paid_at?->format('d/m/Y'), 'action' => 'Acknowledged / Paid By', 'role' => 'Finance Officer'],
             ['name' => $postedBy, 'date' => '', 'action' => 'Verified / Posted By', 'role' => 'Finance Officer'],
@@ -119,7 +154,7 @@
             <tr>
                 <td class="logo-cell"><img class="company-logo" src="data:image/png;base64,{{ $companyLogo }}" alt="Gallega Global Logistics"></td>
                 <td class="company">{{ $companyName }}</td>
-                <td class="form-name">PAYMENT APPROVAL FORM (PAF)</td>
+                <td class="form-name">Invoice Payment Approval Platform</td>
             </tr>
         </table>
 
@@ -183,21 +218,39 @@
                 </tr>
             </thead>
             <tbody>
+                @php $sr = 0; @endphp
                 @foreach($invoices as $invoice)
-                    <tr>
-                        <td class="center">{{ $loop->iteration }}</td>
-                        <td>{{ $invoice->vendor_name }}</td>
-                        <td class="center">{{ $invoice->vendor_trn ?: '-' }}</td>
-                        <td class="center">{{ $invoice->invoice_no }}</td>
-                        <td>{{ $invoice->description ?: '-' }}</td>
-                        <td class="center">{{ $invoice->reference_no }}</td>
-                        <td class="center">{{ $invoice->invoice_date?->format('d/m/Y') ?? '-' }}</td>
-                        <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->amount, 2) }}</td>
-                        <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->tax_amount, 2) }}</td>
-                        <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->total_amount, 2) }}</td>
-                    </tr>
+                    @forelse($invoice->items as $item)
+                        @php $sr++; $cur = $item->currency ?: $invoice->currency; @endphp
+                        <tr>
+                            <td class="center">{{ $sr }}</td>
+                            <td>{{ $invoice->vendor_name }}</td>
+                            <td class="center">{{ ($supplierCodes[$invoice->vendor_name] ?? null) ?: '-' }}</td>
+                            <td class="center">{{ $invoice->invoice_no }}</td>
+                            <td>{{ $item->description ?: ($invoice->description ?: '-') }}</td>
+                            <td class="center">{{ $item->job_no ?: '-' }}</td>
+                            <td class="center">{{ $invoice->invoice_date?->format('d/m/Y') ?? '-' }}</td>
+                            <td class="number">{{ $cur }} {{ number_format((float) $item->amount, 2) }}</td>
+                            <td class="number">{{ $cur }} {{ number_format((float) $item->tax_amount, 2) }}</td>
+                            <td class="number">{{ $cur }} {{ number_format((float) $item->total_amount, 2) }}</td>
+                        </tr>
+                    @empty
+                        @php $sr++; @endphp
+                        <tr>
+                            <td class="center">{{ $sr }}</td>
+                            <td>{{ $invoice->vendor_name }}</td>
+                            <td class="center">{{ ($supplierCodes[$invoice->vendor_name] ?? null) ?: '-' }}</td>
+                            <td class="center">{{ $invoice->invoice_no }}</td>
+                            <td>{{ $invoice->description ?: '-' }}</td>
+                            <td class="center">-</td>
+                            <td class="center">{{ $invoice->invoice_date?->format('d/m/Y') ?? '-' }}</td>
+                            <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->amount, 2) }}</td>
+                            <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->tax_amount, 2) }}</td>
+                            <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->total_amount, 2) }}</td>
+                        </tr>
+                    @endforelse
                 @endforeach
-                @for($row = $invoices->count(); $row < 6; $row++)
+                @for($row = $sr; $row < 6; $row++)
                     <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
                 @endfor
                 <tr class="total-row">
@@ -250,23 +303,25 @@
                             <span class="option-box"></span> Budgeted according to policy
                             <span class="option-box"></span> Not Budgeted
                         </div>
-                        @foreach($remainingApprovals->chunk(5) as $approvalRow)
+                        @forelse($forApprovalCards->chunk(5) as $cardRow)
                             <table class="flow">
                                 <tr>
-                                    @foreach($approvalRow as $approval)
+                                    @foreach($cardRow as $card)
                                         <td class="card-cell">
-                                            <div class="signature-box">
-                                                {{ $approval->approver?->name ?? '' }}
-                                                @if($approval->acted_at)<div class="signature-date">{{ $approval->acted_at->format('d/m/Y') }}</div>@endif
+                                            <div class="signature-box{{ $card['required'] ? '' : ' not-required' }}">
+                                                {{ $card['name'] }}
+                                                @if($card['date'])<div class="signature-date">{{ $card['date'] }}</div>@endif
                                             </div>
-                                            <div class="signature-action">Approved By</div>
-                                            <div class="signature-role">{{ $approval->label }}</div>
+                                            <div class="signature-action">{{ $card['action'] }}</div>
+                                            <div class="signature-role">{{ $card['role'] }}</div>
                                         </td>
                                         @if(! $loop->last)<td class="arrow-cell"><div class="arrow-link"><span>&#9654;</span></div></td>@endif
                                     @endforeach
                                 </tr>
                             </table>
-                        @endforeach
+                        @empty
+                            <div class="option-row">&nbsp;</div>
+                        @endforelse
                     </td>
                     <td class="workflow-zone zone-bottom" style="width:25%">
                         <div class="option-row">&nbsp;</div>
@@ -288,39 +343,8 @@
         </div>
         <div class="footer-space"></div>
     </div>
-
-    @if($allDocs->count())
-        <div class="page-break"></div>
-        <h1 class="attachment-title">Attachments ({{ $allDocs->count() }})</h1>
-
-        @foreach($invoices as $invoice)
-            @if($invoice->documents->count())
-                <h2 class="attachment-invoice">{{ $invoice->reference_no }} - {{ $invoice->vendor_name }}</h2>
-
-                @foreach($invoice->documents as $doc)
-                    @php
-                        $filePath = storage_path('app/private/'.$doc->file_path);
-                        $exists = file_exists($filePath);
-                        $isImage = in_array($doc->mime_type, ['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
-                        $isPdf = $doc->mime_type === 'application/pdf';
-                    @endphp
-                    <div class="attach-item">
-                        <div class="filename"><a href="{{ $appUrl }}/api/documents/{{ $doc->id }}/download">{{ $doc->original_name }}</a></div>
-                        <div class="attachment-meta">{{ $doc->mime_type }} | {{ round($doc->size / 1024, 1) }} KB</div>
-
-                        @if($exists && $isImage)
-                            <img src="data:{{ $doc->mime_type }};base64,{{ base64_encode(file_get_contents($filePath)) }}">
-                        @elseif($exists && $isPdf)
-                            <div class="embedded-file-note">PDF attachment embedded in this document. Open it from your PDF viewer's attachments panel.</div>
-                        @elseif(! $exists)
-                            <div class="attachment-meta" style="color:#a00">File not found on disk</div>
-                        @else
-                            <div class="attachment-meta">Preview not available for this file type. File is stored on the server.</div>
-                        @endif
-                    </div>
-                @endforeach
-            @endif
-        @endforeach
-    @endif
+    {{-- Attachments are appended by PdfMergeService: PDFs/images are merged inline, and
+         everything else is listed as clickable download links on a trailing page. That list
+         cannot live here — FPDI's merge step discards link annotations produced by dompdf. --}}
 </body>
 </html>

@@ -8,6 +8,7 @@ use App\Models\InvoiceDocument;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
 use App\Services\AuditLogger;
+use App\Services\PaymentRequestService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -15,6 +16,8 @@ use Illuminate\Support\Facades\Storage;
 
 class PublicPaymentRequestController extends Controller
 {
+    public function __construct(private PaymentRequestService $service) {}
+
     public function show(string $id, string $token)
     {
         $pr = $this->resolvePr($id, $token);
@@ -44,7 +47,9 @@ class PublicPaymentRequestController extends Controller
                 ->with('error', 'No approver is assigned for the current stage.');
         }
 
-        DB::transaction(function () use ($pr, $approval, $approver) {
+        $finalized = false;
+
+        DB::transaction(function () use ($pr, $approval, $approver, &$finalized) {
             $approval->update([
                 'status' => PaymentRequestApproval::STATUS_APPROVED,
                 'acted_at' => now(),
@@ -72,10 +77,15 @@ class PublicPaymentRequestController extends Controller
                 ]);
                 $pr->invoices()->update(['payment_status' => Invoice::PAY_APPROVED]);
                 AuditLogger::log('approved', "Payment request {$pr->reference_no} fully approved via public link by {$approver->name} — released for payment", null, null, null, $pr);
+                $finalized = true;
             }
         });
 
         $pr->refresh();
+
+        if ($finalized) {
+            $this->service->notifyApproved($pr);
+        }
 
         return redirect()->route('payment-request.public', ['id' => $pr->id, 'token' => $token])
             ->with('success', 'Payment request has been approved successfully.');

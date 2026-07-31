@@ -51,8 +51,7 @@ export function statusLabel(status) {
 }
 
 export const PRIORITY_META = {
-    urgent: { label: 'Urgent', color: '#d03b3b' },
-    high: { label: 'High', color: '#ec835a' },
-    normal: { label: 'Normal', color: '#52514e' },
-    low: { label: 'Low', color: '#898781' },
+    urgent: { label: 'Urgent (24hrs)', color: '#d03b3b' },
+    high: { label: 'High (2 days)', color: '#ec835a' },
+    normal: { label: 'Normal (Credit days)', color: '#52514e' },
 };

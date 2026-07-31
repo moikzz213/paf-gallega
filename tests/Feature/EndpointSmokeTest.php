@@ -6,6 +6,7 @@ use App\Models\ApprovalLevel;
 use App\Models\Invoice;
 use App\Models\InvoiceDocument;
 use App\Models\User;
+use App\Models\Vendor;
 use App\Services\PaymentRequestService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\File;
@@ -96,7 +97,7 @@ class EndpointSmokeTest extends TestCase
         $absolutePath = storage_path('app/private/'.$relativePath);
         File::ensureDirectoryExists(dirname($absolutePath));
         File::put($absolutePath, 'attachment body');
-        InvoiceDocument::create([
+        $document = InvoiceDocument::create([
             'invoice_id' => $invoice->id,
             'uploaded_by' => $this->requester->id,
             'original_name' => 'supporting-document.txt',
@@ -111,6 +112,8 @@ class EndpointSmokeTest extends TestCase
                 'invoices.submitter:id,name', 'invoices.poster:id,name', 'invoices.documents',
                 'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
             ]),
+            'supplierCodes' => Vendor::whereIn('name', $this->pr->invoices->pluck('vendor_name'))->pluck('vendor_code', 'name'),
+            'approvalLevels' => ApprovalLevel::where('is_active', true)->with('defaultApprover:id,name')->orderBy('level')->get(),
         ])->render();
         $this->assertStringNotContainsString('APPROVAL STATUS', $view);
         $this->assertStringNotContainsString('IN APPROVAL', $view);
@@ -133,13 +136,23 @@ class EndpointSmokeTest extends TestCase
                 ->all(),
         );
 
+        $this->pr->update(['status' => 'approved']);
+
         $response = $this->actingAs($this->finance)
             ->get("/api/payment-requests/{$this->pr->id}/pdf")
             ->assertOk()
             ->assertHeader('content-type', 'application/pdf');
 
+        // Attachments are merged into the document rather than PDF-embedded (ADR-003). A text file
+        // cannot be rendered inline, so it must surface as a real link annotation on the trailing
+        // Additional Documents page — not as an /EmbeddedFiles entry in the viewer's side panel.
         $this->assertStringStartsWith('%PDF-', $response->getContent());
-        $this->assertStringContainsString('/EmbeddedFiles', $response->getContent());
+        $this->assertStringContainsString('/Annots', $response->getContent());
+        $this->assertStringContainsString('/URI', $response->getContent());
+        $this->assertStringContainsString(
+            url("/api/documents/{$document->id}/download"),
+            $response->getContent(),
+        );
 
         File::delete($absolutePath);
     }

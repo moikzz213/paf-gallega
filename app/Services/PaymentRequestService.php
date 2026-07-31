@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Mail\PaymentRequestApproved;
 use App\Mail\PaymentRequestSubmitted;
 use App\Models\Invoice;
 use App\Models\PaymentRequest;
@@ -88,7 +89,9 @@ class PaymentRequestService
     {
         $this->assertActionable($pr, $actor);
 
-        return DB::transaction(function () use ($pr, $actor, $comments) {
+        $finalized = false;
+
+        $pr = DB::transaction(function () use ($pr, $actor, $comments, &$finalized) {
             $pr->approvals()->where('sequence', $pr->current_stage)->update([
                 'status' => PaymentRequestApproval::STATUS_APPROVED,
                 'approver_id' => $actor->id,
@@ -112,10 +115,36 @@ class PaymentRequestService
                 ]);
                 $pr->invoices()->update(['payment_status' => Invoice::PAY_APPROVED]);
                 AuditLogger::log('approved', "Payment request {$pr->reference_no} fully approved — released for payment", null, null, null, $pr);
+                $finalized = true;
             }
 
             return $pr->refresh();
         });
+
+        if ($finalized) {
+            $this->notifyApproved($pr);
+        }
+
+        return $pr;
+    }
+
+    /**
+     * Notify the requestor(s) that a payment request has been fully approved —
+     * the PRF creator plus everyone who submitted one of its invoices.
+     */
+    public function notifyApproved(PaymentRequest $pr): void
+    {
+        $pr->loadMissing('creator', 'invoices.submitter');
+
+        $emails = collect([$pr->creator?->email])
+            ->merge($pr->invoices->map(fn ($inv) => $inv->submitter?->email))
+            ->filter()
+            ->unique()
+            ->values();
+
+        foreach ($emails as $email) {
+            Mail::to($email)->send(new PaymentRequestApproved($pr));
+        }
     }
 
     public function reject(PaymentRequest $pr, User $actor, string $comments): PaymentRequest

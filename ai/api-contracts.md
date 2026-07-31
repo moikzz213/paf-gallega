@@ -30,9 +30,9 @@
 |--------|------|-------|
 | POST | `/api/login` | `email, password, remember?`; checks `is_active`; `{ user }` |
 | POST | `/api/logout` · GET `/api/me` | session |
-| GET | `/api/meta` | `business_units, departments, locations, currencies, payment_methods, priorities, statuses, payment_statuses, pr_statuses, roles, approval_levels (with defaultApprover), upload{…}` (all lists are env-driven via `config/paf.php`) |
+| GET | `/api/meta` | `business_units[], departments[], locations[]` (active names from DB), `vendors[{id,name,vendor_code,credit_limit,credit_days}]`, `customers[{id,name,customer_code,credit_limit,credit_days}]` (active from DB), `currencies, payment_methods, priorities, statuses, payment_statuses, pr_statuses, roles, approval_levels (with defaultApprover), upload{…}` |
 | GET | `/api/approvers` | active users with role approver/admin — the chain-builder pool |
-| GET | `/api/vendors` | distinct vendor names from invoices (for filter dropdowns) |
+| GET | `/api/vendors` | active vendor names (for filter dropdowns) |
 | GET | `/api/dashboard` | scoped KPIs: `cards{total_invoices, awaiting_posting, in_approval, paid_this_month}, my_queue, status_distribution[], monthly[], top_vendors[], by_business_unit[], recent[]` |
 
 ## Invoices (Invoice Log)
@@ -40,13 +40,13 @@
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | GET | `/api/invoices` | scoped `visibleTo` | filters `mine, status[], payment_status[], department, priority[], date_from/to, q`; `sort∈{submitted_at,invoice_date,due_date,total_amount,status,priority}`; paginated 15 |
-| POST | `/api/invoices` | any auth | create → status `submitted`; **201** with `documents` |
-| GET | `/api/invoices/{invoice}` | canViewAll / owner / assigned approver (via PRF) | loads submitter, poster, documents, `paymentRequest.approvals.approver`, auditLogs |
-| POST | `/api/invoices/{invoice}` | owner or admin; must be editable | update (multipart); a queried invoice returns to `submitted` |
+| POST | `/api/invoices` | any auth | multipart: vendor_name, invoice_no, invoice_date, due_date?, currency, business_unit, department, location, payment_method, priority, description?, `items[]` (job_no?, customer_id?, description?, currency, amount, tax_amount?), documents? → status `submitted`; **201** with items + documents |
+| GET | `/api/invoices/{invoice}` | canViewAll / owner / assigned approver (via PRF) | loads submitter, poster, items.customer, documents, `paymentRequest.approvals.approver`, auditLogs |
+| POST | `/api/invoices/{invoice}` | owner or admin; must be editable | update (multipart, same fields as create); a queried invoice returns to `submitted` |
 | DELETE | `/api/invoices/{invoice}` | owner or admin; payment `not_initiated` | `{ message }` |
 | POST | `/api/invoices/{invoice}/cancel` | owner or admin; payment `not_initiated` | → `cancelled` |
 | POST | `/api/invoices/{invoice}/post` | `role:finance,admin`; status submitted/query | `erp_doc_no` req, `posting_date` nullable → `posted` |
-| POST | `/api/invoices/{invoice}/query` | `role:finance,admin`; status submitted/posted | `finance_remarks` req → `query_raised` |
+| POST | `/api/invoices/{invoice}/query` | `role:finance,admin`; status submitted/posted | `finance_remarks` req → `query_raised`; **emails the invoice submitter** (`InvoiceQueryRaised`) |
 
 **Create/update validation:** vendor_name req; vendor_email nullable email; vendor_trn ≤50;
 invoice_no req ≤100; invoice_date req; due_date `after_or_equal:invoice_date`; currency in list;
@@ -57,7 +57,7 @@ description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET | `/api/payment-requests/eligible` | `role:finance,admin` | invoices payable (not_initiated & posted/submitted); paginated 100 |
+| GET | `/api/payment-requests/eligible` | `role:finance,admin` | invoices payable (not_initiated & posted/submitted); filters `department, currency, vendor, invoice_no, job_no` (via items), `customer` (via items.customer name); paginated 100 |
 | GET | `/api/payment-requests/pending` | approver (own stage) / admin (all) | PRFs `in_approval` awaiting the current user's stage |
 | GET | `/api/payment-requests` | scoped `visibleTo` | filters `status[], department, vendor, q` (searches reference_no, invoice_no); paginated 15 |
 | POST | `/api/payment-requests` | `role:finance,admin` | create from `invoice_ids` + chain (see below); **201** |
@@ -80,6 +80,12 @@ description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 finalizes the PRF to `approved` (invoices → `approved_for_payment`). Reject marks the stage,
 sets PRF `rejected`, and returns invoices to `not_initiated` (unlinked).
 
+**Emails:** each advance emails the next approver (`PaymentRequestSubmitted`, with their public
+`view_token` link). On **final approval** the requestors are notified (`PaymentRequestApproved` to
+the PRF creator + every invoice submitter) — fired from both the API approve and the public-link
+approve paths via `PaymentRequestService::notifyApproved()`. Daily reminders to the current
+approver go out via the `SendPendingApprovalReminders` console command (`PaymentRequestReminder`).
+
 ## Documents · Reports · Admin
 
 | Method | Path | Notes |
@@ -88,6 +94,8 @@ sets PRF `rejected`, and returns invoices to `not_initiated` (unlinked).
 | DELETE | `/api/documents/{document}` | uploader or admin; invoice must be editable |
 | GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; export = 24-col XLSX, audit-logged |
 | GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. Approval-level create/update accepts `default_approver_id` (nullable; must be an active approver/admin) |
+| GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations`. GET returns all (ordered by name); POST creates (vendors: `name`, `vendor_code?`, `credit_limit?`, `credit_days?`; customers: `name`, `customer_code?`, `credit_limit?`, `credit_days?`; others: `name` only). |
+| PUT/DELETE | `/api/master-data/{entity}/{id}` | `role:admin`. PUT updates name/email/trn/is_active; DELETE removes. |
 
 ## Notable quirks
 

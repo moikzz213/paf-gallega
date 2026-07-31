@@ -229,7 +229,7 @@
     </div>
 
     <div class="footer">
-        Payment Approval Flow (PAF)
+        Invoice Payment Approval Platform
     </div>
 
     {{-- Reject Modal --}}

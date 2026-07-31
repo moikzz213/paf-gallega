@@ -27,6 +27,7 @@ const navItems = computed(() => {
             { title: 'Audit Trail', icon: 'mdi-history', to: '/audit-log' },
             { title: 'Users', icon: 'mdi-account-group-outline', to: '/admin/users' },
             { title: 'Approval Levels', icon: 'mdi-format-list-numbered', to: '/admin/approval-levels' },
+            { title: 'Master Data', icon: 'mdi-database-outline', to: '/admin/master-data' },
         );
     }
 
@@ -41,14 +42,9 @@ const roleLabel = computed(() => {
 
 <template>
     <v-navigation-drawer v-model="drawer" color="#10243e">
-        <div class="pa-4 d-flex align-center">
-            <v-avatar color="primary" size="36" class="mr-3">
-                <v-icon color="white">mdi-file-sign</v-icon>
-            </v-avatar>
-            <div>
-                <div class="text-subtitle-1 font-weight-bold text-white">PAF</div>
-                <div class="text-caption text-blue-lighten-4">Payment Approval</div>
-            </div>
+        <div class="pa-4 text-center">
+            <img :src="'/assets/images/gallega-logo.jpg'" alt="Gallega" style="max-width: 50px; height: auto;" class="mb-2" />
+            <div class="text-caption text-blue-lighten-4">Gallega Vendor Portal</div>
         </div>
         <v-divider color="grey-darken-1" />
         <v-list nav density="comfortable">
