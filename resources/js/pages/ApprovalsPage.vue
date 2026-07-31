@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue';
+import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../services/api';
 import { money, dateTime } from '../utils/format';
@@ -14,6 +14,20 @@ const total = ref(0);
 const options = reactive({ page: 1, itemsPerPage: 15 });
 
 const dialog = ref({ show: false, kind: 'approve', pr: null, comments: '' });
+
+const dialogInvoiceLines = computed(() => (dialog.value.pr?.invoices ?? []).flatMap((invoice) => {
+    const lines = invoice.items?.length ? invoice.items : [null];
+
+    return lines.map((line, index) => ({
+        id: line?.id ?? `${invoice.id}-summary-${index}`,
+        invoice,
+        job_no: line?.job_no || '—',
+        customer_name: line?.customer?.name || '—',
+        description: line?.description || invoice.description || '—',
+        currency: line?.currency || invoice.currency || '—',
+        total_amount: line?.total_amount ?? invoice.total_amount,
+    }));
+}));
 
 const headers = [
     { title: 'Reference', key: 'reference_no', sortable: false },
@@ -108,7 +122,7 @@ async function confirmDialog() {
             </v-data-table-server>
         </v-card>
 
-        <v-dialog v-model="dialog.show" max-width="480">
+        <v-dialog v-model="dialog.show" max-width="1100">
             <v-card>
                 <v-card-title>
                     {{ dialog.kind === 'approve' ? 'Approve' : 'Reject' }} {{ dialog.pr?.reference_no }}
@@ -116,6 +130,30 @@ async function confirmDialog() {
                 <v-card-text>
                     <div class="text-body-2 mb-3">
                         {{ dialog.pr?.invoices?.length }} invoice(s) — <strong>{{ money(dialog.pr?.total_amount) }}</strong>
+                    </div>
+                    <div class="overflow-x-auto mb-4">
+                        <v-table density="compact">
+                            <thead>
+                                <tr>
+                                    <th>Invoice</th>
+                                    <th>Invoice Submitted By</th>
+                                    <th>Job No.</th>
+                                    <th>Customer</th>
+                                    <th>Description</th>
+                                    <th class="text-right">Line Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="line in dialogInvoiceLines" :key="line.id">
+                                    <td>{{ line.invoice.reference_no }}</td>
+                                    <td>{{ line.invoice.submitter?.name || '—' }}</td>
+                                    <td>{{ line.job_no }}</td>
+                                    <td>{{ line.customer_name }}</td>
+                                    <td>{{ line.description }}</td>
+                                    <td class="text-right">{{ money(line.total_amount, line.currency) }}</td>
+                                </tr>
+                            </tbody>
+                        </v-table>
                     </div>
                     <v-textarea
                         v-model="dialog.comments"

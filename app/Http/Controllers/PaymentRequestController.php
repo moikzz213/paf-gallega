@@ -92,6 +92,7 @@ class PaymentRequestController extends Controller
         return response()->json($paymentRequest->load([
             'creator:id,name', 'payer:id,name',
             'invoices.submitter:id,name',
+            'invoices.items.customer:id,name',
             'approvals.approver:id,name',
             'auditLogs.user:id,name',
         ]));
@@ -118,7 +119,13 @@ class PaymentRequestController extends Controller
 
         $query = PaymentRequest::query()
             ->where('status', PaymentRequest::STATUS_IN_APPROVAL)
-            ->with(['creator:id,name', 'invoices:id,payment_request_id,reference_no,vendor_name,total_amount', 'approvals.approver:id,name']);
+            ->with([
+                'creator:id,name',
+                'invoices:id,payment_request_id,reference_no,vendor_name,invoice_no,total_amount,currency,description,submitted_by',
+                'invoices.submitter:id,name',
+                'invoices.items.customer:id,name',
+                'approvals.approver:id,name',
+            ]);
 
         if (! $user->isAdmin()) {
             abort_unless($user->isApprover(), 403, 'Only approvers have an approval queue.');

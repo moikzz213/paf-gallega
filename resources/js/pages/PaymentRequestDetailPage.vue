@@ -42,6 +42,20 @@ const canAct = computed(() => {
 });
 const canPay = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
 
+const invoiceLines = computed(() => (pr.value?.invoices ?? []).flatMap((invoice) => {
+    const items = invoice.items?.length ? invoice.items : [null];
+
+    return items.map((item, index) => ({
+        id: item?.id ?? `${invoice.id}-summary-${index}`,
+        invoice,
+        job_no: item?.job_no || '—',
+        customer_name: item?.customer?.name || '—',
+        description: item?.description || invoice.description || '—',
+        currency: item?.currency || invoice.currency || '—',
+        total_amount: item?.total_amount ?? invoice.total_amount,
+    }));
+}));
+
 function openDialog(kind) {
     dialog.value = { show: true, kind, comments: '', payment_reference: '' };
 }
@@ -135,20 +149,25 @@ function approvalColor(status) {
                         :headers="[
                             { title: 'Reference', key: 'reference_no', sortable: false },
                             { title: 'Vendor / Invoice #', key: 'vendor_name', sortable: false },
-                            { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
+                            { title: 'Invoice Submitted By', key: 'submitted_by', sortable: false },
+                            { title: 'Job No.', key: 'job_no', sortable: false },
+                            { title: 'Customer', key: 'customer_name', sortable: false },
+                            { title: 'Description', key: 'description', sortable: false },
+                            { title: 'Line Total', key: 'total_amount', align: 'end', sortable: false },
                         ]"
-                        :items="pr.invoices"
+                        :items="invoiceLines"
                         density="compact"
                         hide-default-footer
                         :items-per-page="-1"
                     >
                         <template #item.reference_no="{ item }">
-                            <router-link :to="`/invoices/${item.id}`" class="text-primary text-decoration-none">{{ item.reference_no }}</router-link>
+                            <router-link :to="`/invoices/${item.invoice.id}`" class="text-primary text-decoration-none">{{ item.invoice.reference_no }}</router-link>
                         </template>
                         <template #item.vendor_name="{ item }">
-                            {{ item.vendor_name }}
-                            <div class="text-caption text-medium-emphasis">{{ item.invoice_no }}</div>
+                            {{ item.invoice.vendor_name }}
+                            <div class="text-caption text-medium-emphasis">{{ item.invoice.invoice_no }}</div>
                         </template>
+                        <template #item.submitted_by="{ item }">{{ item.invoice.submitter?.name || '—' }}</template>
                         <template #item.total_amount="{ item }">{{ money(item.total_amount, item.currency) }}</template>
                     </v-data-table>
                     <v-divider />

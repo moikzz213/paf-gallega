@@ -187,6 +187,8 @@ class PublicPaymentRequestController extends Controller
     {
         $pr = PaymentRequest::with([
             'creator',
+            'invoices.submitter:id,name',
+            'invoices.items.customer:id,name',
             'invoices.documents',
             'approvals.approver',
         ])->find($id);
