@@ -105,9 +105,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - **Approval levels:** CRUD of the threshold levels used to **pre-fill** PRF chains, each with a
   **default approver**.
 - **Master data:** CRUD for vendors, customers, business units, departments and locations.
+  Lists use server-side pagination and search; vendor/customer searches cover both name and code.
+  Vendor and customer names may repeat, while each entered vendor/customer code must be unique.
   Administrators can also download a formatted entity-specific Excel template and bulk import up
-  to 1,000 new rows. Imports validate all rows first, reject database/workbook duplicates with
-  Excel row numbers, default every new record to active, and commit atomically so a partial
+  to 1,000 new rows. Imports validate all rows first, apply the same code-based uniqueness rule
+  for vendors/customers (name-based for other masters), report duplicates with Excel row numbers,
+  default every new record to active, and commit atomically so a partial
   master-data load cannot occur. The templates omit status and retain normal Excel gridlines.
 
 ## Role → feature matrix

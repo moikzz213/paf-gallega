@@ -94,10 +94,10 @@ approver go out via the `SendPendingApprovalReminders` console command (`Payment
 | DELETE | `/api/documents/{document}` | uploader or admin; invoice must be editable |
 | GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; export = 24-col XLSX, audit-logged |
 | GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. User `department` must match an active Departments master-data row. Approval-level create/update accepts `default_approver_id` (nullable; must be an active approver/admin) |
-| GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations`. GET returns all (ordered by name); POST creates (vendors: `name`, `vendor_code?`, `credit_limit?`, `credit_days?`; customers: `name`, `customer_code?`, `credit_limit?`, `credit_days?`; others: `name` only). |
+| GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations`. GET is paginated (`page`, `per_page` 1–100) and accepts `q` (name for all entities, plus code for vendors/customers); results are ordered by name then id. POST creates vendors/customers with repeatable names and unique entered codes; other entities retain unique names. |
 | PUT/DELETE | `/api/master-data/{entity}/{id}` | `role:admin`. PUT updates the entity's create fields plus `is_active`; DELETE removes. |
 | GET | `/api/master-data/{entity}/template` | `role:admin`. Downloads an XLSX import template with an **Import Data** sheet and entity-specific instructions. |
-| POST | `/api/master-data/{entity}/import` | `role:admin`; multipart `file` (`xlsx`/`xls`, max 5 MB). Create-only, maximum 1,000 rows, and atomic: any missing header, invalid value, or duplicate name/code returns `422` and creates nothing. Imported rows default to `is_active = 1`; status is not included in templates. Success returns `{message, imported_count}`; every created row is audit-logged. |
+| POST | `/api/master-data/{entity}/import` | `role:admin`; multipart `file` (`xlsx`/`xls`, max 5 MB). Create-only, maximum 1,000 rows, and atomic. Vendors/customers allow repeated names but reject duplicate entered codes; other entities reject duplicate names. Any missing header or invalid/duplicate value returns `422` and creates nothing. Imported rows default to `is_active = 1`; status is not included in templates. Success returns `{message, imported_count}`; every created row is audit-logged. |
 
 ## Notable quirks
 

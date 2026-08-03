@@ -58,8 +58,8 @@ Base Laravel columns plus (`add_paf_fields_to_users_table`): `role`
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | bigint PK | |
-| `name` | string, **unique** | |
-| `vendor_code` | string(50), nullable, unique | short code |
+| `name` | string | names may repeat; `vendor_code` is the identifier |
+| `vendor_code` | string(50), nullable, **unique when present** | short code |
 | `credit_limit` | decimal(15,2), default 0 | |
 | `credit_days` | unsigned int, default 0 | auto-calculated due date |
 | `is_active` | boolean | inactive vendors are excluded from dropdowns |
@@ -70,8 +70,8 @@ Base Laravel columns plus (`add_paf_fields_to_users_table`): `role`
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | bigint PK | |
-| `name` | string, **unique** | |
-| `customer_code` | string(50), nullable, unique | short code |
+| `name` | string | names may repeat; `customer_code` is the identifier |
+| `customer_code` | string(50), nullable, **unique when present** | short code |
 | `credit_limit` | decimal(15,2), default 0 | |
 | `credit_days` | unsigned int, default 0 | |
 | `is_active` | boolean | |

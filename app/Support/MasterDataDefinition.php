@@ -24,8 +24,8 @@ final class MasterDataDefinition
                 'label' => 'Vendors',
                 'code_key' => 'vendor_code',
                 'columns' => [
-                    self::column('name', 'Name', true, 'Vendor name. Must be unique.', 34),
-                    self::column('vendor_code', 'Vendor Code', false, 'Optional unique vendor code.', 20),
+                    self::column('name', 'Name', true, 'Vendor name. Names may be shared by different vendor codes.', 34),
+                    self::column('vendor_code', 'Vendor Code', false, 'Optional when unavailable; every entered vendor code must be unique.', 20),
                     self::column('credit_limit', 'Credit Limit', false, 'Non-negative amount. Blank defaults to 0.', 18),
                     self::column('credit_days', 'Credit Days', false, 'Whole number from 0 to 365. Blank defaults to 0.', 16),
                 ],
@@ -36,8 +36,8 @@ final class MasterDataDefinition
                 'label' => 'Customers',
                 'code_key' => 'customer_code',
                 'columns' => [
-                    self::column('name', 'Name', true, 'Customer name. Must be unique.', 34),
-                    self::column('customer_code', 'Customer Code', false, 'Optional unique customer code.', 20),
+                    self::column('name', 'Name', true, 'Customer name. Names may be shared by different customer codes.', 34),
+                    self::column('customer_code', 'Customer Code', false, 'Optional when unavailable; every entered customer code must be unique.', 20),
                     self::column('credit_limit', 'Credit Limit', false, 'Non-negative amount. Blank defaults to 0.', 18),
                     self::column('credit_days', 'Credit Days', false, 'Whole number from 0 to 365. Blank defaults to 0.', 16),
                 ],

@@ -67,11 +67,13 @@ class MasterDataImportService
                 $errors[] = "Row {$excelRow}: {$message}";
             }
 
-            $normalizedName = mb_strtolower((string) ($data['name'] ?? ''));
-            if ($normalizedName !== '' && isset($seenNames[$normalizedName])) {
-                $errors[] = "Row {$excelRow}: The name is duplicated in the workbook (first used on row {$seenNames[$normalizedName]}).";
-            } elseif ($normalizedName !== '') {
-                $seenNames[$normalizedName] = $excelRow;
+            if (! $definition['code_key']) {
+                $normalizedName = mb_strtolower((string) ($data['name'] ?? ''));
+                if ($normalizedName !== '' && isset($seenNames[$normalizedName])) {
+                    $errors[] = "Row {$excelRow}: The name is duplicated in the workbook (first used on row {$seenNames[$normalizedName]}).";
+                } elseif ($normalizedName !== '') {
+                    $seenNames[$normalizedName] = $excelRow;
+                }
             }
 
             $codeKey = $definition['code_key'];
@@ -131,10 +133,13 @@ class MasterDataImportService
                 'required',
                 'string',
                 'max:255',
-                Rule::unique($definition['table'], 'name'),
             ],
             'is_active' => ['required', 'boolean'],
         ];
+
+        if (! $definition['code_key']) {
+            $rules['name'][] = Rule::unique($definition['table'], 'name');
+        }
 
         if ($definition['code_key']) {
             $codeKey = $definition['code_key'];

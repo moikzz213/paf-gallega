@@ -17,17 +17,38 @@ class MasterDataController extends Controller
 {
     public function __construct(private readonly MasterDataImportService $importService) {}
 
-    public function index(string $entity)
+    public function index(Request $request, string $entity)
     {
         $model = $this->resolveModel($entity);
+        $definition = $this->resolveDefinition($entity);
+        $filters = $request->validate([
+            'q' => ['nullable', 'string', 'max:255'],
+            'page' => ['nullable', 'integer', 'min:1'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+        ]);
+        $query = $model::query();
 
-        return $model::query()->orderBy('name')->get();
+        $search = trim((string) ($filters['q'] ?? ''));
+        if ($search !== '') {
+            $query->where(function ($builder) use ($definition, $search) {
+                $builder->where('name', 'like', "%{$search}%");
+
+                if ($definition['code_key']) {
+                    $builder->orWhere($definition['code_key'], 'like', "%{$search}%");
+                }
+            });
+        }
+
+        $perPage = (int) ($filters['per_page'] ?? 15);
+
+        return $query->orderBy('name')->orderBy('id')->paginate($perPage);
     }
 
     public function store(Request $request, string $entity)
     {
         $model = $this->resolveModel($entity);
 
+        $this->normalizeRequestCode($request, $entity);
         $data = $request->validate($this->validationRules($entity));
         $this->normalizeCode($data, $entity);
 
@@ -66,6 +87,7 @@ class MasterDataController extends Controller
         $model = $this->resolveModel($entity);
         $item = $model::findOrFail($id);
 
+        $this->normalizeRequestCode($request, $entity);
         $data = $request->validate($this->validationRules($entity, $item->id));
         $this->normalizeCode($data, $entity);
 
@@ -107,12 +129,12 @@ class MasterDataController extends Controller
 
         return match ($entity) {
             'vendors' => array_merge([
-                'name' => ['required', 'string', 'max:255', $uniqueName('vendors')],
+                'name' => ['required', 'string', 'max:255'],
                 'vendor_code' => ['nullable', 'string', 'max:50', Rule::unique('vendors', 'vendor_code')->whereNotNull('vendor_code')->when($ignoreId, fn ($r) => $r->ignore($ignoreId))],
             ], $creditRules, $common),
 
             'customers' => array_merge([
-                'name' => ['required', 'string', 'max:255', $uniqueName('customers')],
+                'name' => ['required', 'string', 'max:255'],
                 'customer_code' => ['nullable', 'string', 'max:50', Rule::unique('customers', 'customer_code')->whereNotNull('customer_code')->when($ignoreId, fn ($r) => $r->ignore($ignoreId))],
             ], $creditRules, $common),
 
@@ -128,6 +150,21 @@ class MasterDataController extends Controller
         if ($codeKey && isset($data[$codeKey]) && $data[$codeKey] === '') {
             $data[$codeKey] = null;
         }
+    }
+
+    private function normalizeRequestCode(Request $request, string $entity): void
+    {
+        $codeKey = $entity === 'vendors' ? 'vendor_code' : ($entity === 'customers' ? 'customer_code' : null);
+        if (! $codeKey || ! $request->exists($codeKey)) {
+            return;
+        }
+
+        $value = $request->input($codeKey);
+        if (is_string($value)) {
+            $value = trim($value);
+        }
+
+        $request->merge([$codeKey => $value === '' ? null : $value]);
     }
 
     private function resolveModel(string $entity): string
