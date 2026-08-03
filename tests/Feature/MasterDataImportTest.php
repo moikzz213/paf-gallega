@@ -3,7 +3,11 @@
 namespace Tests\Feature;
 
 use App\Models\AuditLog;
+use App\Models\Customer;
+use App\Models\Location;
 use App\Models\User;
+use App\Models\Vendor;
+use Illuminate\Database\QueryException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use PhpOffice\PhpSpreadsheet\IOFactory;
@@ -55,6 +59,15 @@ class MasterDataImportTest extends TestCase
                 $workbook->getSheetByName('Import Data')
                     ->rangeToArray('A1:'.$workbook->getSheetByName('Import Data')->getHighestColumn().'1')[0],
             );
+
+            if (in_array($entity, ['vendors', 'customers'], true)) {
+                $instructions = collect($workbook->getSheetByName('Instructions')->toArray())
+                    ->flatten()
+                    ->filter()
+                    ->implode(' ');
+                $this->assertStringContainsString('Names may be shared', $instructions);
+                $this->assertStringContainsString('code must be unique', $instructions);
+            }
         }
     }
 
@@ -124,7 +137,7 @@ class MasterDataImportTest extends TestCase
                 'file' => $this->workbookUpload('vendors.xlsx', [
                     ['Name *', 'Vendor Code', 'Credit Limit', 'Credit Days'],
                     ['New Vendor', 'NEW-1', 1000, 30],
-                    ['Existing Vendor', 'EX-2', 1000, 30],
+                    ['Another Vendor', 'EX-1', 1000, 30],
                 ]),
             ])
             ->assertUnprocessable();
@@ -157,6 +170,119 @@ class MasterDataImportTest extends TestCase
             'credit_days' => 0,
             'is_active' => true,
         ]);
+    }
+
+    public function test_vendor_and_customer_manual_crud_uses_code_instead_of_name_for_uniqueness(): void
+    {
+        foreach ([
+            ['entity' => 'vendors', 'model' => Vendor::class, 'code_key' => 'vendor_code', 'code_prefix' => 'V'],
+            ['entity' => 'customers', 'model' => Customer::class, 'code_key' => 'customer_code', 'code_prefix' => 'C'],
+        ] as $definition) {
+            $base = [
+                'name' => 'Shared Name',
+                'credit_limit' => 0,
+                'credit_days' => 0,
+                'is_active' => true,
+            ];
+
+            $first = $this->actingAs($this->admin)->postJson("/api/master-data/{$definition['entity']}", [
+                ...$base,
+                $definition['code_key'] => "{$definition['code_prefix']}-001",
+            ])->assertCreated();
+
+            $second = $this->postJson("/api/master-data/{$definition['entity']}", [
+                ...$base,
+                $definition['code_key'] => "{$definition['code_prefix']}-002",
+            ])->assertCreated();
+
+            $this->postJson("/api/master-data/{$definition['entity']}", [
+                ...$base,
+                'name' => 'Different Name',
+                $definition['code_key'] => "  {$definition['code_prefix']}-001  ",
+            ])->assertUnprocessable()->assertJsonValidationErrors($definition['code_key']);
+
+            $this->putJson("/api/master-data/{$definition['entity']}/{$second->json('id')}", [
+                ...$base,
+                $definition['code_key'] => "{$definition['code_prefix']}-002",
+            ])->assertOk();
+
+            $this->putJson("/api/master-data/{$definition['entity']}/{$second->json('id')}", [
+                ...$base,
+                $definition['code_key'] => "{$definition['code_prefix']}-001",
+            ])->assertUnprocessable()->assertJsonValidationErrors($definition['code_key']);
+
+            $this->assertNotSame($first->json('id'), $second->json('id'));
+
+            try {
+                $definition['model']::create([
+                    'name' => 'Direct Database Duplicate',
+                    $definition['code_key'] => "{$definition['code_prefix']}-001",
+                    'is_active' => true,
+                ]);
+                $this->fail("The {$definition['code_key']} database index did not reject a duplicate code.");
+            } catch (QueryException) {
+                $this->addToAssertionCount(1);
+            }
+        }
+    }
+
+    public function test_vendor_and_customer_imports_allow_duplicate_names_but_reject_duplicate_codes(): void
+    {
+        foreach ([
+            ['entity' => 'vendors', 'heading' => 'Vendor Code', 'prefix' => 'V'],
+            ['entity' => 'customers', 'heading' => 'Customer Code', 'prefix' => 'C'],
+        ] as $definition) {
+            $headings = ['Name *', $definition['heading'], 'Credit Limit', 'Credit Days'];
+
+            $this->actingAs($this->admin)
+                ->post("/api/master-data/{$definition['entity']}/import", [
+                    'file' => $this->workbookUpload("{$definition['entity']}-same-name.xlsx", [
+                        $headings,
+                        ['Shared Import Name', "{$definition['prefix']}-101", 0, 0],
+                        ['Shared Import Name', "{$definition['prefix']}-102", 0, 0],
+                    ]),
+                ])
+                ->assertOk()
+                ->assertJson(['imported_count' => 2]);
+
+            $response = $this->post("/api/master-data/{$definition['entity']}/import", [
+                'file' => $this->workbookUpload("{$definition['entity']}-duplicate-code.xlsx", [
+                    $headings,
+                    ['Atomic First', "{$definition['prefix']}-103", 0, 0],
+                    ['Atomic Second', "{$definition['prefix']}-103", 0, 0],
+                ]),
+            ])->assertUnprocessable();
+
+            $this->assertStringContainsString('code is duplicated', implode(' ', $response->json('errors.file')));
+            $this->assertDatabaseMissing($definition['entity'], ['name' => 'Atomic First']);
+        }
+    }
+
+    public function test_master_data_lists_are_paginated_and_searchable(): void
+    {
+        foreach (range(1, 12) as $number) {
+            Location::create(['name' => sprintf('Warehouse %02d', $number), 'is_active' => true]);
+        }
+        Vendor::create(['name' => 'Blue Water Logistics', 'vendor_code' => 'V-SEARCH', 'is_active' => true]);
+        Customer::create(['name' => 'Searchable Customer', 'customer_code' => 'C-SEARCH', 'is_active' => true]);
+
+        $this->actingAs($this->admin)
+            ->getJson('/api/master-data/locations?per_page=5&page=2')
+            ->assertOk()
+            ->assertJsonPath('total', 12)
+            ->assertJsonPath('per_page', 5)
+            ->assertJsonPath('current_page', 2)
+            ->assertJsonCount(5, 'data');
+
+        $this->getJson('/api/master-data/vendors?q=V-SEARCH')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.name', 'Blue Water Logistics');
+
+        $this->getJson('/api/master-data/customers?q=Searchable')
+            ->assertOk()
+            ->assertJsonPath('total', 1)
+            ->assertJsonPath('data.0.customer_code', 'C-SEARCH');
     }
 
     public function test_non_admin_cannot_import_or_download_templates(): void

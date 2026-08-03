@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, ref, watch } from 'vue';
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../../services/api';
 import { money } from '../../utils/format';
 import { useMetaStore } from '../../stores/meta';
@@ -11,6 +11,9 @@ const notify = useNotifyStore();
 const tab = ref('vendors');
 const loading = ref(false);
 const items = ref([]);
+const total = ref(0);
+const search = ref('');
+const options = reactive({ page: 1, itemsPerPage: 15 });
 const saving = ref(false);
 const importing = ref(false);
 const importDialog = ref(false);
@@ -38,7 +41,7 @@ const hasCreditFields = (t) => t === 'vendors' || t === 'customers';
 
 function headers(t) {
     const h = [
-        { title: 'Name', key: 'name' },
+        { title: 'Name', key: 'name', sortable: false },
         { title: 'Status', key: 'is_active', sortable: false },
         { title: '', key: 'actions', align: 'end', sortable: false },
     ];
@@ -54,8 +57,15 @@ function headers(t) {
 async function load() {
     loading.value = true;
     try {
-        const { data } = await api.get(`/master-data/${tab.value}`);
-        items.value = data;
+        const { data } = await api.get(`/master-data/${tab.value}`, {
+            params: {
+                page: options.page,
+                per_page: options.itemsPerPage,
+                q: search.value || undefined,
+            },
+        });
+        items.value = data.data;
+        total.value = data.total;
     } catch (e) {
         notify.error(errorMessage(e));
     } finally {
@@ -64,7 +74,19 @@ async function load() {
 }
 
 onMounted(load);
-watch(tab, load);
+watch(tab, () => {
+    search.value = '';
+    options.page = 1;
+    load();
+});
+
+let searchTimer;
+watch(search, () => {
+    clearTimeout(searchTimer);
+    options.page = 1;
+    searchTimer = setTimeout(load, 300);
+});
+onBeforeUnmount(() => clearTimeout(searchTimer));
 
 function emptyForm() {
     if (hasCreditFields(tab.value)) {
@@ -169,6 +191,7 @@ async function remove(item) {
     try {
         await api.delete(`/master-data/${tab.value}/${item.id}`);
         notify.success('Deleted.');
+        if (items.value.length === 1 && options.page > 1) options.page -= 1;
         await load();
         await meta.load(true);
     } catch (e) {
@@ -198,14 +221,26 @@ async function remove(item) {
             <v-tab v-for="t in tabs" :key="t.value" :value="t.value" :prepend-icon="t.icon">{{ t.label }}</v-tab>
         </v-tabs>
 
+        <v-text-field
+            v-model="search"
+            :label="`Search ${tabs.find(t => t.value === tab)?.label ?? 'master data'}${hasCreditFields(tab) ? ' by name or code' : ' by name'}`"
+            prepend-inner-icon="mdi-magnify"
+            clearable
+            hide-details
+            class="mb-4"
+        />
+
         <v-card>
-            <v-data-table
+            <v-data-table-server
+                v-model:page="options.page"
+                v-model:items-per-page="options.itemsPerPage"
                 :headers="headers(tab)"
                 :items="items"
+                :items-length="total"
                 :loading="loading"
                 density="comfortable"
-                hide-default-footer
-                :items-per-page="-1"
+                :items-per-page-options="[10, 15, 25, 50]"
+                @update:options="load"
             >
                 <template #item.name="{ item }">
                     <span class="font-weight-medium">{{ item.name }}</span>
@@ -231,7 +266,7 @@ async function remove(item) {
                     <v-btn icon="mdi-pencil-outline" variant="text" size="small" @click="openEdit(item)" />
                     <v-btn icon="mdi-delete-outline" variant="text" size="small" color="error" @click="remove(item)" />
                 </template>
-            </v-data-table>
+            </v-data-table-server>
         </v-card>
 
         <v-dialog v-model="dialog" max-width="520">
