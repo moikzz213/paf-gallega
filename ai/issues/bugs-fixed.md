@@ -5,6 +5,16 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-08-04] Code-uniqueness migration failed after manual index removal
+- **Symptom:** Production migration failed with MySQL error 1091 while dropping
+  `vendors_name_unique` after that index had already been removed manually.
+- **Cause:** The migration assumed the original name indexes always existed and that the new code
+  indexes never existed.
+- **Fix:** The migration now inspects the live table indexes, conditionally drops unique name
+  indexes, and conditionally creates unique vendor/customer code indexes.
+- **Verified:** Added a regression test that removes the code indexes from a schema where the name
+  indexes are already absent, reruns the migration, and verifies the intended final indexes.
+
 ## [2026-07-31] User editing rejected master-data departments
 - **Symptom:** Editing a user returned `The selected department is invalid` for a department shown
   in the UI.
