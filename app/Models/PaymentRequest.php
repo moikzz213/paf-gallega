@@ -102,11 +102,17 @@ class PaymentRequest extends Model
     public static function nextReferenceNo(): string
     {
         $year = now()->year;
-        $prefix = "PRF-{$year}-";
-        $last = static::where('reference_no', 'like', "{$prefix}%")
+        $prefix = "PAF-{$year}-";
+
+        // Matched on the year rather than the prefix so numbering carries on across the historical
+        // PRF- references instead of restarting at 1 alongside them. Ordered by id because a mixed
+        // set of prefixes does not sort by sequence.
+        $last = static::where('reference_no', 'like', "%-{$year}-%")
             ->orderByDesc('id')
             ->value('reference_no');
-        $seq = $last ? ((int) substr($last, strlen($prefix))) + 1 : 1;
+
+        // Read from the last separator, so the sequence survives any future prefix change.
+        $seq = $last ? ((int) substr($last, strrpos($last, '-') + 1)) + 1 : 1;
 
         return $prefix.str_pad((string) $seq, 5, '0', STR_PAD_LEFT);
     }

@@ -13,7 +13,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Fixed-format form: vendor details (name, email, TRN), invoice no/date/due date, currency,
   amount + tax (total computed server-side), business unit (GIL/GGL/GGH), submitting department, location,
   payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
-- System reference `PAF-{year}-{00001}`; submitted immediately (status `submitted`).
+- System reference `INV-{year}-{00001}`; submitted immediately (status `submitted`).
 - A **queried** invoice can be edited and it returns to `submitted`.
 
 ## 3. Invoice Log (Finance)
