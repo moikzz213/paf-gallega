@@ -15,6 +15,13 @@ Common local-dev issues for this PAF (Laravel 13 + Vue 3) project and how to res
 
 ## Auth / API
 
+### Migration already changed manually
+
+- **Migration `2026_08_03_000001` fails with MySQL error 1091 for a missing name index** — deploy
+  the latest migration file, which checks existing indexes before changing them, then rerun
+  `php artisan migrate`. A failed Laravel migration is not recorded as complete, so no manual
+  migration-table edit or rollback is needed.
+
 - **Getting 419 (CSRF token mismatch)** — the SPA relies on the `XSRF-TOKEN` cookie and the
   `<meta name="csrf-token">` tag. A stale full-page cache can desync it; hard-reload. Ensure API
   calls go through `services/api.js` (which sets the headers), not raw `fetch`.

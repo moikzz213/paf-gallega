@@ -8,8 +8,10 @@ use App\Models\Location;
 use App\Models\User;
 use App\Models\Vendor;
 use Illuminate\Database\QueryException;
+use Illuminate\Database\Schema\Blueprint;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Schema;
 use PhpOffice\PhpSpreadsheet\IOFactory;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
@@ -283,6 +285,29 @@ class MasterDataImportTest extends TestCase
             ->assertOk()
             ->assertJsonPath('total', 1)
             ->assertJsonPath('data.0.customer_code', 'C-SEARCH');
+    }
+
+    public function test_code_uniqueness_migration_handles_manually_removed_name_indexes(): void
+    {
+        Schema::table('vendors', function (Blueprint $table) {
+            $table->dropUnique('vendors_vendor_code_unique');
+        });
+        Schema::table('customers', function (Blueprint $table) {
+            $table->dropUnique('customers_customer_code_unique');
+        });
+
+        $migration = require database_path('migrations/2026_08_03_000001_make_vendor_customer_codes_unique.php');
+        $migration->up();
+
+        foreach ([
+            ['table' => 'vendors', 'code' => 'vendor_code'],
+            ['table' => 'customers', 'code' => 'customer_code'],
+        ] as $definition) {
+            $indexes = collect(Schema::getIndexes($definition['table']));
+
+            $this->assertTrue($indexes->contains(fn (array $index) => $index['unique'] && $index['columns'] === [$definition['code']]));
+            $this->assertFalse($indexes->contains(fn (array $index) => $index['unique'] && $index['columns'] === ['name']));
+        }
     }
 
     public function test_non_admin_cannot_import_or_download_templates(): void
