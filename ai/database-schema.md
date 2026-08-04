@@ -83,7 +83,8 @@ Identical schema: `id`, `name` (unique), `is_active` (boolean), timestamps.
 
 ### invoices
 
-Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `PAF-{year}-00001`),
+Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `INV-{year}-00001`;
+`PAF-{year}-` before Aug 2026),
 `vendor_name` (idx), `invoice_no`, `invoice_date`, `due_date`, `currency`, `amount`
 (sum of items), `tax_amount` (sum of items), `total_amount` (sum of items),
 `business_unit`, `department` (idx), `location`, `payment_method`, `priority`, `description`.
@@ -113,7 +114,7 @@ Lifecycle & posting columns:
 | Column | Type | Notes |
 |--------|------|-------|
 | `id` | bigint PK | |
-| `reference_no` | string, **unique** | `PRF-{year}-00001` |
+| `reference_no` | string, **unique** | `PAF-{year}-00001` (`PRF-{year}-` before Aug 2026) |
 | `view_token` | string(64), **unique** | random token for public read-only link |
 | `created_by` | FK users | Finance user who initiated |
 | `status` | string, default `draft` | `draft \| in_approval \| approved \| rejected \| paid` (idx) |

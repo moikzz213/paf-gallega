@@ -52,8 +52,11 @@ Laravel 13 (routes/web.php, prefix "api")
   `PAY_*`, `PaymentRequest::STATUS_*`, `User::ROLE_*`). Notable model behavior:
   - `Invoice::scopeVisibleTo(User)` / `PaymentRequest::scopeVisibleTo(User)` — the central
     authorization scopes (see below).
-  - `Invoice::nextReferenceNo()` → `PAF-{year}-00001`; `PaymentRequest::nextReferenceNo()` →
-    `PRF-{year}-00001`.
+  - `Invoice::nextReferenceNo()` → `INV-{year}-00001`; `PaymentRequest::nextReferenceNo()` →
+    `PAF-{year}-00001`. Both derive the sequence from the year rather than the prefix, so the
+    counters carried on across the Aug 2026 rename (invoices were `PAF-`, PRFs were `PRF-`)
+    instead of restarting. `PAF-` belongs to the payment request because that is the Payment
+    Approval Form; sharing it with invoices made one identifier name two documents.
   - `ApprovalLevel::requiredFor(total)` — the levels (with defaults) that pre-fill a PRF chain.
   - `PaymentRequestApproval::approvalLevel()` resolves the stage's snapshotted level number to
     its current approval-level configuration for PDF grouping by `min_amount`.

@@ -54,7 +54,9 @@ Conventions observed in this codebase. Follow them so new code reads like the ex
   per table. Routes grouped by resource in `routes/web.php`.
 - Frontend: pages under `resources/js/pages/` (nested by area, e.g. `invoices/`, `admin/`),
   reusable pieces under `components/`, cross-cutting under `stores/`, `services/`, `utils/`.
-- Reference identifiers: invoice `reference_no` is `PAF-{year}-{00001}`.
+- Reference identifiers: invoice `reference_no` is `INV-{year}-{00001}`; payment request
+  `reference_no` is `PAF-{year}-{00001}`. Keep the two prefixes distinct — one identifier must
+  never name both an invoice and a payment request.
 
 ## Testing
 

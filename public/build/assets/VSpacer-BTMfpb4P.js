@@ -1,0 +1,1 @@
+import{tt as e}from"./forwardRefs-exkVnNnn.js";var t=e(`v-spacer`,`div`,`VSpacer`);export{t};

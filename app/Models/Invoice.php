@@ -127,11 +127,17 @@ class Invoice extends Model
     public static function nextReferenceNo(): string
     {
         $year = now()->year;
-        $prefix = "PAF-{$year}-";
-        $last = static::where('reference_no', 'like', "{$prefix}%")
+        $prefix = "INV-{$year}-";
+
+        // Matched on the year rather than the prefix so numbering carries on across the historical
+        // PAF- references instead of restarting at 1 alongside them. PAF- now belongs to the
+        // Payment Approval Form (PaymentRequest), which is the document that name describes.
+        $last = static::where('reference_no', 'like', "%-{$year}-%")
             ->orderByDesc('id')
             ->value('reference_no');
-        $seq = $last ? ((int) substr($last, strlen($prefix))) + 1 : 1;
+
+        // Read from the last separator, so the sequence survives any future prefix change.
+        $seq = $last ? ((int) substr($last, strrpos($last, '-') + 1)) + 1 : 1;
 
         return $prefix.str_pad((string) $seq, 5, '0', STR_PAD_LEFT);
     }

@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('payment_requests', function (Blueprint $table) {
             $table->id();
-            $table->string('reference_no')->unique(); // PRF-2026-00001
+            $table->string('reference_no')->unique(); // PAF-2026-00001 (PRF- before Aug 2026)
             $table->foreignId('created_by')->constrained('users'); // finance user who initiated
             $table->string('status')->default('draft'); // draft | in_approval | approved | rejected | paid
             $table->unsignedInteger('current_stage')->nullable(); // sequence of the stage awaiting action
