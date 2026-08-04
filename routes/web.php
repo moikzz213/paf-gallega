@@ -8,6 +8,7 @@ use App\Http\Controllers\DocumentController;
 use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MasterDataController;
 use App\Http\Controllers\MetaController;
+use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PaymentRequestController;
 use App\Http\Controllers\PublicPaymentRequestController;
 use App\Http\Controllers\ReportController;
@@ -21,6 +22,11 @@ use Illuminate\Support\Facades\Route;
 */
 Route::prefix('api')->group(function () {
     Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:10,1');
+
+    // Self-service password reset. Throttled harder than login: these send mail to an address the
+    // caller supplies, so they are the more attractive endpoints to abuse.
+    Route::post('/forgot-password', [PasswordResetController::class, 'sendLink'])->middleware('throttle:5,1');
+    Route::post('/reset-password', [PasswordResetController::class, 'reset'])->middleware('throttle:5,1');
 
     Route::middleware('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);

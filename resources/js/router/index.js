@@ -9,6 +9,20 @@ const routes = [
         meta: { guest: true },
     },
     {
+        path: '/forgot-password',
+        name: 'forgot-password',
+        component: () => import('../pages/ForgotPasswordPage.vue'),
+        meta: { guest: true },
+    },
+    {
+        // Deliberately neither guest nor auth: an emailed reset link must open whether or not
+        // there is a session in that browser. Marking it guest would bounce a signed-in visitor
+        // to the dashboard with no explanation.
+        path: '/reset-password',
+        name: 'reset-password',
+        component: () => import('../pages/ResetPasswordPage.vue'),
+    },
+    {
         path: '/',
         component: () => import('../layouts/AppLayout.vue'),
         meta: { auth: true },

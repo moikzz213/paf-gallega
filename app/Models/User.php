@@ -3,12 +3,14 @@
 namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
+use App\Mail\PasswordResetLink;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
+use Illuminate\Support\Facades\Mail;
 
 #[Fillable(['name', 'email', 'password', 'role', 'approval_level', 'department', 'job_title', 'is_active'])]
 #[Hidden(['password', 'remember_token'])]
@@ -50,6 +52,16 @@ class User extends Authenticatable
     public function invoices()
     {
         return $this->hasMany(Invoice::class, 'submitted_by');
+    }
+
+    /**
+     * Called by the password broker. Overridden so the reset mail is a Mailable with a branded
+     * Blade view, matching how the rest of the app sends mail, instead of Laravel's default
+     * notification (whose link would point at a web route this SPA does not have).
+     */
+    public function sendPasswordResetNotification($token): void
+    {
+        Mail::to($this->email)->send(new PasswordResetLink($this, $token));
     }
 
     public function isAdmin(): bool

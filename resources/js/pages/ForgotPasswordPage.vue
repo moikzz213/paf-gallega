@@ -1,24 +1,21 @@
 <script setup>
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
-import { useAuthStore } from '../stores/auth';
-import { errorMessage } from '../services/api';
-
-const auth = useAuthStore();
-const router = useRouter();
+import api, { errorMessage } from '../services/api';
 
 const email = ref('');
-const password = ref('');
-const showPassword = ref(false);
 const loading = ref(false);
 const error = ref('');
+const sent = ref('');
 
 async function submit() {
     error.value = '';
+    sent.value = '';
     loading.value = true;
     try {
-        await auth.login({ email: email.value, password: password.value });
-        router.push({ name: 'dashboard' });
+        const { data } = await api.post('/forgot-password', { email: email.value });
+        // The API deliberately answers the same way for unknown addresses, so this
+        // confirms the request was accepted — not that an account exists.
+        sent.value = data.message;
     } catch (e) {
         error.value = errorMessage(e);
     } finally {
@@ -32,14 +29,18 @@ async function submit() {
         <v-card class="pa-4" width="420" elevation="4">
             <v-card-item class="text-center">
                 <img :src="'/assets/images/icon.png'" alt="Gallega" style="max-width: 50px; height: auto;" class="mb-2" />
-                <v-card-title class="text-h5 font-weight-bold">Gallega</v-card-title>
-                <v-card-subtitle>Vendor Portal</v-card-subtitle>
+                <v-card-title class="text-h5 font-weight-bold">Forgot password</v-card-title>
+                <v-card-subtitle>We'll email you a reset link</v-card-subtitle>
             </v-card-item>
             <v-card-text>
+                <v-alert v-if="sent" type="success" variant="tonal" density="compact" class="mb-4">
+                    {{ sent }}
+                </v-alert>
                 <v-alert v-if="error" type="error" variant="tonal" density="compact" class="mb-4">
                     {{ error }}
                 </v-alert>
-                <v-form @submit.prevent="submit">
+
+                <v-form v-if="!sent" @submit.prevent="submit">
                     <v-text-field
                         v-model="email"
                         label="Email"
@@ -48,23 +49,14 @@ async function submit() {
                         autocomplete="username"
                         required
                     />
-                    <v-text-field
-                        v-model="password"
-                        label="Password"
-                        :type="showPassword ? 'text' : 'password'"
-                        prepend-inner-icon="mdi-lock-outline"
-                        :append-inner-icon="showPassword ? 'mdi-eye-off' : 'mdi-eye'"
-                        autocomplete="current-password"
-                        required
-                        @click:append-inner="showPassword = !showPassword"
-                    />
                     <v-btn type="submit" color="primary" size="large" block :loading="loading" class="mt-2">
-                        Sign in
+                        Send reset link
                     </v-btn>
                 </v-form>
+
                 <div class="text-center mt-4">
-                    <router-link :to="{ name: 'forgot-password' }" class="text-caption text-primary">
-                        Forgot password?
+                    <router-link :to="{ name: 'login' }" class="text-caption text-primary">
+                        Back to sign in
                     </router-link>
                 </div>
             </v-card-text>
