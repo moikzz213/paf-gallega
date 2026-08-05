@@ -10,7 +10,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 ## 2. Submit Invoice (Requester)
 
-- Fixed-format form: vendor details (name, email, TRN), invoice no/date/due date, currency,
+- Fixed-format form: vendor selection by unique master-data record (displayed as name + code),
+  invoice no/date/due date, currency,
   amount + tax (total computed server-side), business unit (GIL/GGL/GGH), submitting department, location,
   payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
 - System reference `INV-{year}-{00001}`; submitted immediately (status `submitted`).

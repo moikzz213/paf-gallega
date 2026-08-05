@@ -20,7 +20,7 @@ const files = ref([]);
 const existingDocuments = ref([]);
 
 const form = ref({
-    vendor_name: '',
+    vendor_id: null,
     invoice_no: '',
     invoice_date: '',
     due_date: '',
@@ -51,7 +51,7 @@ const paymentMethodOptions = computed(() =>
 const vendorItems = computed(() =>
     (meta.vendors ?? []).map((v) => ({
         title: v.name + (v.vendor_code ? ` (${v.vendor_code})` : ''),
-        value: v.name,
+        value: v.id,
         credit_days: v.credit_days ?? 0,
     }))
 );
@@ -65,7 +65,7 @@ const customerItems = computed(() =>
 
 const priorityItems = computed(() =>
     (meta.priorities ?? []).map((p) => {
-        const vendor = (meta.vendors ?? []).find((v) => v.name === form.value.vendor_name);
+        const vendor = (meta.vendors ?? []).find((v) => v.id === form.value.vendor_id);
         if (p === 'normal' && vendor?.credit_days) {
             return { value: p, title: `Normal (${vendor.credit_days} days)` };
         }
@@ -76,7 +76,7 @@ const priorityItems = computed(() =>
 const PRIORITY_LABELS = { normal: 'Normal', high: 'High (2 days)', urgent: 'Urgent (24hrs)' };
 
 const selectedVendor = computed(() =>
-    (meta.vendors ?? []).find((v) => v.name === form.value.vendor_name)
+    (meta.vendors ?? []).find((v) => v.id === form.value.vendor_id)
 );
 
 function calcDueDate(invoiceDate, creditDays) {
@@ -132,6 +132,10 @@ onMounted(async () => {
             Object.keys(form.value).forEach((key) => {
                 if (data[key] !== undefined && data[key] !== null) form.value[key] = data[key];
             });
+            if (!form.value.vendor_id) {
+                const matchingVendors = (meta.vendors ?? []).filter((vendor) => vendor.name === data.vendor_name);
+                if (matchingVendors.length === 1) form.value.vendor_id = matchingVendors[0].id;
+            }
             if (data.items?.length) {
                 items.value = data.items.map((i) => ({
                     job_no: i.job_no ?? '',
@@ -210,7 +214,7 @@ async function save() {
                     <v-row dense>
                         <v-col cols="12" md="3">
                             <v-autocomplete
-                                v-model="form.vendor_name"
+                                v-model="form.vendor_id"
                                 :items="vendorItems"
                                 label="Vendor name *"
                                 autocomplete="off"

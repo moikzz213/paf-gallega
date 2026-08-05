@@ -134,7 +134,7 @@ const auditIcons = {
                     <StatusChip v-if="invoice.payment_status !== 'not_initiated'" :status="invoice.payment_status" size="small" />
                 </h1>
                 <div class="text-body-2 text-medium-emphasis">
-                    {{ invoice.vendor_name }} · Invoice {{ invoice.invoice_no }} · Submitted by {{ invoice.submitter?.name }}
+                    {{ invoice.vendor_name }}{{ invoice.vendor?.vendor_code ? ` (${invoice.vendor.vendor_code})` : '' }} · Invoice {{ invoice.invoice_no }} · Submitted by {{ invoice.submitter?.name }}
                 </div>
             </div>
             <v-spacer />
@@ -157,7 +157,7 @@ const auditIcons = {
                     <v-card-text>
                         <v-row dense>
                             <v-col v-for="field in [
-                                ['Vendor', invoice.vendor_name],
+                                ['Vendor', invoice.vendor_name + (invoice.vendor?.vendor_code ? ` (${invoice.vendor.vendor_code})` : '')],
                                 ['Invoice #', invoice.invoice_no],
                                 ['Invoice date', shortDate(invoice.invoice_date)],
                                 ['Due date', shortDate(invoice.due_date)],

@@ -1,1 +1,0 @@
-import{p as e}from"./main-C61nynZg.js";var t=e(`notify`,{state:()=>({show:!1,text:``,color:`success`}),actions:{success(e){this.text=e,this.color=`success`,this.show=!0},error(e){this.text=e,this.color=`error`,this.show=!0}}});export{t};
