@@ -5,6 +5,16 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-08-05] Same-named vendors were selected together on invoice entry
+- **Symptom:** Selecting either of two vendors named `Al Noor Logistics` highlighted both entries
+  despite their different vendor codes; credit days and PDF supplier codes could also resolve to
+  the wrong master record.
+- **Cause:** The invoice form and database used `vendor_name` as the vendor identity.
+- **Fix:** Invoices now link to vendors by `vendor_id`, retain `vendor_name` as a snapshot, and the
+  form uses vendor IDs as autocomplete values. Unique legacy names are backfilled automatically.
+- **Verified:** Added a feature test submitting an invoice against the second of two same-named
+  vendors and asserting the saved relationship and returned vendor code.
+
 ## [2026-08-04] Code-uniqueness migration failed after manual index removal
 - **Symptom:** Production migration failed with MySQL error 1091 while dropping
   `vendors_name_unique` after that index had already been removed manually.

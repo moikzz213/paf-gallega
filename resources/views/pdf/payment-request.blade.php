@@ -225,7 +225,7 @@
                         <tr>
                             <td class="center">{{ $sr }}</td>
                             <td>{{ $invoice->vendor_name }}</td>
-                            <td class="center">{{ ($supplierCodes[$invoice->vendor_name] ?? null) ?: '-' }}</td>
+                            <td class="center">{{ $invoice->vendor?->vendor_code ?: (($supplierCodes[$invoice->vendor_name] ?? null) ?: '-') }}</td>
                             <td class="center">{{ $invoice->invoice_no }}</td>
                             <td>{{ $item->description ?: ($invoice->description ?: '-') }}</td>
                             <td class="center">{{ $item->job_no ?: '-' }}</td>
@@ -239,7 +239,7 @@
                         <tr>
                             <td class="center">{{ $sr }}</td>
                             <td>{{ $invoice->vendor_name }}</td>
-                            <td class="center">{{ ($supplierCodes[$invoice->vendor_name] ?? null) ?: '-' }}</td>
+                            <td class="center">{{ $invoice->vendor?->vendor_code ?: (($supplierCodes[$invoice->vendor_name] ?? null) ?: '-') }}</td>
                             <td class="center">{{ $invoice->invoice_no }}</td>
                             <td>{{ $invoice->description ?: '-' }}</td>
                             <td class="center">-</td>

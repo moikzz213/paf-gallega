@@ -40,7 +40,7 @@
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | GET | `/api/invoices` | scoped `visibleTo` | filters `mine, status[], payment_status[], department, priority[], date_from/to, q`; `sort∈{submitted_at,invoice_date,due_date,total_amount,status,priority}`; paginated 15 |
-| POST | `/api/invoices` | any auth | multipart: vendor_name, invoice_no, invoice_date, due_date?, currency, business_unit, department, location, payment_method, priority, description?, `items[]` (job_no?, customer_id?, description?, currency, amount, tax_amount?), documents? → status `submitted`; **201** with items + documents |
+| POST | `/api/invoices` | any auth | multipart: `vendor_id`, invoice_no, invoice_date, due_date?, currency, business_unit, department, location, payment_method, priority, description?, `items[]` (job_no?, customer_id?, description?, currency, amount, tax_amount?), documents? → status `submitted`; the server snapshots the selected vendor name; **201** with vendor, items + documents |
 | GET | `/api/invoices/{invoice}` | canViewAll / owner / assigned approver (via PRF) | loads submitter, poster, items.customer, documents, `paymentRequest.approvals.approver`, auditLogs |
 | POST | `/api/invoices/{invoice}` | owner or admin; must be editable | update (multipart, same fields as create); a queried invoice returns to `submitted` |
 | DELETE | `/api/invoices/{invoice}` | owner or admin; payment `not_initiated` | `{ message }` |
@@ -48,8 +48,9 @@
 | POST | `/api/invoices/{invoice}/post` | `role:finance,admin`; status submitted/query | `erp_doc_no` req, `posting_date` nullable → `posted` |
 | POST | `/api/invoices/{invoice}/query` | `role:finance,admin`; status submitted/posted | `finance_remarks` req → `query_raised`; **emails the invoice submitter** (`InvoiceQueryRaised`) |
 
-**Create/update validation:** vendor_name req; vendor_email nullable email; vendor_trn ≤50;
-invoice_no req ≤100; invoice_date req; due_date `after_or_equal:invoice_date`; currency in list;
+**Create/update validation:** `vendor_id` must reference an active vendor; the server derives
+`vendor_name` from that record so same-named vendors remain distinct. invoice_no req ≤100;
+invoice_date req; due_date `after_or_equal:invoice_date`; currency in list;
 amount 0.01–1e12; tax_amount ≥0; business_unit/department/location/payment_method/priority in config (Rule::in);
 description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 

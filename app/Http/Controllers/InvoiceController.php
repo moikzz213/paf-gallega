@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\InvoiceQueryRaised;
 use App\Models\Department;
 use App\Models\Invoice;
+use App\Models\Vendor;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -20,7 +21,7 @@ class InvoiceController extends Controller
 
         $query = Invoice::query()
             ->visibleTo($user)
-            ->with(['submitter:id,name,department', 'poster:id,name', 'paymentRequest:id,reference_no,status']);
+            ->with(['vendor:id,name,vendor_code', 'submitter:id,name,department', 'poster:id,name', 'paymentRequest:id,reference_no,status']);
 
         if ($request->boolean('mine')) {
             $query->where('submitted_by', $user->id);
@@ -99,7 +100,7 @@ class InvoiceController extends Controller
             return $invoice;
         });
 
-        return response()->json($invoice->load('items.customer', 'documents'), 201);
+        return response()->json($invoice->load('vendor:id,name,vendor_code,credit_days', 'items.customer', 'documents'), 201);
     }
 
     public function show(Request $request, Invoice $invoice)
@@ -110,6 +111,7 @@ class InvoiceController extends Controller
             $invoice->load([
                 'submitter:id,name,email,department',
                 'poster:id,name',
+                'vendor:id,name,vendor_code,credit_days',
                 'items.customer:id,name,customer_code',
                 'documents.uploader:id,name',
                 'paymentRequest.approvals.approver:id,name',
@@ -152,7 +154,7 @@ class InvoiceController extends Controller
 
         AuditLogger::log('updated', "Invoice {$invoice->reference_no} updated", $invoice, $old, $data);
 
-        return response()->json($invoice->refresh()->load('items.customer', 'documents'));
+        return response()->json($invoice->refresh()->load('vendor:id,name,vendor_code,credit_days', 'items.customer', 'documents'));
     }
 
     /** Finance posts the invoice in the ERP. */
@@ -245,7 +247,7 @@ class InvoiceController extends Controller
     private function validated(Request $request): array
     {
         $data = $request->validate([
-            'vendor_name' => ['required', 'string', 'max:255', Rule::exists('vendors', 'name')->where('is_active', true)],
+            'vendor_id' => ['required', 'integer', Rule::exists('vendors', 'id')->where('is_active', true)],
             'invoice_no' => ['required', 'string', 'max:100'],
             'invoice_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
@@ -261,6 +263,8 @@ class InvoiceController extends Controller
         ]);
 
         unset($data['documents']);
+
+        $data['vendor_name'] = Vendor::findOrFail($data['vendor_id'])->name;
 
         return $data;
     }

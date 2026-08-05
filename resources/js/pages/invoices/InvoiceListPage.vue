@@ -194,7 +194,7 @@ async function confirmDialog() {
                 </template>
                 <template #item.vendor_name="{ item }">
                     <router-link :to="`/invoices/${item.id}`" class="text-primary text-decoration-none font-weight-medium">
-                        {{ item.vendor_name }}
+                        {{ item.vendor_name }}{{ item.vendor?.vendor_code ? ` (${item.vendor.vendor_code})` : '' }}
                     </router-link>
                     <div class="text-caption text-medium-emphasis">{{ item.invoice_no }} · {{ item.reference_no }}</div>
                 </template>

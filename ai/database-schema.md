@@ -29,6 +29,8 @@ invoice_documents  ──< invoices
 
 - An **invoice** is submitted by a user, optionally posted by a user, and may belong to one
   **payment_request** (its current cycle).
+- New invoices link to a **vendor** by `vendor_id` while retaining `vendor_name` as a historical
+  snapshot. Legacy invoices remain nullable when a duplicated name prevents safe backfilling.
 - A **payment_request** groups many invoices (`invoices.payment_request_id`) and has an ordered
   set of **payment_request_approvals** (the chain).
 - **approval_levels** is configuration; it seeds a PRF's chain but is not FK-linked to it.
@@ -85,7 +87,8 @@ Identical schema: `id`, `name` (unique), `is_active` (boolean), timestamps.
 
 Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `INV-{year}-00001`;
 `PAF-{year}-` before Aug 2026),
-`vendor_name` (idx), `invoice_no`, `invoice_date`, `due_date`, `currency`, `amount`
+`vendor_name` (idx, historical snapshot), `vendor_id` (nullable FK vendors, nullOnDelete),
+`invoice_no`, `invoice_date`, `due_date`, `currency`, `amount`
 (sum of items), `tax_amount` (sum of items), `total_amount` (sum of items),
 `business_unit`, `department` (idx), `location`, `payment_method`, `priority`, `description`.
 

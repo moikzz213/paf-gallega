@@ -40,7 +40,7 @@ class Invoice extends Model
     ];
 
     protected $fillable = [
-        'reference_no', 'vendor_name',
+        'reference_no', 'vendor_name', 'vendor_id',
         'invoice_no', 'invoice_date', 'due_date', 'currency',
         'amount', 'tax_amount', 'total_amount',
         'business_unit', 'department', 'location', 'payment_method',
@@ -66,6 +66,11 @@ class Invoice extends Model
     public function submitter()
     {
         return $this->belongsTo(User::class, 'submitted_by');
+    }
+
+    public function vendor()
+    {
+        return $this->belongsTo(Vendor::class);
     }
 
     public function poster()

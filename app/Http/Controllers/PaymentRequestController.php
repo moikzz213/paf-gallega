@@ -176,13 +176,16 @@ class PaymentRequestController extends Controller
         $paymentRequest->load([
             'creator:id,name', 'payer:id,name',
             'invoices.submitter:id,name', 'invoices.poster:id,name', 'invoices.documents',
+            'invoices.vendor:id,name,vendor_code',
             'invoices.items',
             'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
         ]);
 
         // Supplier code comes from the vendor master, keyed by the invoice's vendor name.
         $supplierCodes = Vendor::whereIn('name', $paymentRequest->invoices->pluck('vendor_name')->filter()->unique())
-            ->pluck('vendor_code', 'name');
+            ->get(['name', 'vendor_code'])
+            ->groupBy('name')
+            ->map(fn ($vendors) => $vendors->count() === 1 ? $vendors->first()->vendor_code : null);
 
         // Every active approval level, so the PDF can show reached (required) and
         // not-reached (still displayed) approvers regardless of this PRF's amount.
