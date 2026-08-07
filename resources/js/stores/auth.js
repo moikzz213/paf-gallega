@@ -13,6 +13,9 @@ export const useAuthStore = defineStore('auth', {
         isFinance: (state) => state.user?.role === 'finance',
         canApprove: (state) => ['admin', 'approver'].includes(state.user?.role),
         canProcessPayments: (state) => ['admin', 'finance'].includes(state.user?.role),
+        // Finance maintains vendors, customers, business units, departments and locations
+        // day to day, so master data is not gated on the admin role.
+        canManageMasterData: (state) => ['admin', 'finance'].includes(state.user?.role),
     },
 
     actions: {

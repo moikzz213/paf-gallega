@@ -28,8 +28,12 @@ const navItems = computed(() => {
             { title: 'Audit Trail', icon: 'mdi-history', to: '/audit-log' },
             { title: 'Users', icon: 'mdi-account-group-outline', to: '/admin/users' },
             { title: 'Approval Levels', icon: 'mdi-format-list-numbered', to: '/admin/approval-levels' },
-            { title: 'Master Data', icon: 'mdi-database-outline', to: '/admin/master-data' },
         );
+    }
+
+    // Listed after the admin group so an admin's menu order is unchanged.
+    if (auth.canManageMasterData) {
+        items.push({ title: 'Master Data', icon: 'mdi-database-outline', to: '/admin/master-data' });
     }
 
     return items;
