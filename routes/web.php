@@ -74,6 +74,17 @@ Route::prefix('api')->group(function () {
         Route::get('/reports', [ReportController::class, 'index']);
         Route::get('/reports/export', [ReportController::class, 'export']);
 
+        // Master data (vendors, customers, business units, departments, locations). Finance owns
+        // this reference data day to day, so they get the same full access as admins.
+        Route::middleware('role:finance,admin')->group(function () {
+            Route::get('/master-data/{entity}', [MasterDataController::class, 'index']);
+            Route::get('/master-data/{entity}/template', [MasterDataController::class, 'template']);
+            Route::post('/master-data/{entity}/import', [MasterDataController::class, 'import']);
+            Route::post('/master-data/{entity}', [MasterDataController::class, 'store']);
+            Route::put('/master-data/{entity}/{id}', [MasterDataController::class, 'update']);
+            Route::delete('/master-data/{entity}/{id}', [MasterDataController::class, 'destroy']);
+        });
+
         // administration
         Route::middleware('role:admin')->group(function () {
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
@@ -87,13 +98,6 @@ Route::prefix('api')->group(function () {
             Route::post('/approval-levels', [ApprovalLevelController::class, 'store']);
             Route::put('/approval-levels/{approvalLevel}', [ApprovalLevelController::class, 'update']);
             Route::delete('/approval-levels/{approvalLevel}', [ApprovalLevelController::class, 'destroy']);
-
-            Route::get('/master-data/{entity}', [MasterDataController::class, 'index']);
-            Route::get('/master-data/{entity}/template', [MasterDataController::class, 'template']);
-            Route::post('/master-data/{entity}/import', [MasterDataController::class, 'import']);
-            Route::post('/master-data/{entity}', [MasterDataController::class, 'store']);
-            Route::put('/master-data/{entity}/{id}', [MasterDataController::class, 'update']);
-            Route::delete('/master-data/{entity}/{id}', [MasterDataController::class, 'destroy']);
         });
     });
 });
