@@ -2,7 +2,6 @@
 
 namespace App\Http\Controllers;
 
-use App\Mail\PaymentRequestSubmitted;
 use App\Models\Invoice;
 use App\Models\InvoiceDocument;
 use App\Models\PaymentRequest;
@@ -11,7 +10,6 @@ use App\Services\AuditLogger;
 use App\Services\PaymentRequestService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 
 class PublicPaymentRequestController extends Controller
@@ -48,8 +46,9 @@ class PublicPaymentRequestController extends Controller
         }
 
         $finalized = false;
+        $next = null;
 
-        DB::transaction(function () use ($pr, $approval, $approver, &$finalized) {
+        DB::transaction(function () use ($pr, $approval, $approver, &$finalized, &$next) {
             $approval->update([
                 'status' => PaymentRequestApproval::STATUS_APPROVED,
                 'acted_at' => now(),
@@ -63,12 +62,6 @@ class PublicPaymentRequestController extends Controller
             if ($next) {
                 $pr->update(['current_stage' => $next->sequence]);
                 AuditLogger::log('approved', "Stage {$approval->sequence} approved on {$pr->reference_no} via public link by {$approver->name}; moved to {$next->label}", null, null, null, $pr);
-
-                // Email the next approver with their token
-                $nextApprover = $next->approver;
-                if ($nextApprover && $nextApprover->email) {
-                    Mail::to($nextApprover->email)->send(new PaymentRequestSubmitted($pr));
-                }
             } else {
                 $pr->update([
                     'status' => PaymentRequest::STATUS_APPROVED,
@@ -83,8 +76,12 @@ class PublicPaymentRequestController extends Controller
 
         $pr->refresh();
 
+        // Both notifications go through PaymentRequestService so this path and the in-app one
+        // cannot drift again, and both send after the commit rather than inside it.
         if ($finalized) {
             $this->service->notifyApproved($pr);
+        } else {
+            $this->service->notifyNextApprover($pr, $next);
         }
 
         return redirect()->route('payment-request.public', ['id' => $pr->id, 'token' => $token])

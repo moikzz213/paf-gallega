@@ -90,8 +90,9 @@ class PaymentRequestService
         $this->assertActionable($pr, $actor);
 
         $finalized = false;
+        $next = null;
 
-        $pr = DB::transaction(function () use ($pr, $actor, $comments, &$finalized) {
+        $pr = DB::transaction(function () use ($pr, $actor, $comments, &$finalized, &$next) {
             $pr->approvals()->where('sequence', $pr->current_stage)->update([
                 'status' => PaymentRequestApproval::STATUS_APPROVED,
                 'approver_id' => $actor->id,
@@ -121,11 +122,28 @@ class PaymentRequestService
             return $pr->refresh();
         });
 
+        // Sent after the transaction commits, so a mail failure cannot roll back a recorded
+        // approval and no mail goes out for a state change that did not persist.
         if ($finalized) {
             $this->notifyApproved($pr);
+        } else {
+            $this->notifyNextApprover($pr, $next);
         }
 
         return $pr;
+    }
+
+    /**
+     * Tell the approver who now owns the request that it is waiting on them. Without this, a chain
+     * advanced silently and later approvers only learned of it by opening the app.
+     */
+    public function notifyNextApprover(PaymentRequest $pr, ?PaymentRequestApproval $next): void
+    {
+        $approver = $next?->approver;
+
+        if ($approver && $approver->email) {
+            Mail::to($approver->email)->send(new PaymentRequestSubmitted($pr));
+        }
     }
 
     /**
