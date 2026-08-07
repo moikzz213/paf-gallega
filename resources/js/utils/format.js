@@ -50,6 +50,17 @@ export function statusLabel(status) {
     return STATUS_META[status]?.label ?? status;
 }
 
+/** Display name for a user's role. Approvers carry their level, which is meaningless without it. */
+export function roleLabel(user) {
+    const labels = {
+        admin: 'Administrator',
+        requester: 'Requester',
+        approver: `Approver — L${user?.approval_level ?? ''}`,
+        finance: 'Finance',
+    };
+    return labels[user?.role] ?? user?.role ?? '—';
+}
+
 export const PRIORITY_META = {
     urgent: { label: 'Urgent (24hrs)', color: '#d03b3b' },
     high: { label: 'High (2 days)', color: '#ec835a' },

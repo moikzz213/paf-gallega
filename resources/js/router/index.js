@@ -37,6 +37,7 @@ const routes = [
             { path: 'payment-requests', name: 'payment-requests', component: () => import('../pages/PaymentRequestsPage.vue') },
             { path: 'payment-requests/:id', name: 'payment-request-detail', component: () => import('../pages/PaymentRequestDetailPage.vue'), props: true },
             { path: 'reports', name: 'reports', component: () => import('../pages/ReportsPage.vue') },
+            { path: 'profile', name: 'profile', component: () => import('../pages/ProfilePage.vue') },
             { path: 'audit-log', name: 'audit-log', component: () => import('../pages/AuditLogPage.vue'), meta: { roles: ['admin'] } },
             { path: 'admin/users', name: 'users', component: () => import('../pages/admin/UsersPage.vue'), meta: { roles: ['admin'] } },
             { path: 'admin/approval-levels', name: 'approval-levels', component: () => import('../pages/admin/ApprovalLevelsPage.vue'), meta: { roles: ['admin'] } },

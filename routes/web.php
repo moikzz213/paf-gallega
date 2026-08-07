@@ -9,6 +9,7 @@ use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MasterDataController;
 use App\Http\Controllers\MetaController;
 use App\Http\Controllers\PasswordResetController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PaymentRequestController;
 use App\Http\Controllers\PublicPaymentRequestController;
 use App\Http\Controllers\ReportController;
@@ -31,6 +32,10 @@ Route::prefix('api')->group(function () {
     Route::middleware('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
+
+        // Own-profile password change. Throttled because current_password is a guessable secret.
+        Route::put('/profile/password', [ProfileController::class, 'updatePassword'])
+            ->middleware('throttle:6,1');
         Route::get('/meta', [MetaController::class, 'index']);
         Route::get('/approvers', [MetaController::class, 'approvers']);
         Route::get('/vendors', [MetaController::class, 'vendors']);
