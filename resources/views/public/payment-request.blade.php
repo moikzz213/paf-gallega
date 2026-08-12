@@ -123,7 +123,7 @@
         <div class="card">
             <div class="card-header">Details</div>
             <div class="card-body">
-                <div class="amount">AED {{ number_format($paymentRequest->total_amount, 2) }}</div>
+                <div class="amount">{{ $paymentRequest->currency }} {{ number_format($paymentRequest->total_amount, 2) }}</div>
                 <div style="margin-top: 16px;">
                     <div class="grid">
                         <div class="field">

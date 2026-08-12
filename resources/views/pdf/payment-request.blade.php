@@ -72,7 +72,7 @@
         $invoices = $paymentRequest->invoices;
         $approvals = $paymentRequest->approvals;
         $currencies = $invoices->pluck('currency')->filter()->unique()->values();
-        $displayCurrency = $currencies->count() === 1 ? $currencies->first() : 'MULTI-CURRENCY';
+        $displayCurrency = $paymentRequest->currency;
         $departments = $invoices->pluck('department')->filter()->unique()->implode(', ');
         $requesters = $invoices->pluck('submitter.name')->filter()->unique()->implode(', ');
         $paymentMethods = $invoices->pluck('payment_method')->filter()->unique()->map(

@@ -104,6 +104,16 @@ function itemTotal(item) {
     return (Number(item.amount) || 0) + (Number(item.tax_amount) || 0);
 }
 
+/**
+ * The invoice header totals are sums of the lines, so an invoice carries a single currency.
+ * Picking one on any line sets it for the whole invoice — that is what gets saved and shown.
+ */
+function onItemCurrencyChange(currency) {
+    if (!currency) return;
+    form.value.currency = currency;
+    items.value.forEach((item) => { item.currency = currency; });
+}
+
 const grandTotal = computed(() => items.value.reduce((s, i) => s + itemTotal(i), 0));
 const grandAmount = computed(() => items.value.reduce((s, i) => s + (Number(i.amount) || 0), 0));
 const grandTax = computed(() => items.value.reduce((s, i) => s + (Number(i.tax_amount) || 0), 0));
@@ -141,10 +151,12 @@ onMounted(async () => {
                     job_no: i.job_no ?? '',
                     customer_id: i.customer_id ?? null,
                     description: i.description ?? '',
-                    currency: i.currency ?? 'AED',
+                    currency: i.currency ?? data.currency ?? 'AED',
                     amount: i.amount,
                     tax_amount: i.tax_amount ?? 0,
                 }));
+                // The lines hold the real currency; older invoices were saved with an AED header.
+                onItemCurrencyChange(items.value[0].currency);
             }
             existingDocuments.value = data.documents ?? [];
         } finally {
@@ -269,7 +281,15 @@ async function save() {
                                 />
                             </v-col> 
                             <v-col cols="6" sm="3" md="2">
-                                <v-select v-model="item.currency" :items="meta.currencies" label="Currency *" hide-details density="compact" :rules="[rules.required]" />
+                                <v-select
+                                    v-model="item.currency"
+                                    :items="meta.currencies"
+                                    label="Currency *"
+                                    hide-details
+                                    density="compact"
+                                    :rules="[rules.required]"
+                                    @update:model-value="onItemCurrencyChange"
+                                />
                             </v-col>
                             <v-col cols="6" sm="3" md="2">
                                 <v-text-field v-model="item.amount" label="Amount *" type="number" min="0" step="0.01" hide-details density="compact" :rules="[rules.required, rules.positive]" />
@@ -289,7 +309,7 @@ async function save() {
                     <v-row v-if="items.length > 1" class="mt-2">
                         <v-col cols="12">
                             <div class="d-flex justify-end align-center ga-4">
-                                <div class="text-body-2 text-medium-emphasis">Total: <strong>{{ money(grandTotal) }}</strong></div>
+                                <div class="text-body-2 text-medium-emphasis">Total: <strong>{{ money(grandTotal, form.currency) }}</strong></div>
                             </div>
                         </v-col>
                     </v-row>

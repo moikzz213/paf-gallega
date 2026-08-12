@@ -35,6 +35,15 @@ class PaymentRequestService
             ]);
         }
 
+        // total_amount is a plain sum of the invoices, and the approval thresholds are compared
+        // against it — both are nonsense if the request mixes currencies.
+        $currencies = $invoices->pluck('currency')->filter()->unique();
+        if ($currencies->count() > 1) {
+            throw ValidationException::withMessages([
+                'invoices' => 'All invoices in a payment request must share one currency (selected: '.$currencies->implode(', ').').',
+            ]);
+        }
+
         $stages = array_values(array_filter($stages, fn ($s) => ! empty($s['approver_id'])));
         if (empty($stages)) {
             throw ValidationException::withMessages(['approvers' => 'Add at least one approver to the chain.']);

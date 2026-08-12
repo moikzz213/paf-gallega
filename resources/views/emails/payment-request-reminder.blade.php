@@ -35,7 +35,7 @@
             </div>
             <div class="detail-row">
                 <span class="label">Total Amount:</span>
-                <span class="amount">{{ number_format($paymentRequest->total_amount, 2) }}</span>
+                <span class="amount">{{ $paymentRequest->currency }} {{ number_format($paymentRequest->total_amount, 2) }}</span>
             </div>
             <div class="detail-row">
                 <span class="label">Submitted by:</span> {{ $paymentRequest->creator?->name }}

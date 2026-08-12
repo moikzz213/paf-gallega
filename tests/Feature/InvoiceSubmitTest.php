@@ -77,6 +77,51 @@ class InvoiceSubmitTest extends TestCase
         ])->assertStatus(422)->assertJsonValidationErrors('items');
     }
 
+    public function test_invoice_currency_comes_from_the_line_items(): void
+    {
+        $vendor = $this->seedMasterData();
+
+        $res = $this->actingAs($this->requester('eur@t.local'))->postJson('/api/invoices', [
+            'vendor_id' => $vendor->id,
+            'invoice_no' => 'EUR-1',
+            'invoice_date' => now()->toDateString(),
+            'currency' => 'AED', // the form's stale default — the lines are what count
+            'business_unit' => 'GGH',
+            'department' => 'Custom clearance',
+            'location' => 'Dubai',
+            'payment_method' => 'bank_transfer',
+            'priority' => 'normal',
+            'items' => [
+                ['currency' => 'EUR', 'amount' => 500, 'tax_amount' => 25],
+            ],
+        ])->assertCreated();
+
+        $res->assertJsonPath('currency', 'EUR');
+        $this->assertSame('EUR', Invoice::find($res->json('id'))->currency);
+    }
+
+    public function test_line_items_in_different_currencies_are_rejected(): void
+    {
+        $vendor = $this->seedMasterData();
+
+        $this->actingAs($this->requester('mixed@t.local'))->postJson('/api/invoices', [
+            'vendor_id' => $vendor->id,
+            'invoice_no' => 'MIX-1',
+            'invoice_date' => now()->toDateString(),
+            'business_unit' => 'GGH',
+            'department' => 'Custom clearance',
+            'location' => 'Dubai',
+            'payment_method' => 'bank_transfer',
+            'priority' => 'normal',
+            'items' => [
+                ['currency' => 'EUR', 'amount' => 500, 'tax_amount' => 0],
+                ['currency' => 'AED', 'amount' => 300, 'tax_amount' => 0],
+            ],
+        ])->assertStatus(422)->assertJsonValidationErrors('items');
+
+        $this->assertSame(0, Invoice::count());
+    }
+
     public function test_same_named_vendors_remain_distinct_by_vendor_id(): void
     {
         $this->seedMasterData();

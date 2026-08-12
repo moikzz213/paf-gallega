@@ -5,6 +5,7 @@ import { useMetaStore } from '../stores/meta';
 
 const props = defineProps({
     total: { type: Number, default: 0 },
+    currency: { type: String, default: undefined },
     disabled: { type: Boolean, default: false },
 });
 
@@ -22,14 +23,32 @@ const requiredLevels = computed(() =>
 const assignments = ref({}); // { [level]: approverId }
 const adhoc = ref([]); // [{ approver_id, label }]
 
-const approverItems = computed(() =>
-    (meta.approvers ?? []).map((a) => ({
+function approverOption(a) {
+    return {
         value: a.id,
         title: a.name,
         subtitle:
             (a.role === 'admin' ? 'Admin' : `Approver · L${a.approval_level ?? '—'}`) +
             (a.department ? ` · ${a.department}` : ''),
-    }))
+    };
+}
+
+const approverItems = computed(() => (meta.approvers ?? []).map(approverOption));
+
+// Each level only offers users configured for that level. The level's own default approver is
+// always kept in the list so a pre-filled value can never point at an option that isn't there.
+const itemsByLevel = computed(() => {
+    const map = {};
+    requiredLevels.value.forEach((l) => {
+        map[l.level] = (meta.approvers ?? [])
+            .filter((a) => Number(a.approval_level) === Number(l.level) || a.id === l.default_approver_id)
+            .map(approverOption);
+    });
+    return map;
+});
+
+const levelsWithoutApprovers = computed(() =>
+    requiredLevels.value.filter((l) => !(itemsByLevel.value[l.level] ?? []).length)
 );
 
 // Render each option with its subtitle (avoids fragile item.raw access in a custom slot).
@@ -40,12 +59,15 @@ function approverItemProps(item) {
 const allAssigned = computed(() => requiredLevels.value.every((l) => !!assignments.value[l.level]));
 
 // Pre-fill each required level with its default approver (without clobbering user choices).
+// Also keyed on itemsByLevel so the pre-fill re-runs once the approver list finishes loading.
 watch(
-    requiredLevels,
-    (levels) => {
+    [requiredLevels, itemsByLevel],
+    ([levels]) => {
         const next = {};
         levels.forEach((l) => {
-            next[l.level] = assignments.value[l.level] ?? l.default_approver_id ?? null;
+            const chosen = assignments.value[l.level] ?? l.default_approver_id ?? null;
+            const eligible = (itemsByLevel.value[l.level] ?? []).some((i) => i.value === chosen);
+            next[l.level] = eligible ? chosen : null;
         });
         assignments.value = next;
     },
@@ -88,8 +110,18 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
         <template v-else>
             <div class="text-caption text-medium-emphasis mb-3">
                 This request will route through {{ requiredLevels.length }} level(s)
-                (total {{ money(total) }}). Approvers are pre-filled from each level's default — change them as needed.
+                (total {{ money(total, currency) }}). Each level only lists users assigned to that level;
+                approvers are pre-filled from the level's default — change them as needed.
             </div>
+
+            <v-alert
+                v-if="levelsWithoutApprovers.length"
+                type="warning"
+                variant="tonal"
+                density="compact"
+                class="mb-3"
+                :text="`No active user is assigned to level(s) ${levelsWithoutApprovers.map((l) => l.level).join(', ')}. Ask an administrator to set the approval level on those users.`"
+            />
 
             <div v-for="lvl in requiredLevels" :key="lvl.id ?? lvl.level" class="d-flex align-center ga-3 mb-2">
                 <v-chip size="small" color="primary" variant="tonal" class="flex-shrink-0" style="min-width: 44px; justify-content: center">
@@ -98,11 +130,12 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
                 <div class="text-body-2 font-weight-medium flex-shrink-0" style="width: 150px">{{ lvl.name }}</div>
                 <v-select
                     v-model="assignments[lvl.level]"
-                    :items="approverItems"
+                    :items="itemsByLevel[lvl.level] ?? []"
                     item-title="title"
                     item-value="value"
                     :item-props="approverItemProps"
                     label="Approver"
+                    :no-data-text="`No user is assigned to level ${lvl.level}`"
                     density="compact"
                     hide-details
                     clearable

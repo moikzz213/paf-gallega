@@ -54,6 +54,22 @@ class PaymentRequest extends Model
         ];
     }
 
+    /**
+     * A request stores no currency of its own — it carries the one its invoices are in.
+     * Creation refuses to mix currencies, so this is a single code for anything created since;
+     * older mixed requests are labelled rather than mislabelled with one of their currencies.
+     */
+    public function getCurrencyAttribute(): string
+    {
+        $codes = $this->invoices->pluck('currency')->filter()->unique();
+
+        if ($codes->isEmpty()) {
+            return '';
+        }
+
+        return $codes->count() === 1 ? $codes->first() : 'MULTI-CURRENCY';
+    }
+
     public function creator()
     {
         return $this->belongsTo(User::class, 'created_by');

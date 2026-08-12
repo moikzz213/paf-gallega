@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../services/api';
-import { dateTime, money, shortDate } from '../utils/format';
+import { dateTime, invoicesCurrency, money, shortDate } from '../utils/format';
 import { useAuthStore } from '../stores/auth';
 import { useNotifyStore } from '../stores/notify';
 import StatusChip from '../components/StatusChip.vue';
@@ -34,6 +34,9 @@ async function load() {
 onMounted(load);
 
 const currentStep = computed(() => pr.value?.approvals?.find((s) => s.sequence === pr.value?.current_stage));
+
+// The request itself stores no currency — it takes it from the invoices it groups.
+const currency = computed(() => invoicesCurrency(pr.value?.invoices));
 
 const canAct = computed(() => {
     if (pr.value?.status !== 'in_approval') return false;
@@ -120,7 +123,7 @@ function approvalColor(status) {
                     <StatusChip :status="pr.status" size="default" />
                 </h1>
                 <div class="text-body-2 text-medium-emphasis">
-                    {{ pr.invoices?.length }} invoice(s) · <strong>{{ money(pr.total_amount) }}</strong> · created by {{ pr.creator?.name }}
+                    {{ pr.invoices?.length }} invoice(s) · <strong>{{ money(pr.total_amount, currency) }}</strong> · created by {{ pr.creator?.name }}
                 </div>
             </div>
             <v-spacer />
@@ -173,7 +176,7 @@ function approvalColor(status) {
                     <v-divider />
                     <div class="d-flex justify-space-between pa-4">
                         <span class="font-weight-medium">Total payment amount</span>
-                        <span class="font-weight-bold">{{ money(pr.total_amount) }}</span>
+                        <span class="font-weight-bold">{{ money(pr.total_amount, currency) }}</span>
                     </div>
                 </v-card>
 

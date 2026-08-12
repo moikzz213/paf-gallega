@@ -31,7 +31,7 @@
             <div class="detail-row"><span class="label">Reference:</span> {{ $paymentRequest->reference_no }}</div>
             <div class="detail-row">
                 <span class="label">Total Amount:</span>
-                <span class="amount">{{ number_format($paymentRequest->total_amount, 2) }}</span>
+                <span class="amount">{{ $paymentRequest->currency }} {{ number_format($paymentRequest->total_amount, 2) }}</span>
             </div>
             <div class="detail-row">
                 <span class="label">Approved on:</span>
@@ -49,7 +49,7 @@
                     <tr>
                         <td>{{ $invoice->reference_no }}</td>
                         <td>{{ $invoice->vendor_name }}</td>
-                        <td>{{ number_format($invoice->total_amount, 2) }}</td>
+                        <td>{{ $invoice->currency }} {{ number_format($invoice->total_amount, 2) }}</td>
                     </tr>
                     @endforeach
                 </tbody>

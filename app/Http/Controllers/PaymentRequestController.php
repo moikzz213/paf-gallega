@@ -12,6 +12,7 @@ use App\Services\PdfMergeService;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class PaymentRequestController extends Controller
 {
@@ -56,7 +57,7 @@ class PaymentRequestController extends Controller
     {
         $query = PaymentRequest::query()
             ->visibleTo($request->user())
-            ->with(['creator:id,name', 'invoices:id,payment_request_id,reference_no,vendor_name,total_amount', 'approvals.approver:id,name']);
+            ->with(['creator:id,name', 'invoices:id,payment_request_id,reference_no,vendor_name,total_amount,currency', 'approvals.approver:id,name']);
 
         if ($status = $request->input('status')) {
             $query->whereIn('status', is_array($status) ? $status : explode(',', $status));
@@ -255,6 +256,7 @@ class PaymentRequestController extends Controller
             if (! $approverId) {
                 continue;
             }
+            $this->assertApproverBelongsToLevel($level, (int) $approverId);
             $stages[] = [
                 'approver_id' => (int) $approverId,
                 'label' => $level->name,
@@ -275,6 +277,26 @@ class PaymentRequestController extends Controller
         }
 
         return $stages;
+    }
+
+    /**
+     * A level may only be filled by a user carrying that approval level — the chain builder hides
+     * everyone else, and this keeps a hand-crafted request from routing to the wrong tier. The
+     * level's own default approver stays allowed so an admin's configured default never 422s.
+     */
+    private function assertApproverBelongsToLevel(ApprovalLevel $level, int $approverId): void
+    {
+        if ($approverId === $level->default_approver_id) {
+            return;
+        }
+
+        $belongs = User::whereKey($approverId)->where('approval_level', $level->level)->exists();
+
+        if (! $belongs) {
+            throw ValidationException::withMessages([
+                "approvers.{$level->level}" => "The approver chosen for level {$level->level} ({$level->name}) is not assigned to that approval level.",
+            ]);
+        }
     }
 
     private function validatedChain(Request $request): array

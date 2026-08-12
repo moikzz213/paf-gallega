@@ -1,6 +1,18 @@
 export function money(value, currency = 'AED') {
     const number = Number(value ?? 0);
-    return `${currency} ${number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    return `${currency || 'AED'} ${number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * A payment request has no currency of its own — it carries the currency of the invoices it
+ * groups. Mixed sets are labelled rather than mislabelled with one of the currencies (the PDF
+ * uses the same wording). Returns undefined when nothing is loaded yet, so money() falls back.
+ */
+export function invoicesCurrency(invoices) {
+    const codes = [...new Set((invoices ?? []).map((i) => i?.currency).filter(Boolean))];
+    if (codes.length === 1) return codes[0];
+
+    return codes.length ? 'MULTI-CURRENCY' : undefined;
 }
 
 export function shortDate(value) {
