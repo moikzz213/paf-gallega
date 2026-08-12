@@ -31,12 +31,12 @@ class DynamicApprovalTest extends TestCase
         ApprovalLevel::create(['level' => 2, 'name' => 'Director', 'min_amount' => 10000, 'is_active' => true]);
     }
 
-    private function postedInvoice(User $owner, float $total): Invoice
+    private function postedInvoice(User $owner, float $total, string $currency = 'AED'): Invoice
     {
         return Invoice::create([
             'reference_no' => Invoice::nextReferenceNo(),
             'vendor_name' => 'Vendor', 'invoice_no' => 'INV-'.uniqid(), 'invoice_date' => now()->toDateString(),
-            'currency' => 'AED', 'amount' => $total, 'tax_amount' => 0, 'total_amount' => $total,
+            'currency' => $currency, 'amount' => $total, 'tax_amount' => 0, 'total_amount' => $total,
             'business_unit' => 'GIL', 'department' => 'Warehouse', 'location' => 'Head Office', 'payment_method' => 'bank_transfer',
             'priority' => 'normal', 'status' => Invoice::STATUS_POSTED, 'payment_status' => Invoice::PAY_NOT_INITIATED,
             'submitted_by' => $owner->id, 'submitted_at' => now(),
@@ -141,6 +141,59 @@ class DynamicApprovalTest extends TestCase
         $this->actingAs($finance)->postJson('/api/payment-requests', ['invoice_ids' => [$inv->id]])->assertCreated();
 
         $this->assertSame($a1->id, PaymentRequest::first()->approvals()->first()->approver_id);
+    }
+
+    public function test_approver_from_another_level_is_rejected(): void
+    {
+        $this->levels();
+        $finance = $this->user(User::ROLE_FINANCE);
+        $a2 = $this->user(User::ROLE_APPROVER, ['approval_level' => 2]);
+        $inv = $this->postedInvoice($this->user(User::ROLE_REQUESTER), 20000);
+
+        $this->actingAs($finance)->postJson('/api/payment-requests', [
+            'invoice_ids' => [$inv->id],
+            'approvers' => [1 => $a2->id, 2 => $a2->id], // L2 user cannot fill level 1
+        ])->assertStatus(422)->assertJsonValidationErrors('approvers.1');
+
+        $this->assertSame(0, PaymentRequest::count());
+        $this->assertSame(Invoice::PAY_NOT_INITIATED, $inv->refresh()->payment_status);
+
+        // the level's own default approver stays allowed even without a matching level
+        $admin = $this->user(User::ROLE_ADMIN);
+        ApprovalLevel::where('level', 1)->update(['default_approver_id' => $admin->id]);
+
+        $this->actingAs($finance)->postJson('/api/payment-requests', [
+            'invoice_ids' => [$inv->id],
+            'approvers' => [1 => $admin->id, 2 => $a2->id],
+        ])->assertCreated();
+
+        $this->assertSame([$admin->id, $a2->id], PaymentRequest::first()->approvals->pluck('approver_id')->all());
+    }
+
+    public function test_payment_request_cannot_mix_currencies(): void
+    {
+        $this->levels();
+        $finance = $this->user(User::ROLE_FINANCE);
+        $a1 = $this->user(User::ROLE_APPROVER, ['approval_level' => 1]);
+        $requester = $this->user(User::ROLE_REQUESTER);
+        $aed = $this->postedInvoice($requester, 500);
+        $eur = $this->postedInvoice($requester, 400, 'EUR');
+
+        $this->actingAs($finance)->postJson('/api/payment-requests', [
+            'invoice_ids' => [$aed->id, $eur->id],
+            'approvers' => [1 => $a1->id],
+        ])->assertStatus(422)->assertJsonValidationErrors('invoices');
+
+        $this->assertSame(0, PaymentRequest::count());
+        $this->assertSame(Invoice::PAY_NOT_INITIATED, $eur->refresh()->payment_status);
+
+        // one currency at a time is fine, and the request reports that currency
+        $this->actingAs($finance)->postJson('/api/payment-requests', [
+            'invoice_ids' => [$eur->id],
+            'approvers' => [1 => $a1->id],
+        ])->assertCreated();
+
+        $this->assertSame('EUR', PaymentRequest::first()->currency);
     }
 
     public function test_paid_invoice_cannot_be_reused(): void

@@ -11,6 +11,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class InvoiceController extends Controller
 {
@@ -70,6 +71,7 @@ class InvoiceController extends Controller
     {
         $data = $this->validated($request);
         $itemsData = $this->validatedItems($request);
+        $data['currency'] = $this->currencyOf($itemsData);
 
         $invoice = DB::transaction(function () use ($request, $data, $itemsData) {
             $invoice = Invoice::create([
@@ -134,6 +136,7 @@ class InvoiceController extends Controller
 
         $data = $this->validated($request);
         $itemsData = $this->validatedItems($request);
+        $data['currency'] = $this->currencyOf($itemsData);
         $old = $invoice->only(array_keys($data));
 
         if ($invoice->status === Invoice::STATUS_QUERY) {
@@ -251,7 +254,7 @@ class InvoiceController extends Controller
             'invoice_no' => ['required', 'string', 'max:100'],
             'invoice_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
-            'currency' => ['required', Rule::in(config('paf.currencies'))],
+            'currency' => ['nullable', Rule::in(config('paf.currencies'))], // overwritten from the line items
             'business_unit' => ['required', 'string', Rule::exists('business_units', 'name')->where('is_active', true)],
             'department' => ['required', 'string', Rule::exists('departments', 'name')->where('is_active', true)],
             'location' => ['required', 'string', Rule::exists('locations', 'name')->where('is_active', true)],
@@ -285,8 +288,23 @@ class InvoiceController extends Controller
             $item['tax_amount'] = $item['tax_amount'] ?? 0;
             $item['total_amount'] = round($item['amount'] + $item['tax_amount'], 2);
         }
+        unset($item);
+
+        // The invoice header totals are plain sums of the lines, so a single invoice can only be
+        // in one currency — otherwise the header amount would be a meaningless mixed figure.
+        if (count(array_unique(array_column($items['items'], 'currency'))) > 1) {
+            throw ValidationException::withMessages([
+                'items' => 'All line items on an invoice must use the same currency.',
+            ]);
+        }
 
         return $items['items'];
+    }
+
+    /** The invoice's currency is the one picked on its lines — never whatever the form posted. */
+    private function currencyOf(array $itemsData): string
+    {
+        return $itemsData[0]['currency'];
     }
 
     private function syncItems(Invoice $invoice, array $itemsData): void

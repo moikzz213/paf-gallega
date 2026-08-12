@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../services/api';
-import { money, shortDate } from '../utils/format';
+import { invoicesCurrency, money, shortDate } from '../utils/format';
 import { useAuthStore } from '../stores/auth';
 import { useMetaStore } from '../stores/meta';
 import { useNotifyStore } from '../stores/notify';
@@ -72,6 +72,10 @@ const chain = ref({ assignments: {}, adhoc: [], valid: false });
 const selectedInvoices = computed(() => create.eligible.filter((i) => create.selected.includes(i.id)));
 const selectedTotal = computed(() => selectedInvoices.value.reduce((s, i) => s + Number(i.total_amount), 0));
 
+// One request, one currency — the total is a plain sum and the approval thresholds run off it.
+const selectedCurrency = computed(() => invoicesCurrency(selectedInvoices.value));
+const mixedCurrency = computed(() => selectedCurrency.value === 'MULTI-CURRENCY');
+
 async function loadEligible() {
     create.loadingEligible = true;
     try {
@@ -115,6 +119,7 @@ function onChainChange(payload) {
 
 async function submitCreate() {
     if (!create.selected.length) return notify.error('Select at least one invoice.');
+    if (mixedCurrency.value) return notify.error('All selected invoices must share one currency.');
     if (!chain.value.valid) return notify.error('Assign an approver for every approval stage.');
 
     const approvers = {};
@@ -213,7 +218,9 @@ async function submitCreate() {
                     {{ item.invoices?.length ?? 0 }} invoice(s)
                 </template>
                 <template #item.total_amount="{ item }">
-                    <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">{{ money(item.total_amount) }}</span>
+                    <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">
+                        {{ money(item.total_amount, invoicesCurrency(item.invoices)) }}
+                    </span>
                 </template>
                 <template #item.stage="{ item }">
                     <template v-if="item.status === 'in_approval'">
@@ -303,12 +310,24 @@ async function submitCreate() {
                         <div class="d-flex align-center my-4">
                             <v-chip color="primary" variant="tonal">{{ create.selected.length }} selected</v-chip>
                             <v-spacer />
-                            <div class="text-body-1"><span class="text-medium-emphasis">Total:</span> <strong>{{ money(selectedTotal) }}</strong></div>
+                            <div class="text-body-1">
+                                <span class="text-medium-emphasis">Total:</span>
+                                <strong>{{ money(selectedTotal, selectedCurrency) }}</strong>
+                            </div>
                         </div>
+
+                        <v-alert
+                            v-if="mixedCurrency"
+                            type="warning"
+                            variant="tonal"
+                            density="compact"
+                            class="mb-4"
+                            text="The selected invoices are in different currencies. A payment request covers one currency only — narrow the selection before sending."
+                        />
 
                         <v-divider class="mb-4" />
                         <div class="text-subtitle-2 mb-2">Approval chain</div>
-                        <ApprovalChainBuilder :total="selectedTotal" @change="onChainChange" />
+                        <ApprovalChainBuilder :total="selectedTotal" :currency="selectedCurrency" @change="onChainChange" />
                     </template>
                 </v-card-text>
                 <v-divider />
