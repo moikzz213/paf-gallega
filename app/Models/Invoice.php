@@ -122,6 +122,17 @@ class Invoice extends Model
             && $this->payment_status === self::PAY_NOT_INITIATED;
     }
 
+    /**
+     * Held by a payment request that has not been paid, so Finance/admin may still correct it in
+     * place — within limits that cannot invalidate the approvals it already carries. See
+     * InvoiceController::assertInPlaceCorrection.
+     */
+    public function isCorrectableInPlace(): bool
+    {
+        return in_array($this->payment_status, [self::PAY_IN_APPROVAL, self::PAY_APPROVED], true)
+            && $this->status !== self::STATUS_CANCELLED;
+    }
+
     /** Eligible to be pulled into a new payment request. */
     public function isPayable(): bool
     {

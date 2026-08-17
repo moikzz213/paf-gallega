@@ -11,7 +11,10 @@ export const useAuthStore = defineStore('auth', {
         isAdmin: (state) => state.user?.role === 'admin',
         isApprover: (state) => state.user?.role === 'approver',
         isFinance: (state) => state.user?.role === 'finance',
-        canApprove: (state) => ['admin', 'approver'].includes(state.user?.role),
+        // Mirrors User::canApprove() on the server: approvers and admins always, plus the Finance
+        // users an admin has nominated by giving them an approval level.
+        canApprove: (state) => ['admin', 'approver'].includes(state.user?.role)
+            || (state.user?.role === 'finance' && state.user?.approval_level != null),
         canProcessPayments: (state) => ['admin', 'finance'].includes(state.user?.role),
         // Finance maintains vendors, customers, business units, departments and locations
         // day to day, so master data is not gated on the admin role.

@@ -49,6 +49,15 @@ class PaymentRequestService
             throw ValidationException::withMessages(['approvers' => 'Add at least one approver to the chain.']);
         }
 
+        // Finance raises payment requests and can also be nominated as an approver, so the two roles
+        // can land on the same person. Nobody signs off their own request — every payment keeps a
+        // second pair of eyes.
+        if (in_array($creator->id, array_map(fn ($s) => (int) $s['approver_id'], $stages), true)) {
+            throw ValidationException::withMessages([
+                'approvers' => 'You cannot be an approver on a payment request you are creating — assign someone else to that stage.',
+            ]);
+        }
+
         $pr = DB::transaction(function () use ($invoices, $creator, $stages) {
             $pr = PaymentRequest::create([
                 'reference_no' => PaymentRequest::nextReferenceNo(),
@@ -207,6 +216,123 @@ class PaymentRequestService
         });
     }
 
+    /**
+     * Pull a fully approved request back out of the payment cycle, returning its invoices to the
+     * Invoice Log so they can be corrected and re-approved.
+     *
+     * Rejection is the equivalent exit while a request is still in approval, but it stops being
+     * available the moment the last stage approves — which left an approved-but-unpaid request with
+     * no way back. Withdrawal does not reuse the approvals: the corrected invoices go through a
+     * fresh chain, because a correction that changes the amount (or its currency) changes which
+     * thresholds apply, and the recorded approvals only ever covered the old figure.
+     */
+    public function withdraw(PaymentRequest $pr, User $actor, string $reason): PaymentRequest
+    {
+        if ($pr->status === PaymentRequest::STATUS_IN_APPROVAL) {
+            throw ValidationException::withMessages([
+                'status' => 'This request is still in approval — reject it instead, which returns its invoices the same way.',
+            ]);
+        }
+
+        if ($pr->status !== PaymentRequest::STATUS_APPROVED) {
+            throw ValidationException::withMessages([
+                'status' => 'Only a fully approved request that has not been paid can be withdrawn.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($pr, $actor, $reason) {
+            // Read the invoices before detaching them — afterwards the relation is empty.
+            $references = $pr->invoices()->pluck('reference_no')->implode(', ');
+
+            $pr->update([
+                'status' => PaymentRequest::STATUS_WITHDRAWN,
+                'current_stage' => null,
+                'withdrawn_at' => now(),
+                'withdrawn_by' => $actor->id,
+                'withdrawal_reason' => $reason,
+            ]);
+
+            $pr->invoices()->update([
+                'payment_status' => Invoice::PAY_NOT_INITIATED,
+                'payment_request_id' => null,
+            ]);
+
+            AuditLogger::log(
+                'withdrawn',
+                "Payment request {$pr->reference_no} withdrawn after approval: {$reason}. Invoices returned to Finance: {$references}.",
+                null, null, null, $pr,
+            );
+
+            return $pr->refresh();
+        });
+    }
+
+    /**
+     * Return a single invoice to the Invoice Log, leaving the rest of its payment request intact.
+     *
+     * Withdrawal is the right move when the whole request is wrong; this is for the common case
+     * where one invoice in a request needs correcting and the others are fine — they keep their
+     * approvals and stay payable. Safe because the total only ever falls, and
+     * `ApprovalLevel::requiredFor` filters on `min_amount`, so a smaller total requires a subset of
+     * the levels that already approved the larger one.
+     */
+    public function releaseInvoice(Invoice $invoice, User $actor, string $reason): PaymentRequest
+    {
+        $pr = $invoice->paymentRequest;
+
+        if (! $pr) {
+            throw ValidationException::withMessages([
+                'invoice' => 'This invoice is not held by a payment request.',
+            ]);
+        }
+
+        if ($pr->status === PaymentRequest::STATUS_PAID || $invoice->payment_status === Invoice::PAY_PAID) {
+            throw ValidationException::withMessages([
+                'status' => 'A paid payment request cannot be changed.',
+            ]);
+        }
+
+        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_APPROVED], true)) {
+            throw ValidationException::withMessages([
+                'status' => 'Only an in-approval or approved payment request can have an invoice released.',
+            ]);
+        }
+
+        return DB::transaction(function () use ($pr, $invoice, $actor, $reason) {
+            $invoice->update([
+                'payment_status' => Invoice::PAY_NOT_INITIATED,
+                'payment_request_id' => null,
+            ]);
+
+            $remaining = $pr->invoices()->count();
+
+            if ($remaining === 0) {
+                // An approved request with nothing left to pay is void, not payable.
+                $pr->update([
+                    'status' => PaymentRequest::STATUS_WITHDRAWN,
+                    'current_stage' => null,
+                    'total_amount' => 0,
+                    'withdrawn_at' => now(),
+                    'withdrawn_by' => $actor->id,
+                    'withdrawal_reason' => "Last invoice released: {$reason}",
+                ]);
+            } else {
+                $pr->syncTotal();
+            }
+
+            AuditLogger::log(
+                'invoice_released',
+                "Invoice {$invoice->reference_no} released from {$pr->reference_no} and returned to the Invoice Log: {$reason}."
+                    .($remaining === 0
+                        ? " {$pr->reference_no} held nothing else and was withdrawn."
+                        : " {$remaining} invoice(s) remain, total now {$pr->refresh()->total_amount}."),
+                $invoice, null, null, $pr,
+            );
+
+            return $pr->refresh();
+        });
+    }
+
     public function markPaid(PaymentRequest $pr, User $actor, string $reference): PaymentRequest
     {
         if ($pr->status !== PaymentRequest::STATUS_APPROVED) {
@@ -233,6 +359,12 @@ class PaymentRequestService
     {
         if ($pr->status !== PaymentRequest::STATUS_IN_APPROVAL) {
             throw ValidationException::withMessages(['status' => 'This payment request is not awaiting approval.']);
+        }
+
+        // Creation refuses to put the creator on the chain; this closes the same door at action time,
+        // for chains built before that rule and for the admin override below.
+        if ($pr->created_by === $actor->id) {
+            abort(403, 'You created this payment request, so you cannot approve or reject it.');
         }
 
         $stage = $pr->approvals()->where('sequence', $pr->current_stage)->first();

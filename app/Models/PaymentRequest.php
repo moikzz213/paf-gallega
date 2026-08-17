@@ -16,6 +16,9 @@ class PaymentRequest extends Model
 
     public const STATUS_REJECTED = 'rejected';
 
+    /** Pulled back by Finance after full approval but before payment — see PaymentRequestService::withdraw. */
+    public const STATUS_WITHDRAWN = 'withdrawn';
+
     public const STATUS_PAID = 'paid';
 
     public const STATUSES = [
@@ -23,12 +26,14 @@ class PaymentRequest extends Model
         self::STATUS_IN_APPROVAL,
         self::STATUS_APPROVED,
         self::STATUS_REJECTED,
+        self::STATUS_WITHDRAWN,
         self::STATUS_PAID,
     ];
 
     protected $fillable = [
         'reference_no', 'view_token', 'created_by', 'status', 'current_stage', 'total_amount',
         'sent_at', 'approved_at', 'rejected_at', 'rejection_reason',
+        'withdrawn_at', 'withdrawn_by', 'withdrawal_reason',
         'paid_at', 'payment_reference', 'paid_by', 'last_reminder_sent_at',
     ];
 
@@ -49,6 +54,7 @@ class PaymentRequest extends Model
             'sent_at' => 'datetime',
             'approved_at' => 'datetime',
             'rejected_at' => 'datetime',
+            'withdrawn_at' => 'datetime',
             'paid_at' => 'datetime',
             'last_reminder_sent_at' => 'datetime',
         ];
@@ -80,6 +86,11 @@ class PaymentRequest extends Model
         return $this->belongsTo(User::class, 'paid_by');
     }
 
+    public function withdrawer()
+    {
+        return $this->belongsTo(User::class, 'withdrawn_by');
+    }
+
     public function invoices()
     {
         return $this->hasMany(Invoice::class);
@@ -107,6 +118,15 @@ class PaymentRequest extends Model
 
         // requesters can track PRFs that contain one of their invoices
         return $query->whereHas('invoices', fn (Builder $i) => $i->where('submitted_by', $user->id));
+    }
+
+    /**
+     * Keep total_amount in step with the invoices still attached. Member invoices can be corrected
+     * downwards or released, and the total is what the approval thresholds were measured against.
+     */
+    public function syncTotal(): void
+    {
+        $this->update(['total_amount' => $this->invoices()->sum('total_amount')]);
     }
 
     /** The approval stage currently awaiting action. */

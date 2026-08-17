@@ -17,7 +17,7 @@ const invoice = ref(null);
 const loading = ref(true);
 const acting = ref(false);
 
-const dialog = ref({ show: false, kind: null, erp_doc_no: '', posting_date: '', finance_remarks: '' });
+const dialog = ref({ show: false, kind: null, erp_doc_no: '', posting_date: '', finance_remarks: '', reason: '' });
 
 async function load() {
     loading.value = true;
@@ -37,19 +37,36 @@ onMounted(load);
 const isOwner = computed(() => invoice.value?.submitted_by === auth.user?.id);
 const notInitiated = computed(() => invoice.value?.payment_status === 'not_initiated');
 
-const canEdit = computed(() => (isOwner.value || auth.isAdmin) && ['submitted', 'query_raised'].includes(invoice.value?.status) && notInitiated.value);
+// Finance/admin may also correct an invoice a payment request is still holding — currency and
+// totals stay locked there. Mirrors InvoiceController::update / isCorrectableInPlace.
+const inPaymentCycle = computed(() => ['in_approval', 'approved_for_payment'].includes(invoice.value?.payment_status));
+const canCorrectInPlace = computed(() => auth.canProcessPayments && inPaymentCycle.value && invoice.value?.status !== 'cancelled');
+const canEdit = computed(() =>
+    ((isOwner.value || auth.isAdmin) && ['submitted', 'query_raised'].includes(invoice.value?.status) && notInitiated.value)
+    || canCorrectInPlace.value);
+// Pull just this invoice out of its payment request, leaving the others in it approved.
+const canRelease = computed(() => auth.canProcessPayments && inPaymentCycle.value && !!invoice.value?.payment_request_id);
 const canCancel = computed(() => (isOwner.value || auth.isAdmin) && notInitiated.value && invoice.value?.status !== 'cancelled');
 const canDelete = computed(() => (isOwner.value || auth.isAdmin) && notInitiated.value);
-const canPost = computed(() => auth.canProcessPayments && ['submitted', 'query_raised'].includes(invoice.value?.status));
-const canQuery = computed(() => auth.canProcessPayments && ['submitted', 'posted'].includes(invoice.value?.status));
+// Re-posting a queried invoice would overwrite the ERP document it already has; the requester's
+// correction returns it to `submitted`, which is what gets posted. Mirrors InvoiceController::post.
+const canPost = computed(() => auth.canProcessPayments
+    && (invoice.value?.status === 'submitted' || (invoice.value?.status === 'query_raised' && !invoice.value?.erp_doc_no)));
+// A query asks the requester to correct the invoice, which is impossible once it is in a payment
+// request — that combination is what strands an invoice. Mirrors InvoiceController::raiseQuery.
+const canQuery = computed(() => auth.canProcessPayments && ['submitted', 'posted'].includes(invoice.value?.status) && notInitiated.value);
 
 const pr = computed(() => invoice.value?.payment_request);
 
 function openDialog(kind) {
-    dialog.value = { show: true, kind, erp_doc_no: '', posting_date: '', finance_remarks: '' };
+    dialog.value = { show: true, kind, erp_doc_no: '', posting_date: '', finance_remarks: '', reason: '' };
 }
 
-const dialogTitle = computed(() => ({ post: 'Post to ERP', query: 'Raise Query' }[dialog.value.kind]));
+const dialogTitle = computed(() => ({
+    post: 'Post to ERP',
+    query: 'Raise Query',
+    release: 'Release from Payment Request',
+}[dialog.value.kind]));
 
 async function runAction(kind, payload = {}) {
     acting.value = true;
@@ -58,9 +75,15 @@ async function runAction(kind, payload = {}) {
             post: `/invoices/${props.id}/post`,
             query: `/invoices/${props.id}/query`,
             cancel: `/invoices/${props.id}/cancel`,
+            release: `/invoices/${props.id}/release`,
         };
         await api.post(urls[kind], payload);
-        notify.success({ post: 'Invoice posted in ERP.', query: 'Query raised.', cancel: 'Invoice cancelled.' }[kind]);
+        notify.success({
+            post: 'Invoice posted in ERP.',
+            query: 'Query raised.',
+            cancel: 'Invoice cancelled.',
+            release: 'Invoice released — it is back in the Invoice Log and can be corrected.',
+        }[kind]);
         dialog.value.show = false;
         await load();
     } catch (e) {
@@ -79,6 +102,10 @@ function confirmDialog() {
     if (kind === 'query') {
         if (!finance_remarks.trim()) return notify.error('A query note is required.');
         return runAction('query', { finance_remarks });
+    }
+    if (kind === 'release') {
+        if (!dialog.value.reason.trim()) return notify.error('A reason is required to release the invoice.');
+        return runAction('release', { reason: dialog.value.reason });
     }
 }
 
@@ -141,7 +168,12 @@ const auditIcons = {
 
             <v-btn v-if="canPost" color="success" prepend-icon="mdi-checkbox-marked-circle-outline" @click="openDialog('post')">Post to ERP</v-btn>
             <v-btn v-if="canQuery" color="warning" variant="tonal" prepend-icon="mdi-help-circle-outline" @click="openDialog('query')">Raise Query</v-btn>
-            <v-btn v-if="canEdit" variant="tonal" prepend-icon="mdi-pencil" :to="`/invoices/${invoice.id}/edit`">Edit</v-btn>
+            <v-btn v-if="canEdit" variant="tonal" prepend-icon="mdi-pencil" :to="`/invoices/${invoice.id}/edit`">
+                {{ canCorrectInPlace && !notInitiated ? 'Correct' : 'Edit' }}
+            </v-btn>
+            <v-btn v-if="canRelease" color="warning" variant="tonal" prepend-icon="mdi-undo-variant" @click="openDialog('release')">
+                Release from PRF
+            </v-btn>
             <v-btn v-if="canCancel" variant="text" color="error" prepend-icon="mdi-cancel" :loading="acting" @click="runAction('cancel')">Cancel</v-btn>
             <v-btn v-if="canDelete" variant="text" color="error" icon="mdi-delete-outline" @click="deleteInvoice" />
         </div>
@@ -332,6 +364,16 @@ const auditIcons = {
                         <v-text-field v-model="dialog.posting_date" label="Posting date (defaults to today)" type="date" />
                     </template>
                     <v-textarea v-else-if="dialog.kind === 'query'" v-model="dialog.finance_remarks" label="Query / remarks to the department *" rows="3" autofocus />
+                    <template v-else-if="dialog.kind === 'release'">
+                        <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
+                            This invoice returns to the Invoice Log and drops out of
+                            <strong>{{ pr?.reference_no }}</strong>, whose total falls by
+                            {{ money(invoice.total_amount, invoice.currency) }}. Any other invoices in that request
+                            keep their approvals and stay payable. Paying this one after correction needs a new
+                            payment request.
+                        </v-alert>
+                        <v-textarea v-model="dialog.reason" label="Reason *" rows="3" autofocus />
+                    </template>
                 </v-card-text>
                 <v-card-actions>
                     <v-spacer />

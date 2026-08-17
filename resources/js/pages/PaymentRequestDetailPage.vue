@@ -44,6 +44,8 @@ const canAct = computed(() => {
     return currentStep.value?.approver_id === auth.user?.id;
 });
 const canPay = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
+// Reversing a completed approval is a Finance/admin call, never an approver's.
+const canWithdraw = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
 
 const invoiceLines = computed(() => (pr.value?.invoices ?? []).flatMap((invoice) => {
     const items = invoice.items?.length ? invoice.items : [null];
@@ -66,6 +68,7 @@ function openDialog(kind) {
 const dialogTitle = computed(() => ({
     approve: 'Approve Payment Request',
     reject: 'Reject Payment Request',
+    withdraw: 'Withdraw Payment Request',
     pay: 'Mark as Paid',
 }[dialog.value.kind]));
 
@@ -75,10 +78,16 @@ async function runAction(kind, payload = {}) {
         const urls = {
             approve: `/payment-requests/${props.id}/approve`,
             reject: `/payment-requests/${props.id}/reject`,
+            withdraw: `/payment-requests/${props.id}/withdraw`,
             pay: `/payment-requests/${props.id}/mark-paid`,
         };
         await api.post(urls[kind], payload);
-        notify.success({ approve: 'Stage approved.', reject: 'Payment request rejected.', pay: 'Payment recorded.' }[kind]);
+        notify.success({
+            approve: 'Stage approved.',
+            reject: 'Payment request rejected.',
+            withdraw: 'Payment request withdrawn — its invoices are back in the Invoice Log.',
+            pay: 'Payment recorded.',
+        }[kind]);
         dialog.value.show = false;
         await load();
     } catch (e) {
@@ -94,6 +103,10 @@ function confirmDialog() {
     if (kind === 'reject') {
         if (!comments.trim()) return notify.error('A reason is required to reject.');
         return runAction('reject', { comments });
+    }
+    if (kind === 'withdraw') {
+        if (!comments.trim()) return notify.error('A reason is required to withdraw.');
+        return runAction('withdraw', { reason: comments });
     }
     if (kind === 'pay') {
         if (!payment_reference.trim()) return notify.error('A payment reference is required.');
@@ -131,11 +144,16 @@ function approvalColor(status) {
             <v-btn v-if="canAct" color="success" prepend-icon="mdi-check" @click="openDialog('approve')">Approve</v-btn>
             <v-btn v-if="canAct" color="error" variant="tonal" prepend-icon="mdi-close" @click="openDialog('reject')">Reject</v-btn>
             <v-btn v-if="canPay" color="success" prepend-icon="mdi-cash-check" @click="openDialog('pay')">Mark Paid</v-btn>
+            <v-btn v-if="canWithdraw" color="warning" variant="tonal" prepend-icon="mdi-undo-variant" @click="openDialog('withdraw')">Withdraw</v-btn>
             <v-btn v-if="pr.status === 'approved' || pr.status === 'paid'" variant="tonal" prepend-icon="mdi-file-pdf-box" :href="`/api/payment-requests/${id}/pdf`" target="_blank">Download PDF</v-btn>
         </div>
 
         <v-alert v-if="pr.status === 'rejected'" type="error" variant="tonal" class="mb-4" icon="mdi-close-circle-outline">
             <strong>Rejected:</strong> {{ pr.rejection_reason }} — invoices were returned to the pool for re-initiation.
+        </v-alert>
+        <v-alert v-else-if="pr.status === 'withdrawn'" type="warning" variant="tonal" class="mb-4" icon="mdi-undo-variant">
+            <strong>Withdrawn after approval:</strong> {{ pr.withdrawal_reason }} — invoices were returned to the
+            Invoice Log for correction, and a corrected payment request needs a fresh approval chain.
         </v-alert>
         <v-alert v-else-if="pr.status === 'approved'" type="success" variant="tonal" class="mb-4" icon="mdi-check-circle-outline">
             Fully approved — released for payment.
@@ -243,6 +261,7 @@ function approvalColor(status) {
                                 ['Created', dateTime(pr.created_at)],
                                 ['Sent for approval', dateTime(pr.sent_at)],
                                 ['Approved', dateTime(pr.approved_at)],
+                                ...(pr.withdrawn_at ? [['Withdrawn', `${dateTime(pr.withdrawn_at)} by ${pr.withdrawer?.name ?? '—'}`]] : []),
                                 ['Paid', dateTime(pr.paid_at)],
                                 ['Payment ref', pr.payment_reference || '—'],
                                 ['Processed by', pr.payer?.name || '—'],
@@ -262,10 +281,16 @@ function approvalColor(status) {
             <v-card>
                 <v-card-title>{{ dialogTitle }}</v-card-title>
                 <v-card-text>
-                    <template v-if="dialog.kind === 'approve' || dialog.kind === 'reject'">
+                    <template v-if="dialog.kind === 'approve' || dialog.kind === 'reject' || dialog.kind === 'withdraw'">
+                        <v-alert v-if="dialog.kind === 'withdraw'" type="warning" variant="tonal" density="compact" class="mb-4">
+                            This cancels an approved payment. Its {{ pr.invoices?.length }} invoice(s) go back to the
+                            Invoice Log, and paying the corrected amount needs a new payment request with a new
+                            approval chain — the approvals recorded here only cover
+                            {{ money(pr.total_amount, currency) }}.
+                        </v-alert>
                         <v-textarea
                             v-model="dialog.comments"
-                            :label="dialog.kind === 'reject' ? 'Reason (required)' : 'Comments (optional)'"
+                            :label="dialog.kind === 'approve' ? 'Comments (optional)' : 'Reason (required)'"
                             rows="3"
                             autofocus
                         />
@@ -277,7 +302,12 @@ function approvalColor(status) {
                 <v-card-actions>
                     <v-spacer />
                     <v-btn variant="text" @click="dialog.show = false">Cancel</v-btn>
-                    <v-btn :color="dialog.kind === 'reject' ? 'error' : 'primary'" variant="flat" :loading="acting" @click="confirmDialog">Confirm</v-btn>
+                    <v-btn
+                        :color="dialog.kind === 'reject' ? 'error' : (dialog.kind === 'withdraw' ? 'warning' : 'primary')"
+                        variant="flat"
+                        :loading="acting"
+                        @click="confirmDialog"
+                    >Confirm</v-btn>
                 </v-card-actions>
             </v-card>
         </v-dialog>

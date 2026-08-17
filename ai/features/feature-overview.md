@@ -26,6 +26,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   - **Post to ERP** — record `erp_doc_no` (+ posting date) → status `posted`.
   - **Raise Query** — record `finance_remarks` back to the department → status `query_raised`;
     **emails the invoice submitter** (`InvoiceQueryRaised`) so they can correct and resubmit.
+    Only available while the invoice is **outside a payment cycle** (`not_initiated`): a query asks
+    for a correction, and an invoice held by a PRF cannot be edited. Return it first (reject the PRF,
+    or withdraw it if already approved).
+  - Re-posting is refused while an invoice is `query_raised` **and** already has an `erp_doc_no` —
+    it would overwrite that ERP document. Resolving the query returns it to `submitted`, and posting
+    then records the corrected document.
 - Filter by status, department, date range, and free-text search.
 
 ## 4. Payment Request / PRF (Finance)
@@ -47,11 +53,47 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   currency-prefixed line total.
 - A **daily reminder email** is sent to each approver with a pending PRF (scheduled at 09:00
   via `prf:send-reminders` Artisan command).
+- **Correcting an invoice already in a PRF (Finance/Admin, no approval needed).** Finance can fix an
+  invoice a PRF is holding without withdrawing anything — job no., customer, description, dates,
+  even a **lower** total. The PRF keeps its approvals and its total is re-synced. Locked: the
+  **currency** and any **increase** to the total, because the recorded approvals only ever covered
+  the old figure (thresholds are driven by `min_amount`, so a smaller total needs a subset of the
+  same levels — a larger one may need levels nobody has given). Those need a release first.
+- **Releasing a single invoice (Finance/Admin only).** When one invoice in a PRF is wrong and the
+  others are fine, release just that invoice with a required reason: it returns to the Invoice Log
+  while the rest of the PRF stays approved and payable, its total re-synced. Releasing the last
+  invoice withdraws the PRF, since an approved request with nothing to pay is void.
+- **Withdrawal (Finance/Admin only).** A fully approved PRF that has not been paid can be withdrawn
+  with a required reason: the PRF becomes `withdrawn`, its invoices return to the Invoice Log
+  (`not_initiated`, unlinked), and it can no longer be paid or produce a PDF. The recorded approvals
+  are kept as history but never reused — a correction that changes the amount or currency changes
+  which thresholds apply, so the corrected invoices go through a **new PRF with a fresh chain**.
+  While a PRF is still `in_approval` the exit is an approver **rejection**, not withdrawal; once
+  `paid` there is deliberately no exit. Approvers cannot withdraw — it reverses their own approval.
+- Getting a returned invoice editable again takes **both** steps, in order: return it (reject or
+  withdraw the PRF), *then* raise the query — a returned invoice is still `posted`, and only
+  `query_raised`/`submitted` invoices are editable.
 
-## 5. Payment Approval (Approver / Admin)
+## 5. Payment Approval (Approver / Admin / nominated Finance)
 
 - Each PRF routes **stage-by-stage**; the request sits at `current_stage` and only the assigned
   approver (or an admin) can act.
+- **Who can be an approver.** Approvers and admins always. **Finance users individually**, once an
+  admin sets an `approval_level` on them — Finance often raises the PRF itself, so the group members
+  who sign those off (rather than a requester's own manager) need to be selectable at L1/L2. A
+  Finance user without a level is not an approver anywhere: not in the chain builder, not in the
+  ad-hoc list, and with no approvals queue. One level per person, so a nominated user appears under
+  that level only; the ad-hoc "Additional approvers" stages still accept any eligible user.
+- **Each stage carries the approver's job title**, not the approval level's name. "Department
+  Manager" describes the level; the person signing at that level is often something else (an AP
+  Accountant from the Finance group), and the chain, the PAF PDF and the public approval page all show
+  the job title they actually hold. The level name is the fallback when a user has no job title on
+  record, and the level number is still stored on the stage. Titles are **snapshotted** when the chain
+  is built, so a later promotion never rewrites an approval that already happened — which means
+  existing requests keep the labels they were created with.
+- **Nobody approves their own request.** The creator cannot be placed on the chain of a PRF they
+  create, and cannot approve or reject it afterwards — including admins on their own requests, who
+  otherwise may act on any stage. This matters now that creating and approving can be the same role.
 - **Approve** → advances to the next stage, or finalizes the PRF to `approved` (invoices →
   `approved_for_payment`). On **final approval**, the requestors are emailed
   (`PaymentRequestApproved` → the PRF creator + every invoice submitter), from both the in-app and
@@ -110,7 +152,10 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - **Users:** create/edit (no hard delete — deactivate via `is_active`); role assignment;
   `approval_level` for approvers.
 - **Approval levels:** CRUD of the threshold levels used to **pre-fill** PRF chains, each with a
-  **default approver**.
+  **default approver**. The default-approver list offers only users assigned to **that** level (the
+  same membership rule the chain builder applies), so a level cannot be defaulted to someone whose
+  chain assignment would then be refused. A level's existing default stays selectable even if that
+  user's own level has since moved, flagged in the list, so renaming a level never silently clears it.
 - **Master data:** CRUD for vendors, customers, business units, departments, locations and
   currencies (a currency's name is its 3-letter code; it feeds the invoice Currency dropdown).
   Lists use server-side pagination and search; vendor/customer searches cover both name and code.
@@ -128,8 +173,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | Submit / edit own invoices | ✓ | ✓ (own) | ✓ | ✓ |
 | Post to ERP / raise query | | | ✓ | ✓ |
 | Create payment request | | | ✓ | ✓ |
-| Approve / reject a PRF stage | | ✓ (assigned) | | ✓ |
+| Approve / reject a PRF stage | | ✓ (assigned) | ✓ (assigned, needs a level) | ✓ |
+| …but never on a PRF they created | — | — | — | — |
 | Mark PRF paid | | | ✓ | ✓ |
+| Withdraw an approved PRF | | | ✓ | ✓ |
+| Release one invoice from a PRF | | | ✓ | ✓ |
+| Correct an invoice held by a PRF | | | ✓ | ✓ |
 | Download PRF PDF | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Audit log viewer, manage users/levels | | | | ✓ |

@@ -40,7 +40,9 @@ invoice_documents  ──< invoices
 ### users (PAF extensions)
 
 Base Laravel columns plus (`add_paf_fields_to_users_table`): `role`
-(`admin|requester|approver|finance`), `approval_level` (tinyint, approvers only),
+(`admin|requester|approver|finance`), `approval_level` (tinyint; required for approvers, optional for
+finance — a finance user with a level is selectable as an approver at that level, see
+`User::canApprove()`; null for requesters/admins),
 `department`, `job_title`, `is_active` (bool).
 
 ### approval_levels
@@ -126,11 +128,14 @@ Lifecycle & posting columns:
 | `reference_no` | string, **unique** | `PAF-{year}-00001` (`PRF-{year}-` before Aug 2026) |
 | `view_token` | string(64), **unique** | random token for public read-only link |
 | `created_by` | FK users | Finance user who initiated |
-| `status` | string, default `draft` | `draft \| in_approval \| approved \| rejected \| paid` (idx) |
+| `status` | string, default `draft` | `draft \| in_approval \| approved \| rejected \| withdrawn \| paid` (idx) |
 | `current_stage` | uint, nullable | sequence of the stage awaiting action |
 | `total_amount` | decimal(15,2) | sum of member invoices |
 | `sent_at`, `approved_at`, `rejected_at` | timestamp, nullable | |
 | `rejection_reason` | text, nullable | |
+| `withdrawn_at` | timestamp, nullable | set when Finance pulls an **approved** PRF back before payment |
+| `withdrawn_by` | FK users, nullable | finance/admin actor who withdrew it |
+| `withdrawal_reason` | text, nullable | kept apart from `rejection_reason` so an approver's rejection and a post-approval withdrawal stay distinguishable |
 | `paid_at` | timestamp, nullable | |
 | `payment_reference` | string, nullable | |
 | `paid_by` | FK users, nullable | |
@@ -148,7 +153,7 @@ One row per chain stage, sequence-ordered.
 | `view_token` | string(64), **unique** | per-stage token for public approval link |
 | `sequence` | uint | position in the chain (1..N) |
 | `level` | tinyint, nullable | source approval level; null for ad-hoc |
-| `label` | string | role / stage name |
+| `label` | string | the job description shown against this stage everywhere the chain is rendered (screen, PAF PDF, public link). Snapshotted at creation from the **approver's `job_title`**, falling back to the approval level's `name`; ad-hoc stages use the typed label, else the approver's job title. A later job change never rewrites a recorded approval |
 | `is_adhoc` | boolean | added beyond the amount-based levels |
 | `status` | string, default `pending` | `pending \| approved \| rejected` |
 | `approver_id` | FK users, nullable | the assigned approver (and actor) |

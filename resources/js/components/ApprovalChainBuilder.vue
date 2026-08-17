@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue';
 import { money } from '../utils/format';
+import { useAuthStore } from '../stores/auth';
 import { useMetaStore } from '../stores/meta';
 
 const props = defineProps({
@@ -11,7 +12,13 @@ const props = defineProps({
 
 const emit = defineEmits(['change']);
 
+const auth = useAuthStore();
 const meta = useMetaStore();
+
+// Finance both raises requests and can be nominated as an approver, so the person building this
+// chain may appear in the approver list. Nobody approves their own request — the server refuses it
+// (PaymentRequestService::create), so it is never offered here either.
+const candidates = computed(() => (meta.approvers ?? []).filter((a) => a.id !== auth.user?.id));
 
 // Levels the current total must pass through, in order.
 const requiredLevels = computed(() =>
@@ -23,24 +30,31 @@ const requiredLevels = computed(() =>
 const assignments = ref({}); // { [level]: approverId }
 const adhoc = ref([]); // [{ approver_id, label }]
 
+const ROLE_LABELS = { admin: 'Admin', finance: 'Finance', approver: 'Approver' };
+
 function approverOption(a) {
+    // Finance approvers are labelled Finance, not Approver — whoever builds the chain should see
+    // which hat the person is wearing. The job title comes first because that is the job description
+    // recorded against the stage and printed on the PAF (see PaymentRequestController::buildStages).
+    const role = ROLE_LABELS[a.role] ?? a.role;
+    const hat = a.role === 'admin' ? role : `${role} · L${a.approval_level ?? '—'}`;
+
     return {
         value: a.id,
         title: a.name,
-        subtitle:
-            (a.role === 'admin' ? 'Admin' : `Approver · L${a.approval_level ?? '—'}`) +
-            (a.department ? ` · ${a.department}` : ''),
+        job_title: a.job_title || null,
+        subtitle: [a.job_title, hat, a.department].filter(Boolean).join(' · '),
     };
 }
 
-const approverItems = computed(() => (meta.approvers ?? []).map(approverOption));
+const approverItems = computed(() => candidates.value.map(approverOption));
 
 // Each level only offers users configured for that level. The level's own default approver is
 // always kept in the list so a pre-filled value can never point at an option that isn't there.
 const itemsByLevel = computed(() => {
     const map = {};
     requiredLevels.value.forEach((l) => {
-        map[l.level] = (meta.approvers ?? [])
+        map[l.level] = candidates.value
             .filter((a) => Number(a.approval_level) === Number(l.level) || a.id === l.default_approver_id)
             .map(approverOption);
     });
@@ -112,6 +126,9 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
                 This request will route through {{ requiredLevels.length }} level(s)
                 (total {{ money(total, currency) }}). Each level only lists users assigned to that level;
                 approvers are pre-filled from the level's default — change them as needed.
+                Each stage is recorded and printed under the approver's own <strong>job title</strong>,
+                falling back to the level name if they have none.
+                You are not listed: nobody approves a request they raise themselves.
             </div>
 
             <v-alert
@@ -120,7 +137,7 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
                 variant="tonal"
                 density="compact"
                 class="mb-3"
-                :text="`No active user is assigned to level(s) ${levelsWithoutApprovers.map((l) => l.level).join(', ')}. Ask an administrator to set the approval level on those users.`"
+                :text="`No selectable user is assigned to level(s) ${levelsWithoutApprovers.map((l) => l.level).join(', ')}. Ask an administrator to set that approval level on an approver, or on a Finance user who should sign off at that level.`"
             />
 
             <div v-for="lvl in requiredLevels" :key="lvl.id ?? lvl.level" class="d-flex align-center ga-3 mb-2">

@@ -18,6 +18,12 @@ Conventions observed in this codebase. Follow them so new code reads like the ex
 - **Authorization:** use the `role:` middleware for coarse role gates; use inline ownership/level
   checks (or `ApprovalService::assertActionable`) for row-level rules. Always enforce visibility
   through `Invoice::scopeVisibleTo` on list/detail queries — never return unscoped invoice data.
+- **Eligibility rules that outgrow a role list get one definition.** "May approve" is not a role
+  list any more (finance qualifies per user, by `approval_level`), so it lives once as
+  `User::canApprove()` / `User::scopeEligibleApprovers()` and every controller and `exists` rule
+  refers to that. The client copy is the `canApprove` getter in `stores/auth.js`, and a route gates
+  on it with `meta.gate: 'canApprove'` rather than `meta.roles` — when the rule changes, both sides
+  move together.
 - **Domain constants on models** — statuses/roles as `public const`, with `*_STATUSES`/`ROLES`
   arrays for validation. Reference them, don't hard-code the strings.
 - **Transactions:** wrap multi-write workflow operations in `DB::transaction(...)` (see

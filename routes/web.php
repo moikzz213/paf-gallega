@@ -9,8 +9,8 @@ use App\Http\Controllers\InvoiceController;
 use App\Http\Controllers\MasterDataController;
 use App\Http\Controllers\MetaController;
 use App\Http\Controllers\PasswordResetController;
-use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PaymentRequestController;
+use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicPaymentRequestController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\UserController;
@@ -53,6 +53,8 @@ Route::prefix('api')->group(function () {
         Route::middleware('role:finance,admin')->group(function () {
             Route::post('/invoices/{invoice}/post', [InvoiceController::class, 'post']);
             Route::post('/invoices/{invoice}/query', [InvoiceController::class, 'raiseQuery']);
+            // Returns one invoice to the log while the rest of its payment request stays approved.
+            Route::post('/invoices/{invoice}/release', [InvoiceController::class, 'release']);
         });
 
         // documents
@@ -68,6 +70,8 @@ Route::prefix('api')->group(function () {
         Route::post('/payment-requests/{paymentRequest}/approve', [PaymentRequestController::class, 'approve']);
         Route::post('/payment-requests/{paymentRequest}/reject', [PaymentRequestController::class, 'reject']);
         Route::post('/payment-requests/{paymentRequest}/mark-paid', [PaymentRequestController::class, 'markPaid'])->middleware('role:finance,admin');
+        // Reverses a completed approval, so finance/admin only — never the approvers.
+        Route::post('/payment-requests/{paymentRequest}/withdraw', [PaymentRequestController::class, 'withdraw'])->middleware('role:finance,admin');
         Route::get('/payment-requests/{paymentRequest}/pdf', [PaymentRequestController::class, 'downloadPdf']);
 
         // reports (data scoped by role visibility)

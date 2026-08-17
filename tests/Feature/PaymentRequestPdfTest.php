@@ -56,7 +56,8 @@ class PaymentRequestPdfTest extends TestCase
         ])->findOrFail($prId);
 
         $supplierCodes = Vendor::whereIn('name', $pr->invoices->pluck('vendor_name'))->pluck('vendor_code', 'name');
-        $approvalLevels = ApprovalLevel::where('is_active', true)->with('defaultApprover:id,name')->orderBy('level')->get();
+        // Mirrors PaymentRequestController::downloadPdf — job_title feeds the not-reached rows.
+        $approvalLevels = ApprovalLevel::where('is_active', true)->with('defaultApprover:id,name,job_title')->orderBy('level')->get();
 
         return View::make('pdf.payment-request', compact('pr', 'supplierCodes', 'approvalLevels') + ['paymentRequest' => $pr])->render();
     }
