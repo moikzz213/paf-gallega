@@ -35,6 +35,12 @@ Structural/maintainability items (distinct from behavioral gaps in
 - **`approval_levels` referenced by value.** Approvals snapshot `level`/`level_name` (good for
   history) but there's no FK, so nothing prevents an approver's `approval_level` from pointing at
   a non-existent level after deletion.
+- **One approval level per user.** `users.approval_level` is a single integer, so a person can be
+  offered at exactly one level. Two nominated Finance users cannot both be candidates for L1 *and*
+  L2 — one takes each, and the ad-hoc stages cover the rest. If "eligible at several levels" becomes
+  a real requirement, the upgrade is a `user_approval_levels` pivot plus a migration of the existing
+  values; `User::scopeEligibleApprovers()` and the chain builder's per-level filter are the two
+  places that would change.
 
 ## Testing & tooling
 

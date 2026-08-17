@@ -52,12 +52,41 @@ class ApprovalLevelController extends Controller
             'level' => ['required', 'integer', 'min:1', 'max:10', Rule::unique('approval_levels')->ignore($level)],
             'name' => ['required', 'string', 'max:100'],
             'min_amount' => ['required', 'numeric', 'min:0'],
+            // The default is pre-filled onto every chain at this level, so it has to be someone who
+            // may approve *at this level* — the same membership rule the chain builder enforces
+            // (PaymentRequestController::assertApproverBelongsToLevel).
             'default_approver_id' => [
                 'nullable', 'integer',
-                Rule::exists('users', 'id')->where(fn ($q) => $q->where('is_active', true)
-                    ->whereIn('role', [User::ROLE_APPROVER, User::ROLE_ADMIN])),
+                $this->belongsToLevel((int) $request->input('level'), $level?->default_approver_id),
             ],
             'is_active' => ['boolean'],
         ]);
+    }
+
+    /**
+     * A default approver must satisfy User::canApprove() and be assigned to this level.
+     *
+     * `$keepId` is the level's current default: a level saved before this rule (or before the user's
+     * level changed) can still be renamed or deactivated without being forced to reassign it first.
+     */
+    private function belongsToLevel(int $levelNumber, ?int $keepId): callable
+    {
+        return function (string $attribute, mixed $value, callable $fail) use ($levelNumber, $keepId): void {
+            if ($value === null || (int) $value === (int) $keepId) {
+                return;
+            }
+
+            $user = User::find($value);
+
+            if (! $user || ! $user->is_active || ! $user->canApprove()) {
+                $fail('The default approver must be an active approver, admin, or a finance user with an approval level.');
+
+                return;
+            }
+
+            if ((int) $user->approval_level !== $levelNumber) {
+                $fail("{$user->name} is not assigned to level {$levelNumber}. Choose a user assigned to this level, or change their approval level first.");
+            }
+        };
     }
 }

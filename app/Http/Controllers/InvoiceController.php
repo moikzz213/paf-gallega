@@ -7,6 +7,7 @@ use App\Models\Department;
 use App\Models\Invoice;
 use App\Models\Vendor;
 use App\Services\AuditLogger;
+use App\Services\PaymentRequestService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
@@ -125,13 +126,21 @@ class InvoiceController extends Controller
     public function update(Request $request, Invoice $invoice)
     {
         $user = $request->user();
+        $canCorrect = $user->isAdmin() || $user->isFinance();
 
-        if ($invoice->submitted_by !== $user->id && ! $user->isAdmin()) {
+        if ($invoice->submitted_by !== $user->id && ! $canCorrect) {
             abort(403, 'You can only edit your own invoices.');
         }
 
+        // Finance/admin can correct an invoice that a payment request is already holding, without
+        // anyone's approval — but only in ways that cannot invalidate the approvals it carries.
+        // Anything beyond that (currency, a higher total) needs the invoice released first.
+        $inPlace = false;
         if (! $invoice->isEditable()) {
-            abort(422, 'This invoice can no longer be edited.');
+            if (! ($canCorrect && $invoice->isCorrectableInPlace())) {
+                abort(422, 'This invoice can no longer be edited.');
+            }
+            $inPlace = true;
         }
 
         $data = $this->validated($request);
@@ -139,7 +148,9 @@ class InvoiceController extends Controller
         $data['currency'] = $this->currencyOf($itemsData);
         $old = $invoice->only(array_keys($data));
 
-        if ($invoice->status === Invoice::STATUS_QUERY) {
+        if ($inPlace) {
+            $this->assertInPlaceCorrection($invoice, $data['currency'], $this->totalOf($itemsData));
+        } elseif ($invoice->status === Invoice::STATUS_QUERY) {
             $data['status'] = Invoice::STATUS_SUBMITTED;
             $data['finance_remarks'] = null;
         }
@@ -155,9 +166,48 @@ class InvoiceController extends Controller
 
         $this->storeDocuments($request, $invoice);
 
-        AuditLogger::log('updated', "Invoice {$invoice->reference_no} updated", $invoice, $old, $data);
+        $pr = $inPlace ? $invoice->refresh()->paymentRequest : null;
+        // The request total is what the thresholds were measured against, so it follows the invoice.
+        $pr?->syncTotal();
+
+        AuditLogger::log(
+            'updated',
+            $pr
+                ? "Invoice {$invoice->reference_no} corrected in place by Finance while held by {$pr->reference_no}"
+                : "Invoice {$invoice->reference_no} updated",
+            $invoice, $old, $data, $pr,
+        );
 
         return response()->json($invoice->refresh()->load('vendor:id,name,vendor_code,credit_days', 'items.customer', 'documents'));
+    }
+
+    /**
+     * Guard rails for correcting an invoice inside a payment request. The recorded approvals were
+     * given for a specific figure, so the currency may not change and the total may not rise.
+     * A lower total is safe: `ApprovalLevel::requiredFor` filters on `min_amount` alone, so a
+     * smaller amount always requires a subset of the levels that already approved the larger one.
+     */
+    private function assertInPlaceCorrection(Invoice $invoice, string $currency, float $newTotal): void
+    {
+        $held = $invoice->paymentRequest?->reference_no ?? 'a payment request';
+        $release = "Release it from {$held} first, then correct it and send it for approval again.";
+
+        if ($currency !== $invoice->currency) {
+            throw ValidationException::withMessages([
+                'items' => "This invoice is held by {$held}, whose approvals cover {$invoice->currency} {$invoice->total_amount}. The currency cannot be changed here — a different currency is a different amount. {$release}",
+            ]);
+        }
+
+        if ($newTotal > (float) $invoice->total_amount + 0.001) {
+            throw ValidationException::withMessages([
+                'items' => "This invoice is held by {$held}, whose approvals cover {$invoice->currency} {$invoice->total_amount}. A correction cannot raise the total to {$newTotal}. {$release}",
+            ]);
+        }
+    }
+
+    private function totalOf(array $itemsData): float
+    {
+        return round(array_sum(array_column($itemsData, 'total_amount')), 2);
     }
 
     /** Finance posts the invoice in the ERP. */
@@ -165,6 +215,13 @@ class InvoiceController extends Controller
     {
         if (! in_array($invoice->status, [Invoice::STATUS_SUBMITTED, Invoice::STATUS_QUERY], true)) {
             abort(422, 'Only submitted or queried invoices can be posted.');
+        }
+
+        // Posting writes erp_doc_no, so a second post silently replaces the first document number.
+        // A resolved query returns the invoice to `submitted` (see update()), which is the case that
+        // legitimately re-posts; posting one that is still queried can only overwrite.
+        if ($invoice->erp_doc_no && $invoice->status === Invoice::STATUS_QUERY) {
+            abort(422, "This invoice is already posted in the ERP as {$invoice->erp_doc_no}. Resolve the query first — the requester's correction returns it to submitted, and posting then records the corrected document.");
         }
 
         $data = $request->validate([
@@ -193,6 +250,13 @@ class InvoiceController extends Controller
             abort(422, 'This invoice cannot be queried in its current state.');
         }
 
+        // A query is an instruction to the requester to correct the invoice, and only an invoice
+        // outside the payment cycle can be corrected. Querying one that is already in a payment
+        // request used to leave it unqueriable *and* uneditable, with no way back.
+        if ($invoice->payment_status !== Invoice::PAY_NOT_INITIATED) {
+            abort(422, 'This invoice is already in a payment request. Reject that request (or withdraw it, if it is already approved) to return the invoice, then raise the query.');
+        }
+
         $data = $request->validate(['finance_remarks' => ['required', 'string', 'max:2000']]);
 
         $invoice->update([
@@ -209,6 +273,22 @@ class InvoiceController extends Controller
         }
 
         return response()->json($invoice);
+    }
+
+    /**
+     * Return this invoice to the Invoice Log from the payment request holding it, leaving the rest
+     * of that request approved. Finance/admin only — no approver sign-off required.
+     */
+    public function release(Request $request, Invoice $invoice, PaymentRequestService $service)
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+
+        $pr = $service->releaseInvoice($invoice, $request->user(), $data['reason']);
+
+        return response()->json([
+            'invoice' => $invoice->refresh()->load('items.customer', 'documents'),
+            'payment_request' => $pr->load('invoices:id,payment_request_id,reference_no,total_amount'),
+        ]);
     }
 
     public function cancel(Request $request, Invoice $invoice)

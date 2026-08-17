@@ -3,16 +3,21 @@ import { computed, onMounted, ref, watch } from 'vue';
 import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../../services/api';
 import { fileSize, money } from '../../utils/format';
+import { useAuthStore } from '../../stores/auth';
 import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
 
 const props = defineProps({ id: { type: String, default: null } });
 
+const auth = useAuthStore();
 const meta = useMetaStore();
 const notify = useNotifyStore();
 const router = useRouter();
 
 const isEdit = computed(() => !!props.id);
+// Set when Finance is correcting an invoice held by a payment request: currency and amounts are
+// locked to what that request's approvals cover.
+const correction = ref(null);
 const loading = ref(false);
 const saving = ref(false);
 const formRef = ref(null);
@@ -115,6 +120,9 @@ function onItemCurrencyChange(currency) {
 }
 
 const grandTotal = computed(() => items.value.reduce((s, i) => s + itemTotal(i), 0));
+// In correction mode the approvals already given cover a fixed figure, so the total may fall but
+// never rise. Mirrors InvoiceController::assertInPlaceCorrection.
+const correctionExceeded = computed(() => !!correction.value && grandTotal.value > Number(correction.value.total) + 0.001);
 const grandAmount = computed(() => items.value.reduce((s, i) => s + (Number(i.amount) || 0), 0));
 const grandTax = computed(() => items.value.reduce((s, i) => s + (Number(i.tax_amount) || 0), 0));
 
@@ -142,10 +150,25 @@ onMounted(async () => {
         loading.value = true;
         try {
             const { data } = await api.get(`/invoices/${props.id}`);
-            if (!['submitted', 'query_raised'].includes(data.status) || data.payment_status !== 'not_initiated') {
+            const editable = ['submitted', 'query_raised'].includes(data.status) && data.payment_status === 'not_initiated';
+            // Finance/admin can correct an invoice a payment request is still holding, but the
+            // currency and the totals are locked — those are what its approvals cover. Anything
+            // else needs the invoice released first. Mirrors InvoiceController::update.
+            const correctable = auth.canProcessPayments
+                && ['in_approval', 'approved_for_payment'].includes(data.payment_status)
+                && data.status !== 'cancelled';
+
+            if (!editable && !correctable) {
                 notify.error('This invoice can no longer be edited.');
                 router.replace(`/invoices/${props.id}`);
                 return;
+            }
+            if (!editable) {
+                correction.value = {
+                    reference_no: data.payment_request?.reference_no ?? 'its payment request',
+                    currency: data.currency,
+                    total: data.total_amount,
+                };
             }
             Object.keys(form.value).forEach((key) => {
                 if (data[key] !== undefined && data[key] !== null) form.value[key] = data[key];
@@ -174,6 +197,11 @@ onMounted(async () => {
 });
 
 async function save() {
+    if (correctionExceeded.value) {
+        notify.error(`A correction cannot raise the total above ${money(correction.value.total, correction.value.currency)} — release the invoice from ${correction.value.reference_no} first.`);
+        return;
+    }
+
     const { valid } = await formRef.value.validate();
     if (!valid) {
         notify.error('Please fix the highlighted fields.');
@@ -216,7 +244,7 @@ async function save() {
         <div class="d-flex align-center mb-6">
             <v-btn icon="mdi-arrow-left" variant="text" class="mr-2" @click="router.back()" />
             <div>
-                <h1 class="text-h5 font-weight-bold">{{ isEdit ? 'Edit Invoice' : 'Submit Invoice' }}</h1>
+                <h1 class="text-h5 font-weight-bold">{{ correction ? 'Correct Invoice' : (isEdit ? 'Edit Invoice' : 'Submit Invoice') }}</h1>
                 <div class="text-body-2 text-medium-emphasis">
                     Submit a vendor invoice to Finance — it is logged date-wise for posting and payment
                 </div>
@@ -227,7 +255,15 @@ async function save() {
             <v-progress-circular indeterminate color="primary" size="48" />
         </div>
 
-        <v-form v-else ref="formRef" autocomplete="off" @submit.prevent>
+        <v-alert v-if="correction && !loading" type="info" variant="tonal" class="mb-4" icon="mdi-lock-outline">
+            This invoice is held by <strong>{{ correction.reference_no }}</strong>, whose approvals cover
+            <strong>{{ money(correction.total, correction.currency) }}</strong>. You can correct its details and
+            lower the total, but the <strong>currency is locked</strong> and the total cannot rise — that would
+            need approvals nobody has given. To change either, release the invoice from
+            {{ correction.reference_no }} and send the corrected invoice for approval again.
+        </v-alert>
+
+        <v-form v-if="!loading" ref="formRef" autocomplete="off" @submit.prevent>
             <v-card class="mb-4">
                 <v-card-title class="text-subtitle-1">Vendor & Invoice</v-card-title>
                 <v-card-text>
@@ -293,7 +329,9 @@ async function save() {
                                     v-model="item.currency"
                                     :items="meta.currencies"
                                     label="Currency *"
-                                    hide-details
+                                    :disabled="!!correction"
+                                    :messages="correction ? 'Locked by the approved payment request' : undefined"
+                                    hide-details="auto"
                                     density="compact"
                                     :rules="[rules.required]"
                                     @update:model-value="onItemCurrencyChange"
@@ -314,13 +352,18 @@ async function save() {
                             </v-col>
                         </v-row>
                     </div>
-                    <v-row v-if="items.length > 1" class="mt-2">
+                    <v-row v-if="items.length > 1 || correction" class="mt-2">
                         <v-col cols="12">
                             <div class="d-flex justify-end align-center ga-4">
                                 <div class="text-body-2 text-medium-emphasis">Total: <strong>{{ money(grandTotal, form.currency) }}</strong></div>
                             </div>
                         </v-col>
                     </v-row>
+                    <v-alert v-if="correctionExceeded" type="error" variant="tonal" density="compact" class="mt-2">
+                        {{ money(grandTotal, form.currency) }} is above the
+                        {{ money(correction.total, correction.currency) }} that {{ correction.reference_no }} was
+                        approved for. Lower it, or release the invoice and send the corrected amount for approval.
+                    </v-alert>
                 </v-card-text>
             </v-card>
 

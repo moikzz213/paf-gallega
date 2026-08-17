@@ -5,6 +5,38 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-08-17] A query on an invoice inside an approved PRF stranded it permanently
+- **Symptom:** Production invoice INV-2026-00054 sat at `status = query_raised` **and**
+  `payment_status = approved_for_payment` inside the fully approved PAF-2026-00018. The query asked
+  for the currency to change from AED to USD, but the invoice could not be edited, cancelled or
+  deleted (`isEditable()` requires `not_initiated`), and the PRF could not be rejected
+  (`assertActionable()` requires `in_approval`). Mark Paid was still live, so the wrong-currency
+  payment could still have gone out. The invoice's "Post to ERP" button was also still enabled and
+  would have silently overwritten ERP doc PINGGF00012347.
+- **Cause:** `InvoiceController::raiseQuery()` validated only `status`, never `payment_status`, so a
+  query could be raised on an invoice already held by a PRF. Nothing else in the app could move an
+  `approved` PRF backwards — rejection is the only path that returns invoices, and it is restricted
+  to `in_approval`. `post()` likewise never checked for an existing `erp_doc_no`.
+- **Fix:** (1) `raiseQuery()` now requires `payment_status = not_initiated`; (2) new
+  `PaymentRequestService::withdraw()` + `POST /api/payment-requests/{id}/withdraw`
+  (`role:finance,admin`) sets an `approved` PRF to the new `withdrawn` status, returns its invoices
+  to `not_initiated`/unlinked, and records `withdrawn_at/withdrawn_by/withdrawal_reason`;
+  (3) `post()` refuses to re-post a `query_raised` invoice that already carries an `erp_doc_no`.
+  Matching UI gates on `InvoiceDetailPage` (`canPost`, `canQuery`) and a Withdraw action on
+  `PaymentRequestDetailPage`.
+- **Verified:** `PaymentRequestWithdrawalTest` (7 tests) reconstructs the production state and covers
+  the guard, the withdrawal, the loss of Mark Paid, the role restriction, and the full recovery route
+  (withdraw → query → correct the currency to USD → re-post → payable again).
+- **Follow-up (same day):** the local repro (INV-10732 in PRF-2026-00009) showed the PRF also held a
+  perfectly good invoice (INV-65479), which whole-PRF withdrawal would have dragged back through
+  approval. Added two finer-grained finance/admin paths, neither needing approver sign-off:
+  **in-place correction** of an invoice held by a PRF (`InvoiceController::update` +
+  `Invoice::isCorrectableInPlace`), refusing a currency change or a higher total; and
+  **`POST /api/invoices/{invoice}/release`** (`PaymentRequestService::releaseInvoice`) to return one
+  invoice while the rest of its PRF stays approved, withdrawing the PRF only if nothing is left.
+  `PaymentRequest::syncTotal()` keeps the request total honest in both cases.
+  Verified by `InvoiceInPlaceCorrectionTest` (10 tests) built on the local PRF-2026-00009 shape.
+
 ## [2026-08-05] Same-named vendors were selected together on invoice entry
 - **Symptom:** Selecting either of two vendors named `Al Noor Logistics` highlighted both entries
   despite their different vendor codes; credit days and PDF supplier codes could also resolve to

@@ -7,6 +7,7 @@ use App\Mail\PasswordResetLink;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -83,5 +84,34 @@ class User extends Authenticatable
     public function canViewAllInvoices(): bool
     {
         return in_array($this->role, [self::ROLE_ADMIN, self::ROLE_FINANCE], true);
+    }
+
+    /**
+     * May be put on a payment request's approval chain.
+     *
+     * Approvers and admins always qualify. Finance qualifies **per person**, by an admin setting an
+     * `approval_level` on them: Finance often raises the PRF itself, so the group members who sign
+     * those off (rather than a requester's own manager) need to be selectable — but only the ones
+     * deliberately nominated, not every Finance user.
+     *
+     * Keep this in step with `scopeEligibleApprovers()` and the client's `canApprove` getter.
+     */
+    public function canApprove(): bool
+    {
+        if (in_array($this->role, [self::ROLE_APPROVER, self::ROLE_ADMIN], true)) {
+            return true;
+        }
+
+        return $this->isFinance() && $this->approval_level !== null;
+    }
+
+    /** The `canApprove()` rule as a query, for option lists and `exists` validation. */
+    public function scopeEligibleApprovers(Builder $query): Builder
+    {
+        return $query->where('is_active', true)->where(fn (Builder $q) => $q
+            ->whereIn('role', [self::ROLE_APPROVER, self::ROLE_ADMIN])
+            ->orWhere(fn (Builder $finance) => $finance
+                ->where('role', self::ROLE_FINANCE)
+                ->whereNotNull('approval_level')));
     }
 }

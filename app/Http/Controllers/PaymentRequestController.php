@@ -91,7 +91,7 @@ class PaymentRequestController extends Controller
         );
 
         return response()->json($paymentRequest->load([
-            'creator:id,name', 'payer:id,name',
+            'creator:id,name', 'payer:id,name', 'withdrawer:id,name',
             'invoices.submitter:id,name',
             'invoices.items.customer:id,name',
             'approvals.approver:id,name',
@@ -129,7 +129,8 @@ class PaymentRequestController extends Controller
             ]);
 
         if (! $user->isAdmin()) {
-            abort_unless($user->isApprover(), 403, 'Only approvers have an approval queue.');
+            // Finance users nominated as approvers get a queue too, scoped the same way.
+            abort_unless($user->canApprove(), 403, 'Only approvers have an approval queue.');
             $query->whereHas('approvals', fn ($a) => $a
                 ->whereColumn('sequence', 'payment_requests.current_stage')
                 ->where('approver_id', $user->id));
@@ -152,6 +153,18 @@ class PaymentRequestController extends Controller
         $pr = $this->service->reject($paymentRequest, $request->user(), $data['comments']);
 
         return response()->json($pr->load('approvals.approver:id,name'));
+    }
+
+    /**
+     * Withdraw an approved-but-unpaid request. Finance/admin only (enforced on the route as well) —
+     * this reverses a completed approval, so it is not an approver action.
+     */
+    public function withdraw(Request $request, PaymentRequest $paymentRequest)
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'max:2000']]);
+        $pr = $this->service->withdraw($paymentRequest, $request->user(), $data['reason']);
+
+        return response()->json($pr->load('invoices', 'withdrawer:id,name', 'approvals.approver:id,name'));
     }
 
     public function markPaid(Request $request, PaymentRequest $paymentRequest)
@@ -191,7 +204,8 @@ class PaymentRequestController extends Controller
         // Every active approval level, so the PDF can show reached (required) and
         // not-reached (still displayed) approvers regardless of this PRF's amount.
         $approvalLevels = ApprovalLevel::where('is_active', true)
-            ->with('defaultApprover:id,name')
+            // job_title feeds the "not reached" rows on the PDF, which show the level's default approver.
+            ->with('defaultApprover:id,name,job_title')
             ->orderBy('level')
             ->get();
 
@@ -246,12 +260,33 @@ class PaymentRequestController extends Controller
         return $pdf->download("{$paymentRequest->reference_no}.pdf");
     }
 
-    /** Turn the client's level/ad-hoc assignments into an ordered chain. */
+    /**
+     * Turn the client's level/ad-hoc assignments into an ordered chain.
+     *
+     * A stage's `label` is the job description shown against the approver everywhere the chain is
+     * rendered — screen, PDF and the public link. It is the **approver's own job title**, because a
+     * level's name describes a generic position ("Department Manager") that is often not the position
+     * of the person actually signing: Finance group members now approve at L1/L2. The level name
+     * remains the fallback for a user with no job title on record. Snapshotted at creation, like the
+     * rest of the stage, so a later job change cannot rewrite an approval that already happened.
+     */
     private function buildStages(float $total, array $assignments, array $adhoc): array
     {
+        $levels = ApprovalLevel::requiredFor($total);
+
+        $approverIds = collect($levels)
+            ->map(fn ($level) => $assignments[$level->level] ?? $level->default_approver_id)
+            ->concat(collect($adhoc)->pluck('approver_id'))
+            ->filter()
+            ->map(fn ($id) => (int) $id)
+            ->unique();
+
+        $jobTitles = User::whereIn('id', $approverIds)->pluck('job_title', 'id');
+        $jobTitle = fn (int $id) => trim((string) ($jobTitles[$id] ?? '')) ?: null;
+
         $stages = [];
 
-        foreach (ApprovalLevel::requiredFor($total) as $level) {
+        foreach ($levels as $level) {
             $approverId = $assignments[$level->level] ?? $level->default_approver_id;
             if (! $approverId) {
                 continue;
@@ -259,7 +294,7 @@ class PaymentRequestController extends Controller
             $this->assertApproverBelongsToLevel($level, (int) $approverId);
             $stages[] = [
                 'approver_id' => (int) $approverId,
-                'label' => $level->name,
+                'label' => $jobTitle((int) $approverId) ?? $level->name,
                 'level' => $level->level,
                 'is_adhoc' => false,
             ];
@@ -267,9 +302,12 @@ class PaymentRequestController extends Controller
 
         foreach ($adhoc as $stage) {
             if (! empty($stage['approver_id'])) {
+                $approverId = (int) $stage['approver_id'];
                 $stages[] = [
-                    'approver_id' => (int) $stage['approver_id'],
-                    'label' => trim((string) ($stage['label'] ?? '')) ?: 'Additional approver',
+                    'approver_id' => $approverId,
+                    // An ad-hoc stage's label is typed by whoever adds it; fall back to the
+                    // approver's job title rather than a generic placeholder.
+                    'label' => trim((string) ($stage['label'] ?? '')) ?: ($jobTitle($approverId) ?? 'Additional approver'),
                     'level' => null,
                     'is_adhoc' => true,
                 ];
@@ -301,9 +339,14 @@ class PaymentRequestController extends Controller
 
     private function validatedChain(Request $request): array
     {
+        // Same rule as User::canApprove(), as a database constraint.
         $isApprover = Rule::exists('users', 'id')->where(fn ($q) => $q
             ->where('is_active', true)
-            ->whereIn('role', [User::ROLE_APPROVER, User::ROLE_ADMIN]));
+            ->where(fn ($eligible) => $eligible
+                ->whereIn('role', [User::ROLE_APPROVER, User::ROLE_ADMIN])
+                ->orWhere(fn ($finance) => $finance
+                    ->where('role', User::ROLE_FINANCE)
+                    ->whereNotNull('approval_level'))));
 
         return $request->validate([
             'invoice_ids' => ['required', 'array', 'min:1'],

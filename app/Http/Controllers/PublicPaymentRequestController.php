@@ -165,7 +165,13 @@ class PublicPaymentRequestController extends Controller
 
         $approval = $this->getActionableApproval($pr, $token);
 
-        return $approval !== null;
+        if (! $approval) {
+            return false;
+        }
+
+        // Nobody signs off their own request, on this path either — mirrors
+        // PaymentRequestService::assertActionable so the two approve routes cannot drift.
+        return $approval->approver_id !== $pr->created_by;
     }
 
     /**

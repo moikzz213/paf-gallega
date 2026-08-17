@@ -71,19 +71,23 @@ export const STATUS_META = {
     draft: { label: 'Draft', color: '#898781', icon: 'mdi-pencil-outline' },
     approved: { label: 'Approved', color: '#1baf7a', icon: 'mdi-thumb-up-outline' },
     rejected: { label: 'Rejected', color: '#e34948', icon: 'mdi-close-circle-outline' },
+    withdrawn: { label: 'Withdrawn', color: '#eb6834', icon: 'mdi-undo-variant' },
 };
 
 export function statusLabel(status) {
     return STATUS_META[status]?.label ?? status;
 }
 
-/** Display name for a user's role. Approvers carry their level, which is meaningless without it. */
+/**
+ * Display name for a user's role. Approvers carry their level, which is meaningless without it, and
+ * so does a Finance user who has been nominated to approve at one.
+ */
 export function roleLabel(user) {
     const labels = {
         admin: 'Administrator',
         requester: 'Requester',
         approver: `Approver — L${user?.approval_level ?? ''}`,
-        finance: 'Finance',
+        finance: user?.approval_level != null ? `Finance — L${user.approval_level}` : 'Finance',
     };
     return labels[user?.role] ?? user?.role ?? '—';
 }

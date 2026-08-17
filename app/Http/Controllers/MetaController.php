@@ -39,12 +39,14 @@ class MetaController extends Controller
         ]);
     }
 
-    /** Active users who can be assigned as approvers on a request (for the chain builder). */
+    /**
+     * Users who can be assigned as approvers on a request (for the chain builder) — approvers,
+     * admins, and the Finance users an admin has given an approval level. See User::canApprove().
+     */
     public function approvers()
     {
         return User::query()
-            ->where('is_active', true)
-            ->whereIn('role', [User::ROLE_APPROVER, User::ROLE_ADMIN])
+            ->eligibleApprovers()
             ->orderBy('name')
             ->get(['id', 'name', 'role', 'approval_level', 'department', 'job_title']);
     }

@@ -119,7 +119,10 @@
                     'name' => $ap->approver?->name ?? '',
                     'date' => $ap->acted_at?->format('d/m/Y'),
                     'action' => $ap->status === 'approved' ? 'Approved By' : ($ap->status === 'rejected' ? 'Rejected By' : 'Pending Approval'),
-                    'role' => $lvl->name,
+                    // The stage's own label — the approver's job title as recorded when the chain was
+                    // built — so the paper form matches the chain on screen. The level name is what
+                    // that label falls back to, and stays the text for a level nobody was assigned.
+                    'role' => $ap->label ?: $lvl->name,
                     'required' => true,
                 ]);
             } else {
@@ -127,7 +130,7 @@
                     'name' => $lvl->defaultApprover?->name ?? '',
                     'date' => null,
                     'action' => 'Approved By',
-                    'role' => $lvl->name,
+                    'role' => trim((string) $lvl->defaultApprover?->job_title) ?: $lvl->name,
                     'required' => false,
                 ]);
             }

@@ -33,7 +33,9 @@ const routes = [
             { path: 'invoices/new', name: 'invoice-create', component: () => import('../pages/invoices/InvoiceFormPage.vue') },
             { path: 'invoices/:id', name: 'invoice-detail', component: () => import('../pages/invoices/InvoiceDetailPage.vue'), props: true },
             { path: 'invoices/:id/edit', name: 'invoice-edit', component: () => import('../pages/invoices/InvoiceFormPage.vue'), props: true },
-            { path: 'approvals', name: 'approvals', component: () => import('../pages/ApprovalsPage.vue'), meta: { roles: ['approver', 'admin'] } },
+            // Gated on the store getter rather than a role list: eligibility now depends on the
+            // user's approval level too, and `canApprove` is the client's copy of that rule.
+            { path: 'approvals', name: 'approvals', component: () => import('../pages/ApprovalsPage.vue'), meta: { gate: 'canApprove' } },
             { path: 'payment-requests', name: 'payment-requests', component: () => import('../pages/PaymentRequestsPage.vue') },
             { path: 'payment-requests/:id', name: 'payment-request-detail', component: () => import('../pages/PaymentRequestDetailPage.vue'), props: true },
             { path: 'reports', name: 'reports', component: () => import('../pages/ReportsPage.vue') },
@@ -66,6 +68,11 @@ router.beforeEach(async (to) => {
 
     const required = to.meta.roles;
     if (required && !required.includes(auth.user?.role)) {
+        return { name: 'dashboard' };
+    }
+
+    const gate = to.matched.map((r) => r.meta.gate).find(Boolean);
+    if (gate && !auth[gate]) {
         return { name: 'dashboard' };
     }
 
