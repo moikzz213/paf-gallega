@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\ApprovalLevel;
 use App\Models\BusinessUnit;
+use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\Department;
 use App\Models\Invoice;
@@ -22,7 +23,7 @@ class MetaController extends Controller
             'locations' => Location::where('is_active', true)->orderBy('name')->pluck('name'),
             'vendors' => Vendor::where('is_active', true)->orderBy('name')->get(['id', 'name', 'vendor_code', 'credit_limit', 'credit_days']),
             'customers' => Customer::where('is_active', true)->orderBy('name')->get(['id', 'name', 'customer_code', 'credit_limit', 'credit_days']),
-            'currencies' => config('paf.currencies'),
+            'currencies' => Currency::where('is_active', true)->orderBy('name')->pluck('name'),
             'payment_methods' => config('paf.payment_methods'),
             'priorities' => config('paf.priorities'),
             'statuses' => Invoice::STATUSES,

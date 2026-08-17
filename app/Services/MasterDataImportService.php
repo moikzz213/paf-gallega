@@ -129,11 +129,7 @@ class MasterDataImportService
     private function validationRules(array $definition): array
     {
         $rules = [
-            'name' => [
-                'required',
-                'string',
-                'max:255',
-            ],
+            'name' => array_merge(['required'], MasterDataDefinition::nameRules($definition)),
             'is_active' => ['required', 'boolean'],
         ];
 

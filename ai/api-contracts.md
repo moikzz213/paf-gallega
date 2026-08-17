@@ -22,7 +22,8 @@
 - **Invoice payment_status:** `not_initiated`, `in_approval`, `approved_for_payment`, `paid`.
 - **PRF status:** `draft`, `in_approval`, `approved`, `rejected`, `paid`.
 - **PRF approval status:** `pending`, `approved`, `rejected`.
-- **Roles:** `admin`, `requester`, `approver`, `finance`. **Currencies:** AED/USD/EUR/GBP/SAR.
+- **Roles:** `admin`, `requester`, `approver`, `finance`. **Currencies:** master data (the
+  `currencies` table; seeded AED/USD/EUR/GBP/SAR), stored on the invoice as a plain string.
 
 ## Auth & meta
 
@@ -30,7 +31,7 @@
 |--------|------|-------|
 | POST | `/api/login` | `email, password, remember?`; checks `is_active`; `{ user }` |
 | POST | `/api/logout` · GET `/api/me` | session |
-| GET | `/api/meta` | `business_units[], departments[], locations[]` (active names from DB), `vendors[{id,name,vendor_code,credit_limit,credit_days}]`, `customers[{id,name,customer_code,credit_limit,credit_days}]` (active from DB), `currencies, payment_methods, priorities, statuses, payment_statuses, pr_statuses, roles, approval_levels (with defaultApprover), upload{…}` |
+| GET | `/api/meta` | `business_units[], departments[], locations[]` (active names from DB), `vendors[{id,name,vendor_code,credit_limit,credit_days}]`, `customers[{id,name,customer_code,credit_limit,credit_days}]` (active from DB), `currencies[]` (active names from DB), `payment_methods, priorities, statuses, payment_statuses, pr_statuses, roles, approval_levels (with defaultApprover), upload{…}` |
 | GET | `/api/approvers` | active users with role approver/admin — the chain-builder pool |
 | GET | `/api/vendors` | active vendor names (for filter dropdowns) |
 | GET | `/api/dashboard` | scoped KPIs: `cards{total_invoices, awaiting_posting, in_approval, paid_this_month}, my_queue, status_distribution[], monthly[], top_vendors[], by_business_unit[], recent[]` |
@@ -50,8 +51,9 @@
 
 **Create/update validation:** `vendor_id` must reference an active vendor; the server derives
 `vendor_name` from that record so same-named vendors remain distinct. invoice_no req ≤100;
-invoice_date req; due_date `after_or_equal:invoice_date`; currency in list;
-amount 0.01–1e12; tax_amount ≥0; business_unit/department/location/payment_method/priority in config (Rule::in);
+invoice_date req; due_date `after_or_equal:invoice_date`; currency (header and every line) must be
+an active `currencies` master-data name;
+amount 0.01–1e12; tax_amount ≥0; business_unit/department/location must be active master-data names, payment_method/priority in config (Rule::in);
 description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
 
 ## Payment Requests (PRF)
@@ -95,7 +97,8 @@ approver go out via the `SendPendingApprovalReminders` console command (`Payment
 | DELETE | `/api/documents/{document}` | uploader or admin; invoice must be editable |
 | GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; export = 24-col XLSX, audit-logged |
 | GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. User `department` must match an active Departments master-data row. Approval-level create/update accepts `default_approver_id` (nullable; must be an active approver/admin) |
-| GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations`. GET is paginated (`page`, `per_page` 1–100) and accepts `q` (name for all entities, plus code for vendors/customers); results are ordered by name then id. POST creates vendors/customers with repeatable names and unique entered codes; other entities retain unique names. |
+| GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations, currencies`.
+A currency's `name` is its 3-letter upper-case code (`size:3`, `alpha:ascii`, `uppercase`). GET is paginated (`page`, `per_page` 1–100) and accepts `q` (name for all entities, plus code for vendors/customers); results are ordered by name then id. POST creates vendors/customers with repeatable names and unique entered codes; other entities retain unique names. |
 | PUT/DELETE | `/api/master-data/{entity}/{id}` | `role:admin`. PUT updates the entity's create fields plus `is_active`; DELETE removes. |
 | GET | `/api/master-data/{entity}/template` | `role:admin`. Downloads an XLSX import template with an **Import Data** sheet and entity-specific instructions. |
 | POST | `/api/master-data/{entity}/import` | `role:admin`; multipart `file` (`xlsx`/`xls`, max 5 MB). Create-only, maximum 1,000 rows, and atomic. Vendors/customers allow repeated names but reject duplicate entered codes; other entities reject duplicate names. Any missing header or invalid/duplicate value returns `422` and creates nothing. Imported rows default to `is_active = 1`; status is not included in templates. Success returns `{message, imported_count}`; every created row is audit-logged. |

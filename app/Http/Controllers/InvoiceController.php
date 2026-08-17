@@ -254,7 +254,7 @@ class InvoiceController extends Controller
             'invoice_no' => ['required', 'string', 'max:100'],
             'invoice_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
-            'currency' => ['nullable', Rule::in(config('paf.currencies'))], // overwritten from the line items
+            'currency' => ['nullable', 'string', Rule::exists('currencies', 'name')->where('is_active', true)], // overwritten from the line items
             'business_unit' => ['required', 'string', Rule::exists('business_units', 'name')->where('is_active', true)],
             'department' => ['required', 'string', Rule::exists('departments', 'name')->where('is_active', true)],
             'location' => ['required', 'string', Rule::exists('locations', 'name')->where('is_active', true)],
@@ -279,7 +279,7 @@ class InvoiceController extends Controller
             'items.*.job_no' => ['nullable', 'string', 'max:100'],
             'items.*.customer_id' => ['nullable', 'integer', Rule::exists('customers', 'id')->where('is_active', true)],
             'items.*.description' => ['nullable', 'string', 'max:2000'],
-            'items.*.currency' => ['required', Rule::in(config('paf.currencies'))],
+            'items.*.currency' => ['required', 'string', Rule::exists('currencies', 'name')->where('is_active', true)],
             'items.*.amount' => ['required', 'numeric', 'min:0.01', 'max:999999999999'],
             'items.*.tax_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
         ]);

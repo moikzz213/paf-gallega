@@ -44,6 +44,7 @@ class MasterDataImportTest extends TestCase
             'business-units' => ['Name *'],
             'departments' => ['Name *'],
             'locations' => ['Name *'],
+            'currencies' => ['Name *'],
         ];
 
         foreach ($entities as $entity => $expectedHeadings) {
@@ -96,6 +97,10 @@ class MasterDataImportTest extends TestCase
                 ['Name *'],
                 ['Bulk Location'],
             ],
+            'currencies' => [
+                ['Name *'],
+                ['JPY'],
+            ],
         ];
 
         foreach ($imports as $entity => $rows) {
@@ -121,7 +126,8 @@ class MasterDataImportTest extends TestCase
         $this->assertDatabaseHas('business_units', ['name' => 'Bulk Business Unit']);
         $this->assertDatabaseHas('departments', ['name' => 'Bulk Department']);
         $this->assertDatabaseHas('locations', ['name' => 'Bulk Location']);
-        $this->assertSame(5, AuditLog::where('action', 'master_data_imported')->count());
+        $this->assertDatabaseHas('currencies', ['name' => 'JPY', 'is_active' => true]);
+        $this->assertSame(6, AuditLog::where('action', 'master_data_imported')->count());
     }
 
     public function test_import_is_atomic_when_a_row_is_invalid_or_duplicate(): void

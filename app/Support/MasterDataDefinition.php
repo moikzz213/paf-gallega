@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\BusinessUnit;
+use App\Models\Currency;
 use App\Models\Customer;
 use App\Models\Department;
 use App\Models\Location;
@@ -69,7 +70,25 @@ final class MasterDataDefinition
                     self::column('name', 'Name', true, 'Location name. Must be unique.', 34),
                 ],
             ],
+            'currencies' => [
+                'model' => Currency::class,
+                'table' => 'currencies',
+                'label' => 'Currencies',
+                'code_key' => null,
+                // Invoices store the currency as a plain string in a 3-character column, so the
+                // name here *is* the code that gets written to the invoice.
+                'name_rules' => ['string', 'size:3', 'alpha:ascii', 'uppercase'],
+                'columns' => [
+                    self::column('name', 'Name', true, 'Three-letter currency code in upper case, e.g. AED. Must be unique.', 34),
+                ],
+            ],
         ];
+    }
+
+    /** Validation rules for an entity's name, excluding required/unique (callers add those). */
+    public static function nameRules(array $definition): array
+    {
+        return $definition['name_rules'] ?? ['string', 'max:255'];
     }
 
     private static function column(

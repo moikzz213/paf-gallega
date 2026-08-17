@@ -130,6 +130,14 @@ function removeItem(index) {
 
 onMounted(async () => {
     await meta.load();
+    if (!isEdit.value) {
+        // Currencies come from master data, so the 'AED' default only holds while it is on the
+        // list — otherwise start on the first currency Finance has set up.
+        const currencies = meta.currencies ?? [];
+        if (currencies.length && !currencies.includes(form.value.currency)) {
+            onItemCurrencyChange(currencies[0]);
+        }
+    }
     if (isEdit.value) {
         loading.value = true;
         try {

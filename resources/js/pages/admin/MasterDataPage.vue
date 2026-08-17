@@ -35,13 +35,19 @@ const tabs = [
     { value: 'business-units', label: 'Business Units', icon: 'mdi-domain' },
     { value: 'departments', label: 'Departments', icon: 'mdi-account-group-outline' },
     { value: 'locations', label: 'Locations', icon: 'mdi-map-marker-outline' },
+    { value: 'currencies', label: 'Currencies', icon: 'mdi-currency-usd' },
 ];
 
 const hasCreditFields = (t) => t === 'vendors' || t === 'customers';
 
+const tabLabel = (t) => tabs.find((x) => x.value === t)?.label ?? 'master data';
+// "Currencies" doesn't singularise by dropping an "s", and a currency's name is its code.
+const tabSingular = (t) => (t === 'currencies' ? 'Currency' : tabLabel(t).replace(/s$/, ''));
+const nameLabel = (t) => (t === 'currencies' ? 'Currency Code' : 'Name');
+
 function headers(t) {
     const h = [
-        { title: 'Name', key: 'name', sortable: false },
+        { title: nameLabel(t), key: 'name', sortable: false },
         { title: 'Status', key: 'is_active', sortable: false },
         { title: '', key: 'actions', align: 'end', sortable: false },
     ];
@@ -205,7 +211,7 @@ async function remove(item) {
         <div class="d-flex flex-wrap align-center ga-2 mb-6">
             <div>
                 <h1 class="text-h5 font-weight-bold">Master Data</h1>
-                <div class="text-body-2 text-medium-emphasis">Manage vendors, customers, business units, departments and locations</div>
+                <div class="text-body-2 text-medium-emphasis">Manage vendors, customers, business units, departments, locations and currencies</div>
             </div>
             <v-spacer />
             <v-btn variant="outlined" prepend-icon="mdi-file-download-outline" @click="downloadTemplate">
@@ -214,7 +220,7 @@ async function remove(item) {
             <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="openImport">
                 Import Excel
             </v-btn>
-            <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">New {{ tabs.find(t => t.value === tab)?.label?.replace(/s$/, '') }}</v-btn>
+            <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">New {{ tabSingular(tab) }}</v-btn>
         </div>
 
         <v-tabs v-model="tab" color="primary" class="mb-4">
@@ -223,7 +229,7 @@ async function remove(item) {
 
         <v-text-field
             v-model="search"
-            :label="`Search ${tabs.find(t => t.value === tab)?.label ?? 'master data'}${hasCreditFields(tab) ? ' by name or code' : ' by name'}`"
+            :label="`Search ${tabLabel(tab)}${hasCreditFields(tab) ? ' by name or code' : ' by name'}`"
             prepend-inner-icon="mdi-magnify"
             clearable
             hide-details
@@ -271,10 +277,17 @@ async function remove(item) {
 
         <v-dialog v-model="dialog" max-width="520">
             <v-card>
-                <v-card-title>{{ editing ? 'Edit' : 'New' }} {{ tabs.find(t => t.value === tab)?.label?.replace(/s$/, '') }}</v-card-title>
+                <v-card-title>{{ editing ? 'Edit' : 'New' }} {{ tabSingular(tab) }}</v-card-title>
                 <v-card-text>
                     <v-form ref="formRef" @submit.prevent>
-                        <v-text-field v-model="form.name" label="Name *" :rules="[rules.required]" autofocus />
+                        <v-text-field
+                            v-model="form.name"
+                            :label="`${nameLabel(tab)} *`"
+                            :hint="tab === 'currencies' ? 'Three-letter code in upper case, e.g. AED' : undefined"
+                            :persistent-hint="tab === 'currencies'"
+                            :rules="[rules.required]"
+                            autofocus
+                        />
                         <template v-if="hasCreditFields(tab)">
                             <v-text-field v-if="tab === 'vendors'" v-model="form.vendor_code" label="Vendor Code" />
                             <v-text-field v-else v-model="form.customer_code" label="Customer Code" />
@@ -294,7 +307,7 @@ async function remove(item) {
 
         <v-dialog v-model="importDialog" max-width="560">
             <v-card>
-                <v-card-title>Import {{ tabs.find(t => t.value === tab)?.label }}</v-card-title>
+                <v-card-title>Import {{ tabLabel(tab) }}</v-card-title>
                 <v-card-text>
                     <v-alert type="info" variant="tonal" class="mb-4">
                         Download the template, keep its column headers unchanged, and upload the completed Excel file.

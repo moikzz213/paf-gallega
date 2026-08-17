@@ -11,7 +11,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 ## 2. Submit Invoice (Requester)
 
 - Fixed-format form: vendor selection by unique master-data record (displayed as name + code),
-  invoice no/date/due date, currency,
+  invoice no/date/due date, currency (dropdown fed by the currencies master data; stored as a
+  plain string on the invoice and its lines),
   amount + tax (total computed server-side), business unit (GIL/GGL/GGH), submitting department, location,
   payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
 - System reference `INV-{year}-{00001}`; submitted immediately (status `submitted`).
@@ -105,7 +106,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   `approval_level` for approvers.
 - **Approval levels:** CRUD of the threshold levels used to **pre-fill** PRF chains, each with a
   **default approver**.
-- **Master data:** CRUD for vendors, customers, business units, departments and locations.
+- **Master data:** CRUD for vendors, customers, business units, departments, locations and
+  currencies (a currency's name is its 3-letter code; it feeds the invoice Currency dropdown).
   Lists use server-side pagination and search; vendor/customer searches cover both name and code.
   Vendor and customer names may repeat, while each entered vendor/customer code must be unique.
   Administrators can also download a formatted entity-specific Excel template and bulk import up
