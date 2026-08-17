@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../services/api';
-import { invoicesCurrency, money, shortDate } from '../utils/format';
+import { invoicesCurrency, invoicesVendor, money, shortDate } from '../utils/format';
 import { useAuthStore } from '../stores/auth';
 import { useMetaStore } from '../stores/meta';
 import { useNotifyStore } from '../stores/notify';
@@ -21,6 +21,7 @@ const options = reactive({ page: 1, itemsPerPage: 15 });
 
 const headers = [
     { title: 'Reference', key: 'reference_no', sortable: false },
+    { title: 'Vendor', key: 'vendor_name', sortable: false },
     { title: 'Invoices', key: 'invoices', sortable: false },
     { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
     { title: 'Stage', key: 'stage', sortable: false },
@@ -213,6 +214,9 @@ async function submitCreate() {
                         {{ item.reference_no }}
                     </router-link>
                     <div class="text-caption text-medium-emphasis">by {{ item.creator?.name }}</div>
+                </template>
+                <template #item.vendor_name="{ item }">
+                    <span :title="invoicesVendor(item.invoices).all">{{ invoicesVendor(item.invoices).label }}</span>
                 </template>
                 <template #item.invoices="{ item }">
                     {{ item.invoices?.length ?? 0 }} invoice(s)

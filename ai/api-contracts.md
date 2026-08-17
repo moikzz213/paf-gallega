@@ -95,7 +95,7 @@ approver go out via the `SendPendingApprovalReminders` console command (`Payment
 |--------|------|-------|
 | GET | `/api/documents/{document}/download` | view rule as invoice show; streams file |
 | DELETE | `/api/documents/{document}` | uploader or admin; invoice must be editable |
-| GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; export = 24-col XLSX, audit-logged |
+| GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; rows eager-load `items[{id,invoice_id,job_no,sort_order}]` for the Job No column; export = 25-col XLSX (Job No after Invoice No, distinct line job numbers joined with `, `), audit-logged |
 | GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. User `department` must match an active Departments master-data row. Approval-level create/update accepts `default_approver_id` (nullable; must be an active approver/admin) |
 | GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations, currencies`.
 A currency's `name` is its 3-letter upper-case code (`size:3`, `alpha:ascii`, `uppercase`). GET is paginated (`page`, `per_page` 1–100) and accepts `q` (name for all entities, plus code for vendors/customers); results are ordered by name then id. POST creates vendors/customers with repeatable names and unique entered codes; other entities retain unique names. |

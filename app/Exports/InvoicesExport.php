@@ -17,13 +17,18 @@ class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMap
 
     public function query()
     {
-        return $this->query->with(['submitter:id,name', 'poster:id,name', 'paymentRequest:id,reference_no,status,paid_at,payment_reference']);
+        return $this->query->with([
+            'submitter:id,name',
+            'poster:id,name',
+            'paymentRequest:id,reference_no,status,paid_at,payment_reference',
+            'items:id,invoice_id,job_no,sort_order',
+        ]);
     }
 
     public function headings(): array
     {
         return [
-            'Reference No', 'Vendor', 'Invoice No', 'Invoice Date', 'Due Date',
+            'Reference No', 'Vendor', 'Invoice No', 'Job No', 'Invoice Date', 'Due Date',
             'Currency', 'Amount', 'Tax', 'Total', 'Business Unit', 'Department',
             'Location', 'Payment Method', 'Priority', 'Status', 'Payment Status',
             'ERP Doc No', 'Posting Date', 'Requested By', 'Submitted At', 'Posted By',
@@ -38,6 +43,7 @@ class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMap
             $invoice->reference_no,
             $invoice->vendor_name,
             $invoice->invoice_no,
+            self::jobNumbers($invoice),
             $invoice->invoice_date?->format('Y-m-d'),
             $invoice->due_date?->format('Y-m-d'),
             $invoice->currency,
@@ -60,6 +66,16 @@ class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMap
             $invoice->paymentRequest?->paid_at?->format('Y-m-d H:i'),
             $invoice->paymentRequest?->payment_reference,
         ];
+    }
+
+    /** An invoice's job numbers live on its lines, and a line may carry none. */
+    private static function jobNumbers(Invoice $invoice): string
+    {
+        return $invoice->items
+            ->pluck('job_no')
+            ->filter(fn (?string $jobNo) => trim((string) $jobNo) !== '')
+            ->unique()
+            ->implode(', ');
     }
 
     public function styles(Worksheet $sheet)

@@ -15,6 +15,21 @@ export function invoicesCurrency(invoices) {
     return codes.length ? 'MULTI-CURRENCY' : undefined;
 }
 
+/**
+ * Like invoicesCurrency: a payment request has no vendor of its own, it carries the vendors of the
+ * invoices it groups. Returns { label, all } so a list can show one name and keep the full set for
+ * a tooltip when a request spans several vendors.
+ */
+export function invoicesVendor(invoices) {
+    const names = [...new Set((invoices ?? []).map((i) => i?.vendor_name).filter(Boolean))];
+    if (!names.length) return { label: '—', all: '' };
+
+    return {
+        label: names.length === 1 ? names[0] : `${names[0]} +${names.length - 1} more`,
+        all: names.join(', '),
+    };
+}
+
 export function shortDate(value) {
     if (!value) return '—';
     return new Date(value).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' });

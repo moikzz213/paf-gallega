@@ -27,7 +27,7 @@ class ReportController extends Controller
         ];
 
         $rows = $query
-            ->with(['submitter:id,name', 'poster:id,name', 'paymentRequest:id,reference_no,status'])
+            ->with(['submitter:id,name', 'poster:id,name', 'paymentRequest:id,reference_no,status', 'items:id,invoice_id,job_no,sort_order'])
             ->orderByDesc('invoice_date')
             ->paginate((int) $request->input('per_page', 25));
 

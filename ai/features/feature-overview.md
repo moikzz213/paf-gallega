@@ -36,6 +36,9 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Builds the **approval chain** for the PRF total (pre-filled from level defaults, fully
   editable, ad-hoc stages allowed) and sends it for approval in one step.
 - Selected invoices are reserved (`payment_status = in_approval`) and linked to the PRF.
+- The payment request list shows the **vendor name** of the invoices it groups; a PRF spanning
+  several vendors shows the first with a `+N more` suffix (all names in the cell tooltip), the
+  same way the currency column labels mixed sets.
 - An **email notification** is sent to the stage-1 approver when the PRF is created.
   The email includes a **unique token-gated link** (no login required) to view and approve/reject
   the PRF. Each approval stage has its own token — after approval, the old token becomes
@@ -91,7 +94,9 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 ## 8. Reports & Excel export
 
 - Filterable report (status, department, business unit, vendor, date range) with per-status summary
-  and a paginated table. **Export to Excel** (24-column XLSX incl. ERP posting + PRF payment
+  and a paginated table. The table and the export both show the invoice's **job numbers** (they
+  live on the invoice lines, so an invoice's distinct job numbers are joined with `, `).
+  **Export to Excel** (25-column XLSX incl. job no., ERP posting + PRF payment
   columns); exports are audit-logged.
 
 ## 9. Audit trail (Admin)

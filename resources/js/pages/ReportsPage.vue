@@ -28,12 +28,19 @@ const headers = [
     { title: 'Reference', key: 'reference_no', sortable: false },
     { title: 'Vendor', key: 'vendor_name', sortable: false },
     { title: 'Invoice #', key: 'invoice_no', sortable: false },
+    { title: 'Job No', key: 'job_no', sortable: false },
     { title: 'Date', key: 'invoice_date', sortable: false },
     { title: 'Business Unit', key: 'business_unit', sortable: false },
     { title: 'Department', key: 'department', sortable: false },
     { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
     { title: 'Status', key: 'status', sortable: false },
 ];
+
+// Job numbers sit on the invoice lines, and a line may carry none.
+function jobNumbers(invoice) {
+    const numbers = [...new Set((invoice.items ?? []).map((i) => i?.job_no).filter((j) => j && String(j).trim() !== ''))];
+    return numbers.length ? numbers.join(', ') : '—';
+}
 
 function params() {
     return {
@@ -161,6 +168,9 @@ onMounted(() => meta.load());
                     <router-link :to="`/invoices/${item.id}`" class="text-primary text-decoration-none font-weight-medium">
                         {{ item.reference_no }}
                     </router-link>
+                </template>
+                <template #item.job_no="{ item }">
+                    {{ jobNumbers(item) }}
                 </template>
                 <template #item.invoice_date="{ item }">
                     {{ shortDate(item.invoice_date) }}
