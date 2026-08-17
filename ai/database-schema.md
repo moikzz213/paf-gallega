@@ -23,7 +23,7 @@ users ──< invoices >── payment_requests ──< payment_request_approval
   └──< audit_logs (actor) ; audit_logs ── invoice_id? / payment_request_id?
 
 approval_levels  (config: threshold + default approver; pre-fills a PRF chain)
-vendors, customers, business_units, departments, locations  (master lists)
+vendors, customers, business_units, departments, locations, currencies  (master lists)
 invoice_documents  ──< invoices
 ```
 
@@ -79,9 +79,15 @@ Base Laravel columns plus (`add_paf_fields_to_users_table`): `role`
 | `is_active` | boolean | |
 | timestamps | | |
 
-### business_units · departments · locations
+### business_units · departments · locations · currencies
 
 Identical schema: `id`, `name` (unique), `is_active` (boolean), timestamps.
+
+For **currencies** the `name` *is* the code (3 upper-case letters, e.g. `AED`) — it is what gets
+copied into `invoices.currency` / `invoice_items.currency` as a plain string; there is no FK.
+`create_currencies_table` seeds the table from `config('paf.currencies')` plus every code already
+present on an invoice or invoice line, so existing rows stay valid after the switch from the
+hard-coded config list.
 
 ### invoices
 

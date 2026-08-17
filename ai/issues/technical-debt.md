@@ -43,6 +43,11 @@ Structural/maintainability items (distinct from behavioral gaps in
   feature work.
 - **No CI/CD**, no static analysis (PHPStan/Larastan), no frontend lint/format config beyond
   `.editorconfig`. Pint is available but not enforced.
+- **Three pre-existing failing tests** (unrelated to the code they cover being wrong):
+  `MasterDataImportTest::test_non_admin_cannot_import_or_download_templates` still expects finance
+  to be blocked from templates/import, which stopped being true when finance was granted
+  master-data access; and two `PaymentRequestPdfTest` approver-rendering assertions. Fix or retire
+  them — a red baseline hides real regressions.
 
 ## Product-model note
 

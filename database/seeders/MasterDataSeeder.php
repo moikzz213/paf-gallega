@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\BusinessUnit;
+use App\Models\Currency;
 use App\Models\Department;
 use App\Models\Location;
 use App\Models\Vendor;
@@ -15,6 +16,7 @@ class MasterDataSeeder extends Seeder
         $businessUnits = ['GIL', 'GGL', 'GGH'];
         $departments = ['Warehouse', 'Yard', 'Freight forwarding', 'Custom clearance', 'Land transportation', 'Service center'];
         $locations = ['Head Office', 'Dubai', 'Abu Dhabi', 'Sharjah', 'Jebel Ali', 'Warehouse'];
+        $currencies = ['AED', 'USD', 'EUR', 'GBP', 'SAR'];
 
         foreach ($businessUnits as $name) {
             BusinessUnit::firstOrCreate(['name' => $name]);
@@ -26,6 +28,10 @@ class MasterDataSeeder extends Seeder
 
         foreach ($locations as $name) {
             Location::firstOrCreate(['name' => $name]);
+        }
+
+        foreach ($currencies as $name) {
+            Currency::firstOrCreate(['name' => $name]);
         }
 
         $vendors = [

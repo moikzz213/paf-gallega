@@ -12,7 +12,13 @@ class MasterDataAccessTest extends TestCase
     use RefreshDatabase;
 
     /** Every entity MasterDataDefinition exposes. Note business-units is hyphenated in the URL. */
-    private const ENTITIES = ['vendors', 'customers', 'business-units', 'departments', 'locations'];
+    private const ENTITIES = ['vendors', 'customers', 'business-units', 'departments', 'locations', 'currencies'];
+
+    /** Currency names are 3-letter codes, so the generic sample name doesn't fit them. */
+    private function names(string $entity): array
+    {
+        return $entity === 'currencies' ? ['JPY', 'CHF'] : ['Alpha Entry', 'Alpha Renamed'];
+    }
 
     private function user(string $role): User
     {
@@ -38,11 +44,13 @@ class MasterDataAccessTest extends TestCase
 
         $this->getJson("/api/master-data/{$entity}")->assertOk();
 
-        $created = $this->postJson("/api/master-data/{$entity}", ['name' => 'Alpha Entry', 'is_active' => true])
+        [$name, $renamed] = $this->names($entity);
+
+        $created = $this->postJson("/api/master-data/{$entity}", ['name' => $name, 'is_active' => true])
             ->assertCreated()
             ->json();
 
-        $this->putJson("/api/master-data/{$entity}/{$created['id']}", ['name' => 'Alpha Renamed', 'is_active' => true])
+        $this->putJson("/api/master-data/{$entity}/{$created['id']}", ['name' => $renamed, 'is_active' => true])
             ->assertOk();
 
         $this->getJson("/api/master-data/{$entity}/template")->assertOk();
@@ -56,7 +64,7 @@ class MasterDataAccessTest extends TestCase
         $this->actingAs($this->user(User::ROLE_ADMIN));
 
         $this->getJson("/api/master-data/{$entity}")->assertOk();
-        $this->postJson("/api/master-data/{$entity}", ['name' => 'Admin Entry', 'is_active' => true])->assertCreated();
+        $this->postJson("/api/master-data/{$entity}", ['name' => $this->names($entity)[0], 'is_active' => true])->assertCreated();
     }
 
     /** Opening this up to finance must not open it to everyone. */

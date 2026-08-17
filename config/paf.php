@@ -30,6 +30,9 @@ return [
 
     'locations' => $list('PAF_LOCATIONS', 'Head Office,Dubai,Abu Dhabi,Sharjah,Jebel Ali,Warehouse'),
 
+    // Currencies are master data (the `currencies` table) — this list only seeds that table on the
+    // create_currencies_table migration. Changing it afterwards has no effect on the app; edit the
+    // Currencies tab under Master Data instead.
     'currencies' => $list('PAF_CURRENCIES', 'AED,USD,EUR,GBP,SAR'),
 
     'priorities' => $list('PAF_PRIORITIES', 'normal,high,urgent'),

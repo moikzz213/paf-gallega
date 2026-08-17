@@ -111,6 +111,8 @@ class MasterDataController extends Controller
 
     private function validationRules(string $entity, ?int $ignoreId = null): array
     {
+        $definition = $this->resolveDefinition($entity);
+
         $uniqueName = function (string $table) use ($ignoreId): Unique {
             $rule = Rule::unique($table, 'name');
             if ($ignoreId) {
@@ -139,7 +141,11 @@ class MasterDataController extends Controller
             ], $creditRules, $common),
 
             default => array_merge([
-                'name' => ['required', 'string', 'max:255', $uniqueName((new ($this->resolveModel($entity)))->getTable())],
+                'name' => array_merge(
+                    ['required'],
+                    MasterDataDefinition::nameRules($definition),
+                    [$uniqueName($definition['table'])],
+                ),
             ], $common),
         };
     }
