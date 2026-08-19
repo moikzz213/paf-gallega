@@ -42,6 +42,10 @@ Structural/maintainability items (distinct from behavioral gaps in
   values; `User::scopeEligibleApprovers()` and the chain builder's per-level filter are the two
   places that would change.
 
+- **API keys are console-only.** Issuing and revoking export-API keys is `api-key:issue` /
+  `api-key:revoke`, with no admin screen. Fine while a handful of finance workbooks use it; if it
+  spreads, an admin page (list, issue, revoke, last-used) belongs next to Users.
+
 ## Testing & tooling
 
 - **Partial test coverage.** 12 feature tests cover the PRF workflow + endpoint smoke; there are

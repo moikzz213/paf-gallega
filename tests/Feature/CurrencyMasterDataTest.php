@@ -48,7 +48,7 @@ class CurrencyMasterDataTest extends TestCase
             'payment_method' => 'bank_transfer',
             'priority' => 'normal',
             'items' => [
-                ['job_no' => 'JOB-1', 'currency' => $currency, 'amount' => 100, 'tax_amount' => 0],
+                ['job_no' => 'JOB-1', 'currency' => $currency, 'amount' => 100, 'tax_rate' => 0],
             ],
         ];
     }

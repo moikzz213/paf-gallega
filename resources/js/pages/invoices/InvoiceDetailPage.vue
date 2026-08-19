@@ -220,7 +220,12 @@ const auditIcons = {
                                     <td>{{ item.customer?.name || '—' }}</td>
                                     <td>{{ item.description || '—' }}</td>
                                     <td class="text-right">{{ money(item.amount, item.currency) }}</td>
-                                    <td class="text-right">{{ money(item.tax_amount, item.currency) }}</td>
+                                    <td class="text-right">
+                                        {{ money(item.tax_amount, item.currency) }}
+                                        <span v-if="Number(item.tax_rate) > 0" class="text-caption text-medium-emphasis">
+                                            ({{ Number(item.tax_rate) }}%)
+                                        </span>
+                                    </td>
                                     <td class="text-right font-weight-bold">{{ money(item.total_amount, item.currency) }}</td>
                                 </tr>
                             </tbody>

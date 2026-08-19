@@ -361,11 +361,14 @@ class InvoiceController extends Controller
             'items.*.description' => ['nullable', 'string', 'max:2000'],
             'items.*.currency' => ['required', 'string', Rule::exists('currencies', 'name')->where('is_active', true)],
             'items.*.amount' => ['required', 'numeric', 'min:0.01', 'max:999999999999'],
-            'items.*.tax_amount' => ['nullable', 'numeric', 'min:0', 'max:999999999999'],
+            // Tax is captured as a percentage of the line amount; the cash figure is derived below,
+            // so the server owns it and the two can never disagree.
+            'items.*.tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
         ]);
 
         foreach ($items['items'] as &$item) {
-            $item['tax_amount'] = $item['tax_amount'] ?? 0;
+            $item['tax_rate'] = round((float) ($item['tax_rate'] ?? 0), 2);
+            $item['tax_amount'] = round($item['amount'] * $item['tax_rate'] / 100, 2);
             $item['total_amount'] = round($item['amount'] + $item['tax_amount'], 2);
         }
         unset($item);
@@ -399,6 +402,7 @@ class InvoiceController extends Controller
                 'description' => $item['description'] ?? null,
                 'currency' => $item['currency'],
                 'amount' => $item['amount'],
+                'tax_rate' => $item['tax_rate'],
                 'tax_amount' => $item['tax_amount'],
                 'total_amount' => $item['total_amount'],
             ]);

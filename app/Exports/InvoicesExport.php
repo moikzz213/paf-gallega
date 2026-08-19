@@ -3,6 +3,7 @@
 namespace App\Exports;
 
 use App\Models\Invoice;
+use App\Support\InvoiceReport;
 use Illuminate\Database\Eloquent\Builder;
 use Maatwebsite\Excel\Concerns\FromQuery;
 use Maatwebsite\Excel\Concerns\ShouldAutoSize;
@@ -17,65 +18,22 @@ class InvoicesExport implements FromQuery, ShouldAutoSize, WithHeadings, WithMap
 
     public function query()
     {
-        return $this->query->with([
-            'submitter:id,name',
-            'poster:id,name',
-            'paymentRequest:id,reference_no,status,paid_at,payment_reference',
-            'items:id,invoice_id,job_no,sort_order',
-        ]);
+        return $this->query->with(InvoiceReport::RELATIONS);
     }
 
     public function headings(): array
     {
-        return [
-            'Reference No', 'Vendor', 'Invoice No', 'Job No', 'Invoice Date', 'Due Date',
-            'Currency', 'Amount', 'Tax', 'Total', 'Business Unit', 'Department',
-            'Location', 'Payment Method', 'Priority', 'Status', 'Payment Status',
-            'ERP Doc No', 'Posting Date', 'Requested By', 'Submitted At', 'Posted By',
-            'Payment Request', 'Paid At', 'Payment Reference',
-        ];
+        return InvoiceReport::headings();
     }
 
-    /** @param Invoice $invoice */
+    /**
+     * Same row the export API serves, positional for the spreadsheet.
+     *
+     * @param  Invoice  $invoice
+     */
     public function map($invoice): array
     {
-        return [
-            $invoice->reference_no,
-            $invoice->vendor_name,
-            $invoice->invoice_no,
-            self::jobNumbers($invoice),
-            $invoice->invoice_date?->format('Y-m-d'),
-            $invoice->due_date?->format('Y-m-d'),
-            $invoice->currency,
-            (float) $invoice->amount,
-            (float) $invoice->tax_amount,
-            (float) $invoice->total_amount,
-            $invoice->business_unit,
-            $invoice->department,
-            $invoice->location,
-            config('paf.payment_methods')[$invoice->payment_method] ?? $invoice->payment_method,
-            ucfirst($invoice->priority),
-            str_replace('_', ' ', ucfirst($invoice->status)),
-            str_replace('_', ' ', ucfirst($invoice->payment_status)),
-            $invoice->erp_doc_no,
-            $invoice->posting_date?->format('Y-m-d'),
-            $invoice->submitter?->name,
-            $invoice->submitted_at?->format('Y-m-d H:i'),
-            $invoice->poster?->name,
-            $invoice->paymentRequest?->reference_no,
-            $invoice->paymentRequest?->paid_at?->format('Y-m-d H:i'),
-            $invoice->paymentRequest?->payment_reference,
-        ];
-    }
-
-    /** An invoice's job numbers live on its lines, and a line may carry none. */
-    private static function jobNumbers(Invoice $invoice): string
-    {
-        return $invoice->items
-            ->pluck('job_no')
-            ->filter(fn (?string $jobNo) => trim((string) $jobNo) !== '')
-            ->unique()
-            ->implode(', ');
+        return array_values(InvoiceReport::row($invoice));
     }
 
     public function styles(Worksheet $sheet)

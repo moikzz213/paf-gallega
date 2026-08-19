@@ -12,6 +12,7 @@ use App\Http\Controllers\PasswordResetController;
 use App\Http\Controllers\PaymentRequestController;
 use App\Http\Controllers\ProfileController;
 use App\Http\Controllers\PublicPaymentRequestController;
+use App\Http\Controllers\ReportApiController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\UserController;
 use Illuminate\Support\Facades\Route;
@@ -28,6 +29,17 @@ Route::prefix('api')->group(function () {
     // caller supplies, so they are the more attractive endpoints to abuse.
     Route::post('/forgot-password', [PasswordResetController::class, 'sendLink'])->middleware('throttle:5,1');
     Route::post('/reset-password', [PasswordResetController::class, 'reset'])->middleware('throttle:5,1');
+
+    // documents
+    Route::get('/documents/{document}/download', [DocumentController::class, 'download']);
+
+    /*
+     * Key-authenticated export for spreadsheets and BI tools (no session). Same rows and columns as
+     * the Reports page download; scoped to the user the key was issued for. Throttled per key/IP
+     * because these credentials travel in a URL when Excel is the client.
+     */
+    Route::get('/export-report', [ReportApiController::class, 'export'])
+        ->middleware(['api-key', 'throttle:60,1']);
 
     Route::middleware('auth')->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
@@ -57,8 +69,6 @@ Route::prefix('api')->group(function () {
             Route::post('/invoices/{invoice}/release', [InvoiceController::class, 'release']);
         });
 
-        // documents
-        Route::get('/documents/{document}/download', [DocumentController::class, 'download']);
         Route::delete('/documents/{document}', [DocumentController::class, 'destroy']);
 
         // Payment requests (PRF) + approval chain

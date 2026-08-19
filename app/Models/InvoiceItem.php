@@ -8,7 +8,7 @@ class InvoiceItem extends Model
 {
     protected $fillable = [
         'invoice_id', 'sort_order', 'job_no', 'customer_id',
-        'description', 'currency', 'amount', 'tax_amount', 'total_amount',
+        'description', 'currency', 'amount', 'tax_rate', 'tax_amount', 'total_amount',
     ];
 
     protected function casts(): array
@@ -17,6 +17,7 @@ class InvoiceItem extends Model
             'sort_order' => 'integer',
             'customer_id' => 'integer',
             'amount' => 'decimal:2',
+            'tax_rate' => 'decimal:2',
             'tax_amount' => 'decimal:2',
             'total_amount' => 'decimal:2',
         ];

@@ -177,8 +177,24 @@ Line items on an invoice (replaces the single amount/tax on the invoice itself).
 | `description` | text, nullable | |
 | `currency` | string(3) | |
 | `amount` | decimal(15,2) | |
-| `tax_amount` | decimal(15,2) | default 0 |
+| `tax_rate` | decimal(5,2) | default 0. Tax / VAT as a **percentage** of `amount` - this is what the form captures |
+| `tax_amount` | decimal(15,2) | default 0. **Derived** server-side: `round(amount * tax_rate / 100, 2)`. Kept as a column because every total, export and PDF reads the cash figure |
 | `total_amount` | decimal(15,2) | amount + tax |
+| timestamps | | |
+
+### api_keys
+
+Credentials for machine callers of `GET /api/export-report` (spreadsheets, BI tools).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint PK | |
+| `name` | string | label, e.g. "Finance Excel dashboard" |
+| `key` | string, **unique** | public half, sent as `X-Api-Key` or `?key=` |
+| `secret_hash` | string | bcrypt hash; the secret is shown once at issue and never stored |
+| `user_id` | FK users, **cascade delete** | the key carries **this user's** visibility (`Invoice::scopeVisibleTo`) |
+| `is_active` | boolean | revocation; a key is also refused when its user is deactivated |
+| `last_used_at` · `last_used_ip` | timestamp / string(45), nullable | updated on every accepted call |
 | timestamps | | |
 
 ### invoice_documents

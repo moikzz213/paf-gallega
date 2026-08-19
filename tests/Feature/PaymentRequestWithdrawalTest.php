@@ -231,7 +231,7 @@ class PaymentRequestWithdrawalTest extends TestCase
             'payment_method' => 'bank_transfer',
             'priority' => 'urgent',
             'items' => [
-                ['job_no' => 'SSE00005216', 'currency' => 'USD', 'amount' => 4900, 'tax_amount' => 0],
+                ['job_no' => 'SSE00005216', 'currency' => 'USD', 'amount' => 4900, 'tax_rate' => 0],
             ],
         ])->assertOk()->assertJsonPath('currency', 'USD');
 
