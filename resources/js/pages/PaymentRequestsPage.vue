@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../services/api';
-import { invoicesCurrency, invoicesVendor, money, shortDate } from '../utils/format';
+import { invoicesCurrency, invoicesVendor, money, shortDate, statusLabel } from '../utils/format';
 import { useAuthStore } from '../stores/auth';
 import { useMetaStore } from '../stores/meta';
 import { useNotifyStore } from '../stores/notify';
@@ -16,8 +16,14 @@ const loading = ref(false);
 const items = ref([]);
 const total = ref(0);
 const search = ref('');
-const filters = reactive({ department: null, vendor: null });
+const filters = reactive({ department: null, vendor: null, status: null });
 const options = reactive({ page: 1, itemsPerPage: 15 });
+
+// Straight from the server's PaymentRequest::STATUSES, labelled through the same map the status
+// chips use, so a new status appears here without a second list to remember.
+const statusOptions = computed(() =>
+    (meta.pr_statuses ?? []).map((value) => ({ value, title: statusLabel(value) }))
+);
 
 const headers = [
     { title: 'Reference', key: 'reference_no', sortable: false },
@@ -40,6 +46,7 @@ async function load() {
                 q: search.value || undefined,
                 department: filters.department || undefined,
                 vendor: filters.vendor || undefined,
+                status: filters.status || undefined,
             },
         });
         items.value = data.data;
@@ -57,7 +64,7 @@ onMounted(() => {
 });
 
 let debounce = null;
-watch([search, () => filters.department, () => filters.vendor], () => {
+watch([search, () => filters.department, () => filters.vendor, () => filters.status], () => {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
         options.page = 1;
@@ -163,7 +170,7 @@ async function submitCreate() {
         <v-card class="mb-4">
             <v-card-text>
                 <v-row dense>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="3">
                         <v-text-field
                             v-model="search"
                             label="Search reference, invoice"
@@ -191,6 +198,15 @@ async function submitCreate() {
                             clearable
                             hide-details="auto"
                             autocomplete="off"
+                        />
+                    </v-col>
+                    <v-col cols="12" sm="6" md="3">
+                        <v-select
+                            v-model="filters.status"
+                            :items="statusOptions"
+                            label="Status"
+                            clearable
+                            hide-details="auto"
                         />
                     </v-col>
                 </v-row>
