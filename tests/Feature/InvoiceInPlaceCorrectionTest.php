@@ -115,7 +115,7 @@ class InvoiceInPlaceCorrectionTest extends TestCase
             'payment_method' => 'bank_transfer',
             'priority' => 'normal',
             'items' => [array_merge(
-                ['job_no' => 'SSE00005216', 'currency' => 'AED', 'amount' => $invoice->total_amount, 'tax_amount' => 0],
+                ['job_no' => 'SSE00005216', 'currency' => 'AED', 'amount' => $invoice->total_amount, 'tax_rate' => 0],
                 $line,
             )],
         ];

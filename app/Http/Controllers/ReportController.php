@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Exports\InvoicesExport;
-use App\Models\Invoice;
 use App\Services\AuditLogger;
+use App\Support\InvoiceReport;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -27,7 +27,7 @@ class ReportController extends Controller
         ];
 
         $rows = $query
-            ->with(['submitter:id,name', 'poster:id,name', 'paymentRequest:id,reference_no,status', 'items:id,invoice_id,job_no,sort_order'])
+            ->with(InvoiceReport::RELATIONS)
             ->orderByDesc('invoice_date')
             ->paginate((int) $request->input('per_page', 25));
 
@@ -51,32 +51,8 @@ class ReportController extends Controller
 
     private function filteredQuery(Request $request): Builder
     {
-        $query = Invoice::query()->visibleTo($request->user());
-
-        if ($status = $request->input('status')) {
-            $query->whereIn('status', is_array($status) ? $status : explode(',', $status));
-        }
-
-        if ($department = $request->input('department')) {
-            $query->where('department', $department);
-        }
-
-        if ($businessUnit = $request->input('business_unit')) {
-            $query->where('business_unit', $businessUnit);
-        }
-
-        if ($vendor = trim((string) $request->input('vendor'))) {
-            $query->where('vendor_name', 'like', "%{$vendor}%");
-        }
-
-        if ($request->filled('date_from')) {
-            $query->whereDate('invoice_date', '>=', $request->date('date_from'));
-        }
-
-        if ($request->filled('date_to')) {
-            $query->whereDate('invoice_date', '<=', $request->date('date_to'));
-        }
-
-        return $query;
+        return InvoiceReport::query($request->user(), $request->only([
+            'status', 'department', 'business_unit', 'vendor', 'date_from', 'date_to',
+        ]));
     }
 }

@@ -13,7 +13,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Fixed-format form: vendor selection by unique master-data record (displayed as name + code),
   invoice no/date/due date, currency (dropdown fed by the currencies master data; stored as a
   plain string on the invoice and its lines),
-  amount + tax (total computed server-side), business unit (GIL/GGL/GGH), submitting department, location,
+  amount + tax / VAT as a **percentage** per line (the cash figure and the total are computed
+  server-side), business unit (GIL/GGL/GGH), submitting department, location,
   payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
 - System reference `INV-{year}-{00001}`; submitted immediately (status `submitted`).
 - A **queried** invoice can be edited and it returns to `submitted`.
@@ -140,6 +141,11 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   live on the invoice lines, so an invoice's distinct job numbers are joined with `, `).
   **Export to Excel** (25-column XLSX incl. job no., ERP posting + PRF payment
   columns); exports are audit-logged.
+- **Export API for spreadsheets/BI.** `GET /api/export-report?key=&secret=` serves the same rows
+  and columns as that download, as JSON (or `format=xlsx`), so a workbook can refresh itself
+  without a login. Keys are issued per user with `api-key:issue` and carry that user's data
+  visibility; the secret is stored only as a hash, use is audit-logged, and `api-key:revoke`
+  kills a key immediately. Page, download and API all read one definition, so they cannot drift.
 
 ## 9. Audit trail (Admin)
 

@@ -6,7 +6,8 @@
 
 ## Conventions
 
-- Base `/api/...`; everything except `POST /api/login` is behind `auth`. Login is `throttle:10,1`.
+- Base `/api/...`; everything except `POST /api/login`, the password-reset pair and
+  `GET /api/export-report` (key-authenticated, see below) is behind `auth`. Login is `throttle:10,1`.
 - Roles via `EnsureRole` (`role:...`): `role:finance,admin` (invoice post/query, PRF create,
   mark-paid, eligible list), `role:admin` (audit-logs, users, approval-levels).
 - **No response envelope** — controllers return raw models or Laravel paginator JSON
@@ -41,7 +42,7 @@
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
 | GET | `/api/invoices` | scoped `visibleTo` | filters `mine, status[], payment_status[], department, priority[], date_from/to, q`; `sort∈{submitted_at,invoice_date,due_date,total_amount,status,priority}`; paginated 15 |
-| POST | `/api/invoices` | any auth | multipart: `vendor_id`, invoice_no, invoice_date, due_date?, currency, business_unit, department, location, payment_method, priority, description?, `items[]` (job_no?, customer_id?, description?, currency, amount, tax_amount?), documents? → status `submitted`; the server snapshots the selected vendor name; **201** with vendor, items + documents |
+| POST | `/api/invoices` | any auth | multipart: `vendor_id`, invoice_no, invoice_date, due_date?, currency, business_unit, department, location, payment_method, priority, description?, `items[]` (job_no?, customer_id?, description?, currency, amount, **tax_rate?** as a percentage), documents? → status `submitted`; the server snapshots the selected vendor name; **201** with vendor, items + documents |
 | GET | `/api/invoices/{invoice}` | canViewAll / owner / assigned approver (via PRF) | loads submitter, poster, items.customer, documents, `paymentRequest.approvals.approver`, auditLogs |
 | POST | `/api/invoices/{invoice}` | owner, admin **or finance** | update (multipart, same fields as create); a queried invoice returns to `submitted`. Two modes: **normal** when `isEditable()`; **in-place correction** when finance/admin edit an invoice held by a PRF (`isCorrectableInPlace()`: payment `in_approval`/`approved_for_payment`, not cancelled) — no further approval needed, but the currency may **not** change and the total may **not** rise (`422` on `items` otherwise), the invoice status is left alone, and the PRF's `total_amount` is re-synced. Requesters still get `422` on an invoice inside a PRF |
 | POST | `/api/invoices/{invoice}/release` | `role:finance,admin`; invoice must be in a PRF that is `in_approval`/`approved` (never `paid`) | `reason` **required** ≤2000 → this invoice alone returns to `not_initiated`/unlinked; the PRF keeps its approvals and its total is re-synced, so the other invoices in it stay payable. Releasing the **last** invoice withdraws the PRF (`withdrawn`, total 0). Returns `{invoice, payment_request}` |
@@ -54,8 +55,35 @@
 `vendor_name` from that record so same-named vendors remain distinct. invoice_no req ≤100;
 invoice_date req; due_date `after_or_equal:invoice_date`; currency (header and every line) must be
 an active `currencies` master-data name;
-amount 0.01–1e12; tax_amount ≥0; business_unit/department/location must be active master-data names, payment_method/priority in config (Rule::in);
+amount 0.01–1e12; tax_rate 0–100 (a percentage; the server derives `tax_amount` and ignores any posted value); business_unit/department/location must be active master-data names, payment_method/priority in config (Rule::in);
 description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
+
+## Export API (key-authenticated, no session)
+
+For spreadsheets and BI tools that cannot hold a session cookie. Serves the **same rows and columns
+as the Reports page Excel download** — both read `App\Support\InvoiceReport`, so a connected workbook
+cannot drift from the file people download by hand.
+
+| Method | Path | Auth | Notes |
+|--------|------|------|-------|
+| GET | `/api/export-report` | `api-key` middleware + `throttle:60,1`; **outside** the session `auth` group | Credentials in any of four shapes: `X-Api-Key`/`X-Api-Secret` headers (preferred), `Authorization: Bearer <key>:<secret>`, `?token=<key>:<secret>` (one field, for clients like Power Query's "Web API" credential that append a single parameter), or `?key=&secret=`. Filters match the Reports page: `status` (array or comma-separated), `department`, `business_unit`, `vendor` (partial), `date_from`, `date_to`; plus `format=json\|xlsx` (default json), `limit` (≤50,000), `offset`. `401` on missing/wrong/revoked credentials or a deactivated owner; `422` on an invalid filter |
+
+**Response (json):** `{generated_at, columns{key: heading}, filters, total, offset, count, has_more, rows[]}`.
+Each row is keyed by the column keys in `columns`; amounts are JSON numbers and dates are strings
+(`Y-m-d`, or `Y-m-d H:i` for timestamps). `format=xlsx` returns the same file as `/api/reports/export`.
+
+**Scope:** a key belongs to a user and the query runs through `Invoice::scopeVisibleTo($key->user)`,
+so a key never reads more than the person it was issued for. Keys live in `api_keys`; the secret is
+stored only as a hash. Every call is audit-logged as `report_exported_via_api` naming the key.
+
+**Connecting Excel / Power Query:** simplest is **Data → From Web** with the full `?key=&secret=` URL and **Anonymous** auth. To keep the secret out of the URL, use a blank query with
+`Web.Contents(url, [ApiKeyName="token"])` and pick **Web API**, pasting `key:secret` as the single Key —
+Power Query stores it in the credential store and appends it as `?token=`. `Json.Document` → `[rows]` →
+`Table.FromRecords` gives a refreshable table.
+
+**Issuing:** `php artisan api-key:issue "<name>" <user-email>` prints the key, the secret (once) and a
+ready-made URL. `php artisan api-key:revoke` lists keys with last-used info; with a key argument it
+deactivates that key immediately.
 
 ## Payment Requests (PRF)
 

@@ -18,6 +18,10 @@ const isEdit = computed(() => !!props.id);
 // Set when Finance is correcting an invoice held by a payment request: currency and amounts are
 // locked to what that request's approvals cover.
 const correction = ref(null);
+// The tax figure the invoice was loaded with. Lines created before tax became a percentage carry a
+// rate recovered from their cash figure, and an arbitrary figure is not always expressible as one —
+// so re-saving can move the tax by a cent or two. Surfaced rather than applied silently.
+const loadedTax = ref(null);
 const loading = ref(false);
 const saving = ref(false);
 const formRef = ref(null);
@@ -39,13 +43,14 @@ const form = ref({
 });
 
 const items = ref([
-    { job_no: '', customer_id: null, description: '', currency: 'AED', amount: null, tax_amount: 0 },
+    { job_no: '', customer_id: null, description: '', currency: 'AED', amount: null, tax_rate: 0 },
 ]);
 
 const rules = {
     required: (v) => (v !== null && v !== undefined && v !== '') || 'Required',
     positive: (v) => Number(v) > 0 || 'Must be greater than zero',
     nonNegative: (v) => v === '' || v === null || Number(v) >= 0 || 'Cannot be negative',
+    percentage: (v) => v === '' || v === null || (Number(v) >= 0 && Number(v) <= 100) || 'Must be between 0 and 100',
     itemsMin: () => items.value.length > 0 || 'At least one line item is required',
 };
 
@@ -105,8 +110,16 @@ watch(() => form.value.invoice_date, () => {
     }
 });
 
+// Tax is a percentage of the line amount. Rounded per line exactly as the server does
+// (InvoiceController::validatedItems), so what the form previews is what gets saved.
+function itemTax(item) {
+    const amount = Number(item.amount) || 0;
+    const rate = Number(item.tax_rate) || 0;
+    return Math.round(amount * rate) / 100;
+}
+
 function itemTotal(item) {
-    return (Number(item.amount) || 0) + (Number(item.tax_amount) || 0);
+    return (Number(item.amount) || 0) + itemTax(item);
 }
 
 /**
@@ -124,10 +137,12 @@ const grandTotal = computed(() => items.value.reduce((s, i) => s + itemTotal(i),
 // never rise. Mirrors InvoiceController::assertInPlaceCorrection.
 const correctionExceeded = computed(() => !!correction.value && grandTotal.value > Number(correction.value.total) + 0.001);
 const grandAmount = computed(() => items.value.reduce((s, i) => s + (Number(i.amount) || 0), 0));
-const grandTax = computed(() => items.value.reduce((s, i) => s + (Number(i.tax_amount) || 0), 0));
+const grandTax = computed(() => items.value.reduce((s, i) => s + itemTax(i), 0));
+const taxWillShift = computed(() =>
+    loadedTax.value !== null && Math.abs(grandTax.value - loadedTax.value) > 0.005);
 
 function addItem() {
-    items.value.push({ job_no: '', customer_id: null, description: '', currency: form.value.currency, amount: null, tax_amount: 0 });
+    items.value.push({ job_no: '', customer_id: null, description: '', currency: form.value.currency, amount: null, tax_rate: 0 });
 }
 
 function removeItem(index) {
@@ -163,6 +178,7 @@ onMounted(async () => {
                 router.replace(`/invoices/${props.id}`);
                 return;
             }
+            loadedTax.value = Number(data.tax_amount ?? 0);
             if (!editable) {
                 correction.value = {
                     reference_no: data.payment_request?.reference_no ?? 'its payment request',
@@ -184,7 +200,7 @@ onMounted(async () => {
                     description: i.description ?? '',
                     currency: i.currency ?? data.currency ?? 'AED',
                     amount: i.amount,
-                    tax_amount: i.tax_amount ?? 0,
+                    tax_rate: i.tax_rate ?? 0,
                 }));
                 // The lines hold the real currency; older invoices were saved with an AED header.
                 onItemCurrencyChange(items.value[0].currency);
@@ -221,7 +237,7 @@ async function save() {
             payload.append(`items[${idx}][description]`, item.description || '');
             payload.append(`items[${idx}][currency]`, item.currency || form.value.currency);
             payload.append(`items[${idx}][amount]`, item.amount ?? 0);
-            payload.append(`items[${idx}][tax_amount]`, item.tax_amount ?? 0);
+            payload.append(`items[${idx}][tax_rate]`, item.tax_rate ?? 0);
         });
 
         files.value.forEach((file) => payload.append('documents[]', file));
@@ -341,7 +357,21 @@ async function save() {
                                 <v-text-field v-model="item.amount" label="Amount *" type="number" min="0" step="0.01" hide-details density="compact" :rules="[rules.required, rules.positive]" />
                             </v-col>
                             <v-col cols="6" sm="3" md="1">
-                                <v-text-field v-model="item.tax_amount" label="Tax / VAT" type="number" min="0" step="0.01" hide-details density="compact" :rules="[rules.nonNegative]" />
+                                <v-text-field
+                                    v-model="item.tax_rate"
+                                    label="Tax / VAT %"
+                                    type="number"
+                                    min="0"
+                                    max="100"
+                                    step="0.01"
+                                    suffix="%"
+                                    hide-details
+                                    density="compact"
+                                    :rules="[rules.percentage]"
+                                />
+                                <div class="text-caption text-medium-emphasis mt-1">
+                                    {{ money(itemTax(item), item.currency) }}
+                                </div>
                             </v-col>
                             <v-col cols="6" sm="3" md="2">
                                 <div class="text-caption text-medium-emphasis">Total</div>
@@ -359,6 +389,12 @@ async function save() {
                             </div>
                         </v-col>
                     </v-row>
+                    <v-alert v-if="taxWillShift" type="info" variant="tonal" density="compact" class="mt-2">
+                        This invoice was saved with {{ money(loadedTax, form.currency) }} tax. At the rates above it
+                        works out to <strong>{{ money(grandTax, form.currency) }}</strong>, so saving will record that
+                        instead — older lines store a rate recovered from their original tax figure, which cannot
+                        always be expressed exactly as a percentage.
+                    </v-alert>
                     <v-alert v-if="correctionExceeded" type="error" variant="tonal" density="compact" class="mt-2">
                         {{ money(grandTotal, form.currency) }} is above the
                         {{ money(correction.total, correction.currency) }} that {{ correction.reference_no }} was
