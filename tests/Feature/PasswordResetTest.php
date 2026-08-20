@@ -36,7 +36,7 @@ class PasswordResetTest extends TestCase
             ->assertOk()
             ->assertJsonStructure(['message']);
 
-        Mail::assertSent(PasswordResetLink::class, fn ($mail) => $mail->hasTo($user->email));
+        Mail::assertQueued(PasswordResetLink::class, fn ($mail) => $mail->hasTo($user->email));
     }
 
     public function test_unknown_address_is_answered_identically_and_sends_nothing(): void
@@ -49,7 +49,7 @@ class PasswordResetTest extends TestCase
 
         // Identical status and body: the endpoint must not reveal who has an account.
         $this->assertSame($forKnown->json('message'), $forUnknown->json('message'));
-        Mail::assertSent(PasswordResetLink::class, 1);
+        Mail::assertQueued(PasswordResetLink::class, 1);
     }
 
     public function test_deactivated_user_cannot_request_a_reset(): void
@@ -59,7 +59,7 @@ class PasswordResetTest extends TestCase
 
         $this->postJson('/api/forgot-password', ['email' => $user->email])->assertOk();
 
-        Mail::assertNothingSent();
+        Mail::assertNothingQueued();
     }
 
     public function test_valid_token_resets_the_password_and_allows_sign_in(): void
@@ -168,7 +168,7 @@ class PasswordResetTest extends TestCase
 
         $this->postJson('/api/forgot-password', ['email' => $user->email])->assertOk();
 
-        Mail::assertSent(PasswordResetLink::class, function ($mail) use ($user) {
+        Mail::assertQueued(PasswordResetLink::class, function ($mail) use ($user) {
             $rendered = $mail->render();
 
             return str_contains($rendered, '/reset-password?')

@@ -68,8 +68,8 @@ class ApprovalChainNotificationTest extends TestCase
         Mail::fake();
         ['l1' => $l1, 'l2' => $l2] = $this->twoStageChain();
 
-        Mail::assertSent(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l1->email));
-        Mail::assertNotSent(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
+        Mail::assertQueued(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l1->email));
+        Mail::assertNotQueued(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
     }
 
     /**
@@ -87,7 +87,7 @@ class ApprovalChainNotificationTest extends TestCase
             ->assertOk();
 
         $this->assertSame(2, $pr->refresh()->current_stage);
-        Mail::assertSent(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
+        Mail::assertQueued(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
     }
 
     public function test_an_admin_approving_on_behalf_still_notifies_the_next_approver(): void
@@ -101,7 +101,7 @@ class ApprovalChainNotificationTest extends TestCase
             ->postJson("/api/payment-requests/{$pr->id}/approve", [])
             ->assertOk();
 
-        Mail::assertSent(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
+        Mail::assertQueued(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
     }
 
     public function test_the_final_approval_notifies_requestors_not_a_next_approver(): void
@@ -115,8 +115,8 @@ class ApprovalChainNotificationTest extends TestCase
         $this->actingAs($l2)->postJson("/api/payment-requests/{$pr->id}/approve", [])->assertOk();
 
         $this->assertSame(PaymentRequest::STATUS_APPROVED, $pr->refresh()->status);
-        Mail::assertSent(PaymentRequestApproved::class, fn ($m) => $m->hasTo($requester->email));
-        Mail::assertNotSent(PaymentRequestSubmitted::class);
+        Mail::assertQueued(PaymentRequestApproved::class, fn ($m) => $m->hasTo($requester->email));
+        Mail::assertNotQueued(PaymentRequestSubmitted::class);
     }
 
     /** The public link path had this behaviour already; it must keep it after the refactor. */
@@ -132,7 +132,7 @@ class ApprovalChainNotificationTest extends TestCase
         $this->post("/prf/view/{$pr->id}/{$stageOneToken}/approve")->assertRedirect();
 
         $this->assertSame(2, $pr->refresh()->current_stage);
-        Mail::assertSent(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
+        Mail::assertQueued(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
     }
 
     /**
@@ -149,7 +149,7 @@ class ApprovalChainNotificationTest extends TestCase
 
         $this->actingAs($l1)->postJson("/api/payment-requests/{$pr->id}/approve", [])->assertOk();
 
-        Mail::assertSent(PaymentRequestSubmitted::class, function ($mail) use ($stageTwoToken, $stageOneToken) {
+        Mail::assertQueued(PaymentRequestSubmitted::class, function ($mail) use ($stageTwoToken, $stageOneToken) {
             $body = $mail->render();
 
             return str_contains($body, $stageTwoToken) && ! str_contains($body, $stageOneToken);
@@ -166,6 +166,6 @@ class ApprovalChainNotificationTest extends TestCase
             ->postJson("/api/payment-requests/{$pr->id}/reject", ['comments' => 'wrong vendor'])
             ->assertOk();
 
-        Mail::assertNotSent(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
+        Mail::assertNotQueued(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));
     }
 }

@@ -26,7 +26,10 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Finance actions per invoice:
   - **Post to ERP** — record `erp_doc_no` (+ posting date) → status `posted`.
   - **Raise Query** — record `finance_remarks` back to the department → status `query_raised`;
-    **emails the invoice submitter** (`InvoiceQueryRaised`) so they can correct and resubmit.
+    **notifies the invoice submitter** (`InvoiceQueryRaised`, queued) so they can correct and resubmit.
+    The query is recorded whether or not the mail gets out, and Finance sees which happened. A
+    **Resend Notification** action on the invoice sends it again — the recovery for a rotated SMTP
+    password, which used to swallow the notification with no way to retrigger it.
     Only available while the invoice is **outside a payment cycle** (`not_initiated`): a query asks
     for a correction, and an invoice held by a PRF cannot be edited. Return it first (reject the PRF,
     or withdraw it if already approved).

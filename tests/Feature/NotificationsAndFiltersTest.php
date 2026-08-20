@@ -72,7 +72,7 @@ class NotificationsAndFiltersTest extends TestCase
             ->postJson("/api/invoices/{$inv->id}/query", ['finance_remarks' => 'PO number missing'])
             ->assertOk();
 
-        Mail::assertSent(InvoiceQueryRaised::class, fn ($mail) => $mail->hasTo($requester->email));
+        Mail::assertQueued(InvoiceQueryRaised::class, fn ($mail) => $mail->hasTo($requester->email));
     }
 
     public function test_full_approval_emails_the_requestors(): void
@@ -92,8 +92,8 @@ class NotificationsAndFiltersTest extends TestCase
         $service->approve($pr, $approver);
 
         $this->assertSame(PaymentRequest::STATUS_APPROVED, $pr->refresh()->status);
-        Mail::assertSent(PaymentRequestApproved::class, fn ($m) => $m->hasTo($requester->email));
-        Mail::assertSent(PaymentRequestApproved::class, fn ($m) => $m->hasTo($finance->email));
+        Mail::assertQueued(PaymentRequestApproved::class, fn ($m) => $m->hasTo($requester->email));
+        Mail::assertQueued(PaymentRequestApproved::class, fn ($m) => $m->hasTo($finance->email));
     }
 
     public function test_no_approval_email_until_final_stage(): void
@@ -114,10 +114,10 @@ class NotificationsAndFiltersTest extends TestCase
         ]);
 
         $service->approve($pr, $a1); // first of two stages
-        Mail::assertNotSent(PaymentRequestApproved::class);
+        Mail::assertNotQueued(PaymentRequestApproved::class);
 
         $service->approve($pr->refresh(), $a2); // final stage
-        Mail::assertSent(PaymentRequestApproved::class);
+        Mail::assertQueued(PaymentRequestApproved::class);
     }
 
     public function test_eligible_filters_by_job_customer_vendor(): void

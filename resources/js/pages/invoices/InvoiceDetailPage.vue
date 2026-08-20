@@ -55,6 +55,9 @@ const canPost = computed(() => auth.canProcessPayments
 // A query asks the requester to correct the invoice, which is impossible once it is in a payment
 // request — that combination is what strands an invoice. Mirrors InvoiceController::raiseQuery.
 const canQuery = computed(() => auth.canProcessPayments && ['submitted', 'posted'].includes(invoice.value?.status) && notInitiated.value);
+// The query email is queued, so a rotated SMTP password shows up as a job that never arrived.
+// Finance can push it again without touching the invoice.
+const canResendQuery = computed(() => auth.canProcessPayments && invoice.value?.status === 'query_raised');
 
 const pr = computed(() => invoice.value?.payment_request);
 
@@ -76,14 +79,25 @@ async function runAction(kind, payload = {}) {
             query: `/invoices/${props.id}/query`,
             cancel: `/invoices/${props.id}/cancel`,
             release: `/invoices/${props.id}/release`,
+            resendQuery: `/invoices/${props.id}/resend-query`,
         };
-        await api.post(urls[kind], payload);
-        notify.success({
-            post: 'Invoice posted in ERP.',
-            query: 'Query raised.',
-            cancel: 'Invoice cancelled.',
-            release: 'Invoice released — it is back in the Invoice Log and can be corrected.',
-        }[kind]);
+        const { data } = await api.post(urls[kind], payload);
+
+        // A query is recorded whether or not its email got out, so say which happened rather than
+        // implying the whole action failed.
+        if ((kind === 'query' || kind === 'resendQuery') && data?.notification_sent === false) {
+            notify.error(kind === 'query'
+                ? 'Query raised, but the notification could not be sent. Check the mail settings, then use Resend Notification.'
+                : 'The notification still could not be sent — check the mail settings and the queue worker.');
+        } else {
+            notify.success({
+                post: 'Invoice posted in ERP.',
+                query: 'Query raised — the submitter has been notified.',
+                cancel: 'Invoice cancelled.',
+                release: 'Invoice released — it is back in the Invoice Log and can be corrected.',
+                resendQuery: `Notification queued again${data?.sent_to ? ` to ${data.sent_to}` : ''}.`,
+            }[kind]);
+        }
         dialog.value.show = false;
         await load();
     } catch (e) {
@@ -136,6 +150,7 @@ const auditIcons = {
     updated: 'mdi-pencil-outline',
     posted: 'mdi-checkbox-marked-circle-outline',
     query_raised: 'mdi-help-circle-outline',
+    query_notification_resent: 'mdi-email-sync-outline',
     payment_initiated: 'mdi-bank-transfer',
     approved: 'mdi-thumb-up-outline',
     rejected: 'mdi-thumb-down-outline',
@@ -168,6 +183,14 @@ const auditIcons = {
 
             <v-btn v-if="canPost" color="success" prepend-icon="mdi-checkbox-marked-circle-outline" @click="openDialog('post')">Post to ERP</v-btn>
             <v-btn v-if="canQuery" color="warning" variant="tonal" prepend-icon="mdi-help-circle-outline" @click="openDialog('query')">Raise Query</v-btn>
+            <v-btn
+                v-if="canResendQuery"
+                variant="tonal"
+                prepend-icon="mdi-email-sync-outline"
+                :loading="acting"
+                title="Send the query notification to the submitter again"
+                @click="runAction('resendQuery')"
+            >Resend Notification</v-btn>
             <v-btn v-if="canEdit" variant="tonal" prepend-icon="mdi-pencil" :to="`/invoices/${invoice.id}/edit`">
                 {{ canCorrectInPlace && !notInitiated ? 'Correct' : 'Edit' }}
             </v-btn>

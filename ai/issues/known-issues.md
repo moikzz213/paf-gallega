@@ -6,7 +6,7 @@ markers. Severity is a triage judgment.
 
 | # | Area | Issue | Severity |
 |---|------|-------|----------|
-| 1 | Notifications | Email is now wired (SMTP): approver-invite + public-link on each stage, daily reminders, **invoice-query → submitter**, and **final-approval → requestors**. Emails send **synchronously** (no queue) inside the request, so SMTP latency/failure can slow or break the triggering action; move to queued mail for production. | Medium |
+| 1 | Notifications depend on two background processes | Mail is **queued** (`ShouldQueue` on every mailable), so SMTP latency or a rotated password no longer breaks the triggering action — failures land in `failed_jobs` for `queue:retry`. But nothing is delivered without a **queue worker**, and the daily `prf:send-reminders` only fires if an OS **scheduler** calls `schedule:run` every minute. Both are deployment concerns rather than code (see [deployment.md](../deployment.md)); locally neither is configured, and `last_reminder_sent_at` shows the reminder job has never run here. Queued jobs build links from `APP_URL`, so that must be right per environment. | Medium |
 | 2 | ERP | "Post to ERP" records a doc number but calls **no external system** — there is no real ERP integration. | Medium (product) |
 | 3 | Auth | No password reset or email verification. Passwords are set only by an admin. | Medium |
 | 4 | Concurrency | **No guard against double-selecting an invoice into two PRFs.** Two Finance users could each pull the same eligible invoice before sending; whoever creates first reserves it, the other 422s at submit — but there is no lock, so a race on the reservation is possible. | Medium |

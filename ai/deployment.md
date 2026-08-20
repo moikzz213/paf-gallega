@@ -30,6 +30,47 @@ php artisan serve              # http://127.0.0.1:8000
 Seeded demo accounts (all password `password`): `admin@paf.local`, `requester@paf.local`,
 `approver1..3@paf.local`, `finance@paf.local`. See [project-context.md](project-context.md).
 
+## Background processes (both are required)
+
+Two OS-level processes have to be running, or features that look wired up simply never fire.
+
+**1. Queue worker** — mail is queued (`ShouldQueue` on every mailable), so nothing is delivered
+without a worker:
+
+```bash
+php artisan queue:work --tries=3 --sleep=3
+```
+
+Run it under a supervisor (systemd/Supervisor on Linux, a Windows service or Task Scheduler
+"run at startup" on Windows) so it restarts after a crash or reboot. After changing `MAIL_*` or any
+config, run `php artisan queue:restart` — a long-running worker holds the old config in memory.
+Inspect failures with `php artisan queue:failed`, re-run them with `php artisan queue:retry all`.
+
+**2. Scheduler** — `routes/console.php` schedules `prf:send-reminders` daily at 09:00
+(`config('app.timezone')` is `Asia/Dubai`, hardcoded, so 09:00 means 09:00 Dubai in every
+environment). Laravel's schedule only advances when something calls `schedule:run` **every minute**:
+
+```bash
+# Linux (crontab -e)
+* * * * * cd /path/to/paf && php artisan schedule:run >> storage/logs/scheduler.log 2>&1
+```
+
+On Windows, cron does not exist — create a Task Scheduler task that repeats every minute,
+indefinitely, running `php artisan schedule:run` with the project directory as "Start in".
+
+Since mail became queued, the daily reminder needs **both** processes: scheduler → command → queue →
+worker → SMTP.
+
+**Checking whether the reminder is actually running.** `php artisan schedule:list` shows what is
+registered, but not that anything invokes it. The data tells you: `last_reminder_sent_at` is stamped
+at creation by `PaymentRequestService::create`, so a request still awaiting approval a day later
+should have a *later* timestamp. If none do, the job has never run.
+
+```sql
+SELECT reference_no, sent_at, last_reminder_sent_at
+FROM payment_requests WHERE status = 'in_approval' ORDER BY sent_at;
+```
+
 ## Environment variables
 
 Driven by `.env` (see `.env.example`). Key settings for this project:
