@@ -98,6 +98,17 @@ class Invoice extends Model
         return $this->hasMany(AuditLog::class)->latest('created_at');
     }
 
+    /**
+     * Every query Finance has raised on this invoice, oldest first. The invoice itself keeps only
+     * the latest query text in `finance_remarks`, so the history lives in the audit log.
+     */
+    public function queryLogs()
+    {
+        return $this->hasMany(AuditLog::class)
+            ->where('action', 'query_raised')
+            ->oldest('created_at');
+    }
+
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->canViewAllInvoices()) {
