@@ -43,14 +43,18 @@ final class InvoiceReport
         'payment_request' => 'Payment Request',
         'paid_at' => 'Paid At',
         'payment_reference' => 'Payment Reference',
+        'query_raised' => 'Query Raised',
+        'remarks' => 'Remarks',
     ];
 
     /** Relations every row needs; without them each row would re-query. */
     public const RELATIONS = [
         'submitter:id,name',
         'poster:id,name',
-        'paymentRequest:id,reference_no,status,paid_at,payment_reference',
+        'paymentRequest:id,reference_no,status,paid_at,payment_reference,rejection_reason,withdrawal_reason',
         'items:id,invoice_id,job_no,sort_order',
+        'queryLogs:id,invoice_id,action,description,created_at',
+        'paymentRequest.approvals:id,payment_request_id,sequence,comments',
     ];
 
     /** @return array<string, string> */
@@ -137,7 +141,53 @@ final class InvoiceReport
             'payment_request' => $invoice->paymentRequest?->reference_no,
             'paid_at' => $invoice->paymentRequest?->paid_at?->format('Y-m-d H:i'),
             'payment_reference' => $invoice->paymentRequest?->payment_reference,
+            'query_raised' => self::queriesRaised($invoice),
+            'remarks' => self::approverRemarks($invoice),
         ];
+    }
+
+    /**
+     * Every query raised on the invoice, oldest first and comma-separated — `finance_remarks` only
+     * holds the latest one. The audit entry reads "Query raised on {reference}: {text}", so the
+     * prefix is trimmed back off to leave the text Finance actually wrote.
+     */
+    private static function queriesRaised(Invoice $invoice): string
+    {
+        $prefix = "Query raised on {$invoice->reference_no}: ";
+
+        return $invoice->queryLogs
+            ->map(function ($log) use ($prefix) {
+                $text = (string) $log->description;
+
+                return trim(str_starts_with($text, $prefix) ? substr($text, strlen($prefix)) : $text);
+            })
+            ->filter(fn (string $text) => $text !== '')
+            ->implode(', ');
+    }
+
+    /**
+     * Everything anyone wrote on the invoice's payment request: the approvers' comments in approval
+     * order, then the request-level rejection and withdrawal reasons. Those two are labelled, since
+     * on their own they read like just another approver comment.
+     */
+    private static function approverRemarks(Invoice $invoice): string
+    {
+        $paymentRequest = $invoice->paymentRequest;
+
+        $remarks = ($paymentRequest?->approvals ?? collect())
+            ->sortBy('sequence')
+            ->map(fn ($approval) => trim((string) $approval->comments))
+            ->values();
+
+        if ($reason = trim((string) $paymentRequest?->rejection_reason)) {
+            $remarks->push("Rejected: {$reason}");
+        }
+
+        if ($reason = trim((string) $paymentRequest?->withdrawal_reason)) {
+            $remarks->push("Withdrawn: {$reason}");
+        }
+
+        return $remarks->filter(fn (string $remark) => $remark !== '')->implode(', ');
     }
 
     /** An invoice's job numbers live on its lines, and a line may carry none. */

@@ -9,7 +9,6 @@ use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 class PaymentRequestService
@@ -95,10 +94,11 @@ class PaymentRequestService
             return $pr->refresh();
         });
 
-        $approver = $pr->currentApproval()?->approver;
-        if ($approver && $approver->email) {
-            Mail::to($approver->email)->send(new PaymentRequestSubmitted($pr));
-        }
+        Notifier::send(
+            $pr->currentApproval()?->approver?->email,
+            new PaymentRequestSubmitted($pr),
+            "{$pr->reference_no} sent for approval",
+        );
 
         return $pr;
     }
@@ -157,11 +157,11 @@ class PaymentRequestService
      */
     public function notifyNextApprover(PaymentRequest $pr, ?PaymentRequestApproval $next): void
     {
-        $approver = $next?->approver;
-
-        if ($approver && $approver->email) {
-            Mail::to($approver->email)->send(new PaymentRequestSubmitted($pr));
-        }
+        Notifier::send(
+            $next?->approver?->email,
+            new PaymentRequestSubmitted($pr),
+            "stage {$next?->sequence} of {$pr->reference_no} routed for approval",
+        );
     }
 
     /**
@@ -179,7 +179,7 @@ class PaymentRequestService
             ->values();
 
         foreach ($emails as $email) {
-            Mail::to($email)->send(new PaymentRequestApproved($pr));
+            Notifier::send($email, new PaymentRequestApproved($pr), "{$pr->reference_no} fully approved");
         }
     }
 

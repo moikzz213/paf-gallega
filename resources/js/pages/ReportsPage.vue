@@ -34,12 +34,43 @@ const headers = [
     { title: 'Department', key: 'department', sortable: false },
     { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
     { title: 'Status', key: 'status', sortable: false },
+    { title: 'Query Raised', key: 'query_raised', sortable: false },
+    { title: 'Remarks', key: 'remarks', sortable: false },
 ];
 
 // Job numbers sit on the invoice lines, and a line may carry none.
 function jobNumbers(invoice) {
     const numbers = [...new Set((invoice.items ?? []).map((i) => i?.job_no).filter((j) => j && String(j).trim() !== ''))];
     return numbers.length ? numbers.join(', ') : '—';
+}
+
+// Every query Finance raised, oldest first — the invoice itself keeps only the latest text. The
+// audit line reads "Query raised on {reference}: {text}", so the prefix comes back off.
+function queriesRaised(invoice) {
+    const prefix = `Query raised on ${invoice.reference_no}: `;
+    const texts = (invoice.query_logs ?? [])
+        .map((log) => String(log?.description ?? ''))
+        .map((text) => (text.startsWith(prefix) ? text.slice(prefix.length) : text).trim())
+        .filter((text) => text !== '');
+    return texts.length ? texts.join(', ') : '—';
+}
+
+// Everything written on the invoice's payment request: the approvers' comments in approval order,
+// then the request-level rejection and withdrawal reasons, labelled so they read as what they are.
+function approverRemarks(invoice) {
+    const pr = invoice.payment_request;
+    const remarks = [...(pr?.approvals ?? [])]
+        .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+        .map((approval) => String(approval?.comments ?? '').trim());
+
+    const rejection = String(pr?.rejection_reason ?? '').trim();
+    if (rejection) remarks.push(`Rejected: ${rejection}`);
+
+    const withdrawal = String(pr?.withdrawal_reason ?? '').trim();
+    if (withdrawal) remarks.push(`Withdrawn: ${withdrawal}`);
+
+    const written = remarks.filter((text) => text !== '');
+    return written.length ? written.join(', ') : '—';
 }
 
 function params() {
@@ -180,6 +211,12 @@ onMounted(() => meta.load());
                 </template>
                 <template #item.status="{ item }">
                     <StatusChip :status="item.status" />
+                </template>
+                <template #item.query_raised="{ item }">
+                    <div class="text-body-2" style="min-width: 180px; white-space: pre-wrap">{{ queriesRaised(item) }}</div>
+                </template>
+                <template #item.remarks="{ item }">
+                    <div class="text-body-2" style="min-width: 180px; white-space: pre-wrap">{{ approverRemarks(item) }}</div>
                 </template>
             </v-data-table-server>
         </v-card>

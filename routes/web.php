@@ -65,6 +65,9 @@ Route::prefix('api')->group(function () {
         Route::middleware('role:finance,admin')->group(function () {
             Route::post('/invoices/{invoice}/post', [InvoiceController::class, 'post']);
             Route::post('/invoices/{invoice}/query', [InvoiceController::class, 'raiseQuery']);
+            // Re-send the query notification when the first one could not be delivered.
+            Route::post('/invoices/{invoice}/resend-query', [InvoiceController::class, 'resendQuery'])
+                ->middleware('throttle:10,1');
             // Returns one invoice to the log while the rest of its payment request stays approved.
             Route::post('/invoices/{invoice}/release', [InvoiceController::class, 'release']);
         });

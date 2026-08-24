@@ -7,6 +7,7 @@ use App\Models\Department;
 use App\Models\Invoice;
 use App\Models\Vendor;
 use App\Services\AuditLogger;
+use App\Services\Notifier;
 use App\Services\PaymentRequestService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -266,13 +267,53 @@ class InvoiceController extends Controller
 
         AuditLogger::log('query_raised', "Query raised on {$invoice->reference_no}: {$data['finance_remarks']}", $invoice);
 
-        // Notify the person who submitted the invoice so they can correct and resubmit.
+        // Notify the person who submitted the invoice so they can correct and resubmit. The query
+        // itself is already recorded, so a mail problem is reported rather than failing the action —
+        // Finance can then resend it once mail is working again.
         $invoice->refresh()->loadMissing('submitter');
-        if ($invoice->submitter?->email) {
-            Mail::to($invoice->submitter->email)->send(new InvoiceQueryRaised($invoice));
+        $sent = Notifier::send(
+            $invoice->submitter?->email,
+            new InvoiceQueryRaised($invoice),
+            "query raised on {$invoice->reference_no}",
+        );
+
+        return response()->json($invoice->toArray() + ['notification_sent' => $sent]);
+    }
+
+    /**
+     * Send the query notification again, for when the first one could not be delivered (a rotated
+     * SMTP password is the usual reason). Finance/admin only; changes nothing about the invoice.
+     */
+    public function resendQuery(Request $request, Invoice $invoice)
+    {
+        if ($invoice->status !== Invoice::STATUS_QUERY) {
+            abort(422, 'This invoice has no open query to notify anyone about.');
         }
 
-        return response()->json($invoice);
+        $invoice->loadMissing('submitter');
+
+        if (! $invoice->submitter?->email) {
+            abort(422, 'The invoice submitter has no email address on record.');
+        }
+
+        $sent = Notifier::send(
+            $invoice->submitter->email,
+            new InvoiceQueryRaised($invoice),
+            "query notification resent for {$invoice->reference_no}",
+        );
+
+        if ($sent) {
+            AuditLogger::log(
+                'query_notification_resent',
+                "Query notification for {$invoice->reference_no} resent to {$invoice->submitter->email}",
+                $invoice,
+            );
+        }
+
+        return response()->json([
+            'notification_sent' => $sent,
+            'sent_to' => $invoice->submitter->email,
+        ]);
     }
 
     /**
