@@ -35,6 +35,11 @@ return [
     // Currencies tab under Master Data instead.
     'currencies' => $list('PAF_CURRENCIES', 'AED,USD,EUR,GBP,SAR'),
 
+    // The currency approval thresholds are expressed in. Every invoice total is converted into it
+    // (using the per-currency exchange rate held in master data) before it is measured against an
+    // approval level's min_amount, so a USD invoice routes on what it is really worth.
+    'base_currency' => strtoupper((string) env('PAF_BASE_CURRENCY', 'AED')),
+
     'priorities' => $list('PAF_PRIORITIES', 'normal,high,urgent'),
 
     'payment_methods' => $paymentMethods,

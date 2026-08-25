@@ -7,6 +7,9 @@ export const useMetaStore = defineStore('meta', {
         departments: [],
         locations: [],
         currencies: [],
+        base_currency: 'AED',
+        // { [code]: units of base currency per 1 unit } — only currencies with a rate on record.
+        exchange_rates: {},
         payment_methods: {},
         priorities: [],
         statuses: [],

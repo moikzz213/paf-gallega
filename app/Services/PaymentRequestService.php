@@ -19,6 +19,25 @@ class PaymentRequestService
      * @param  array<int>  $invoiceIds
      * @param  array<int, array{approver_id: int, label: string, level: int|null, is_adhoc: bool}>  $stages  ordered chain
      */
+    /**
+     * A request covers one currency only.
+     *
+     * `total_amount` is a plain sum of the invoices and the approval thresholds are measured
+     * against it, so a mixed set is nonsense on both counts. Public and static because the chain has
+     * to be built before `create` runs, and building it converts each invoice into the base currency
+     * — a mixed set should be turned away as a mixed set, not as whichever currency lacks a rate.
+     */
+    public static function assertSingleCurrency($invoices): void
+    {
+        $currencies = collect($invoices)->pluck('currency')->filter()->unique();
+
+        if ($currencies->count() > 1) {
+            throw ValidationException::withMessages([
+                'invoices' => 'All invoices in a payment request must share one currency (selected: '.$currencies->implode(', ').').',
+            ]);
+        }
+    }
+
     public function create(array $invoiceIds, User $creator, array $stages): PaymentRequest
     {
         $invoices = Invoice::whereIn('id', $invoiceIds)->get();
@@ -34,14 +53,7 @@ class PaymentRequestService
             ]);
         }
 
-        // total_amount is a plain sum of the invoices, and the approval thresholds are compared
-        // against it — both are nonsense if the request mixes currencies.
-        $currencies = $invoices->pluck('currency')->filter()->unique();
-        if ($currencies->count() > 1) {
-            throw ValidationException::withMessages([
-                'invoices' => 'All invoices in a payment request must share one currency (selected: '.$currencies->implode(', ').').',
-            ]);
-        }
+        self::assertSingleCurrency($invoices);
 
         $stages = array_values(array_filter($stages, fn ($s) => ! empty($s['approver_id'])));
         if (empty($stages)) {

@@ -20,11 +20,35 @@ const meta = useMetaStore();
 // (PaymentRequestService::create), so it is never offered here either.
 const candidates = computed(() => (meta.approvers ?? []).filter((a) => a.id !== auth.user?.id));
 
+// A level's min_amount is an amount in the base currency, so a request raised in another currency
+// has to be converted before it is measured against one — otherwise USD 36,000 is compared with a
+// 50,000 threshold as if it were AED 36,000 and misses the level that should sign it. Mirrors
+// ApprovalLevel::requiredForInvoices on the server, which is what actually decides the chain.
+const baseCurrency = computed(() => meta.base_currency || 'AED');
+
+// null when the total cannot be converted — an unrated currency, or a mixed selection that has no
+// single currency to convert from. Never falls back to 1:1: that is the mis-routing being fixed.
+const baseTotal = computed(() => {
+    const total = Number(props.total || 0);
+    const code = props.currency;
+
+    if (!code || code === baseCurrency.value) return total;
+    if (code === 'MULTI-CURRENCY') return null;
+
+    const rate = Number(meta.exchange_rates?.[code]);
+
+    return rate > 0 ? Math.round(total * rate * 100) / 100 : null;
+});
+
+const converted = computed(() => baseTotal.value !== null && props.currency && props.currency !== baseCurrency.value);
+
 // Levels the current total must pass through, in order.
 const requiredLevels = computed(() =>
-    [...(meta.approval_levels ?? [])]
-        .filter((l) => l.is_active && Number(l.min_amount) <= Number(props.total || 0))
-        .sort((a, b) => a.level - b.level)
+    baseTotal.value === null
+        ? []
+        : [...(meta.approval_levels ?? [])]
+              .filter((l) => l.is_active && Number(l.min_amount) <= baseTotal.value)
+              .sort((a, b) => a.level - b.level)
 );
 
 const assignments = ref({}); // { [level]: approverId }
@@ -70,7 +94,9 @@ function approverItemProps(item) {
     return { title: item.title, subtitle: item.subtitle };
 }
 
-const allAssigned = computed(() => requiredLevels.value.every((l) => !!assignments.value[l.level]));
+const allAssigned = computed(
+    () => baseTotal.value !== null && requiredLevels.value.every((l) => !!assignments.value[l.level])
+);
 
 // Pre-fill each required level with its default approver (without clobbering user choices).
 // Also keyed on itemsByLevel so the pre-fill re-runs once the approver list finishes loading.
@@ -114,7 +140,19 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
 <template>
     <div>
         <v-alert
-            v-if="!requiredLevels.length"
+            v-if="baseTotal === null"
+            type="warning"
+            variant="tonal"
+            density="comfortable"
+            :text="
+                currency === 'MULTI-CURRENCY'
+                    ? `The selected invoices are in different currencies, so there is no single amount to measure against the approval thresholds (which are ${baseCurrency} amounts). Narrow the selection to one currency.`
+                    : `No exchange rate is configured for ${currency}. Approval thresholds are ${baseCurrency} amounts, so this request cannot be routed until an administrator sets the ${currency} rate under Master Data → Currencies.`
+            "
+        />
+
+        <v-alert
+            v-else-if="!requiredLevels.length"
             type="warning"
             variant="tonal"
             density="comfortable"
@@ -124,7 +162,9 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
         <template v-else>
             <div class="text-caption text-medium-emphasis mb-3">
                 This request will route through {{ requiredLevels.length }} level(s)
-                (total {{ money(total, currency) }}). Each level only lists users assigned to that level;
+                (total {{ money(total, currency) }}<template v-if="converted">, worth
+                {{ money(baseTotal, baseCurrency) }} at the configured rate — the thresholds are
+                {{ baseCurrency }} amounts</template>). Each level only lists users assigned to that level;
                 approvers are pre-filled from the level's default — change them as needed.
                 Each stage is recorded and printed under the approver's own <strong>job title</strong>,
                 falling back to the level name if they have none.

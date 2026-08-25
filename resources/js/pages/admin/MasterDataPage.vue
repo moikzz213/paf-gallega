@@ -1,5 +1,5 @@
 <script setup>
-import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../../services/api';
 import { money } from '../../utils/format';
 import { useMetaStore } from '../../stores/meta';
@@ -27,6 +27,7 @@ const formRef = ref(null);
 const rules = {
     required: (v) => (v !== null && v !== undefined && v !== '') || 'Required',
     nonNeg: (v) => v === '' || v === null || v === undefined || (!isNaN(Number(v)) && Number(v) >= 0) || 'Must be zero or positive',
+    positive: (v) => v === '' || v === null || v === undefined || (!isNaN(Number(v)) && Number(v) > 0) || 'Must be greater than zero',
 };
 
 const tabs = [
@@ -40,6 +41,11 @@ const tabs = [
 
 const hasCreditFields = (t) => t === 'vendors' || t === 'customers';
 
+// Approval thresholds are amounts in the base currency, so every other currency needs a rate into
+// it before a request raised in that currency can be routed (see ApprovalChainBuilder).
+const baseCurrency = computed(() => meta.base_currency || 'AED');
+const isBaseCurrency = (name) => String(name ?? '').toUpperCase() === baseCurrency.value;
+
 const tabLabel = (t) => tabs.find((x) => x.value === t)?.label ?? 'master data';
 // "Currencies" doesn't singularise by dropping an "s", and a currency's name is its code.
 const tabSingular = (t) => (t === 'currencies' ? 'Currency' : tabLabel(t).replace(/s$/, ''));
@@ -51,6 +57,9 @@ function headers(t) {
         { title: 'Status', key: 'is_active', sortable: false },
         { title: '', key: 'actions', align: 'end', sortable: false },
     ];
+    if (t === 'currencies') {
+        h.splice(1, 0, { title: `Rate to ${baseCurrency.value}`, key: 'exchange_rate', sortable: false });
+    }
     if (hasCreditFields(t)) {
         const codeKey = t === 'vendors' ? 'vendor_code' : 'customer_code';
         h.splice(1, 0, { title: 'Code', key: codeKey, sortable: false });
@@ -79,7 +88,11 @@ async function load() {
     }
 }
 
-onMounted(load);
+onMounted(() => {
+    load();
+    // The Currencies tab labels its rate column with the base currency, which comes from meta.
+    meta.load();
+});
 watch(tab, () => {
     search.value = '';
     options.page = 1;
@@ -98,6 +111,9 @@ function emptyForm() {
     if (hasCreditFields(tab.value)) {
         return { name: '', vendor_code: '', customer_code: '', credit_limit: null, credit_days: null, is_active: true };
     }
+    if (tab.value === 'currencies') {
+        return { name: '', exchange_rate: null, is_active: true };
+    }
     return { name: '', is_active: true };
 }
 
@@ -108,6 +124,9 @@ function formFromItem(item) {
         base.customer_code = item.customer_code ?? '';
         base.credit_limit = item.credit_limit ?? null;
         base.credit_days = item.credit_days ?? null;
+    }
+    if (tab.value === 'currencies') {
+        base.exchange_rate = item.exchange_rate ?? null;
     }
     return base;
 }
@@ -162,6 +181,13 @@ async function save() {
     saving.value = true;
     try {
         const payload = { ...form.value };
+        if (tab.value === 'currencies') {
+            // The base currency is 1 by definition — never leave it blank, or nothing in it routes.
+            if (isBaseCurrency(payload.name)) payload.exchange_rate = 1;
+            else if (payload.exchange_rate === '' || payload.exchange_rate === undefined) payload.exchange_rate = null;
+        } else {
+            delete payload.exchange_rate;
+        }
         if (!hasCreditFields(tab.value)) {
             delete payload.vendor_code;
             delete payload.customer_code;
@@ -257,6 +283,11 @@ async function remove(item) {
                 <template v-if="hasCreditFields(tab)" #item.customer_code="{ item }">
                     <span class="text-medium-emphasis">{{ item.customer_code || '—' }}</span>
                 </template>
+                <template v-if="tab === 'currencies'" #item.exchange_rate="{ item }">
+                    <span v-if="item.exchange_rate != null">1 {{ item.name }} = {{ Number(item.exchange_rate) }} {{ baseCurrency }}</span>
+                    <v-chip v-else size="small" color="warning" variant="tonal">Not set — cannot be routed</v-chip>
+                </template>
+
                 <template v-if="hasCreditFields(tab)" #item.credit_limit="{ item }">
                     {{ item.credit_limit != null ? money(item.credit_limit) : '—' }}
                 </template>
@@ -287,6 +318,23 @@ async function remove(item) {
                             :persistent-hint="tab === 'currencies'"
                             :rules="[rules.required]"
                             autofocus
+                        />
+                        <v-text-field
+                            v-if="tab === 'currencies'"
+                            v-model="form.exchange_rate"
+                            :label="`Exchange Rate to ${baseCurrency}`"
+                            type="number"
+                            min="0"
+                            step="0.000001"
+                            :disabled="isBaseCurrency(form.name)"
+                            :rules="[rules.positive]"
+                            :hint="
+                                isBaseCurrency(form.name)
+                                    ? `${baseCurrency} is the base currency — its rate is always 1.`
+                                    : `How much ${baseCurrency} one unit is worth, e.g. 3.6725. Approval thresholds are ${baseCurrency} amounts, so a request in this currency cannot be routed until a rate is set.`
+                            "
+                            persistent-hint
+                            class="mb-2"
                         />
                         <template v-if="hasCreditFields(tab)">
                             <v-text-field v-if="tab === 'vendors'" v-model="form.vendor_code" label="Vendor Code" />

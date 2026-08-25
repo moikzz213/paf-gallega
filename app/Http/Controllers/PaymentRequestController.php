@@ -104,9 +104,11 @@ class PaymentRequestController extends Controller
         $data = $this->validatedChain($request);
 
         $invoices = Invoice::whereIn('id', $data['invoice_ids'])->get();
-        $total = (float) $invoices->sum('total_amount');
+        // Ahead of the chain, which converts each invoice into the base currency: a mixed set has no
+        // single currency to report on and should be refused as mixed, not as an unrated currency.
+        PaymentRequestService::assertSingleCurrency($invoices);
 
-        $stages = $this->buildStages($total, $data['approvers'] ?? [], $data['adhoc_approvers'] ?? []);
+        $stages = $this->buildStages($invoices, $data['approvers'] ?? [], $data['adhoc_approvers'] ?? []);
 
         $pr = $this->service->create($data['invoice_ids'], $request->user(), $stages);
 
@@ -269,10 +271,14 @@ class PaymentRequestController extends Controller
      * of the person actually signing: Finance group members now approve at L1/L2. The level name
      * remains the fallback for a user with no job title on record. Snapshotted at creation, like the
      * rest of the stage, so a later job change cannot rewrite an approval that already happened.
+     *
+     * Which levels apply is decided on the invoices' worth in the base currency, not on their face
+     * value: the thresholds are AED figures, so a USD 36,000 request has to be measured as the
+     * ~AED 132,000 it is worth or it routes below the tier that should sign it.
      */
-    private function buildStages(float $total, array $assignments, array $adhoc): array
+    private function buildStages($invoices, array $assignments, array $adhoc): array
     {
-        $levels = ApprovalLevel::requiredFor($total);
+        $levels = ApprovalLevel::requiredForInvoices($invoices);
 
         $approverIds = collect($levels)
             ->map(fn ($level) => $assignments[$level->level] ?? $level->default_approver_id)

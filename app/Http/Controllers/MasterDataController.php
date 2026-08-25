@@ -140,6 +140,17 @@ class MasterDataController extends Controller
                 'customer_code' => ['nullable', 'string', 'max:50', Rule::unique('customers', 'customer_code')->whereNotNull('customer_code')->when($ignoreId, fn ($r) => $r->ignore($ignoreId))],
             ], $creditRules, $common),
 
+            'currencies' => array_merge([
+                'name' => array_merge(
+                    ['required'],
+                    MasterDataDefinition::nameRules($definition),
+                    [$uniqueName($definition['table'])],
+                ),
+                // Nullable so a currency can be recorded before its rate is known; sending an
+                // unrated currency for approval is what gets refused (see Currency::toBase).
+                'exchange_rate' => ['nullable', 'numeric', 'gt:0', 'max:999999999'],
+            ], $common),
+
             default => array_merge([
                 'name' => array_merge(
                     ['required'],
