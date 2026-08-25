@@ -24,6 +24,13 @@ class MetaController extends Controller
             'vendors' => Vendor::where('is_active', true)->orderBy('name')->get(['id', 'name', 'vendor_code', 'credit_limit', 'credit_days']),
             'customers' => Customer::where('is_active', true)->orderBy('name')->get(['id', 'name', 'customer_code', 'credit_limit', 'credit_days']),
             'currencies' => Currency::where('is_active', true)->orderBy('name')->pluck('name'),
+            // Approval thresholds are amounts in the base currency, so the chain builder needs the
+            // rates to work out which levels an invoice in another currency really reaches.
+            'base_currency' => Currency::base(),
+            'exchange_rates' => Currency::where('is_active', true)
+                ->whereNotNull('exchange_rate')
+                ->pluck('exchange_rate', 'name')
+                ->map(fn ($rate) => (float) $rate),
             'payment_methods' => config('paf.payment_methods'),
             'priorities' => config('paf.priorities'),
             'statuses' => Invoice::STATUSES,

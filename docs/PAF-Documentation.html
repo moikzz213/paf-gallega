@@ -400,7 +400,7 @@
 <p>
     Approval levels live in the <code>approval_levels</code> table and are managed from the admin UI. A request must pass
     <strong>every active level whose <code>min_amount</code> ≤ the request's total</strong>, in ascending level order
-    (<code>ApprovalLevel::requiredFor()</code>). With the seeded configuration:
+    (<code>ApprovalLevel::requiredForInvoices()</code>). With the seeded configuration:
 </p>
 <table class="plain">
     <thead><tr><th>Total (AED)</th><th>Chain</th></tr></thead>
@@ -410,7 +410,23 @@
         <tr><td>≥ 50,000</td><td>L1 Department Manager → L2 Finance Director → L3 CFO</td></tr>
     </tbody>
 </table>
+
 <p class="small muted">Thresholds are inclusive: a request of exactly 10,000 requires L2. Levels are matched purely on amount — there is no category- or department-based routing.</p>
+
+<h3>Foreign-currency requests</h3>
+<p>
+    <code>min_amount</code> is an amount in the <strong>base currency</strong> (AED by default, set with
+    <code>PAF_BASE_CURRENCY</code>). A request raised in another currency is therefore converted before it is measured:
+    each invoice's total is multiplied by its currency's <code>exchange_rate</code> and the base-currency sum is what the
+    thresholds see. USD 36,000 at 3.6725 is worth AED 132,210, so it reaches the AED 50,000 level — comparing its face
+    value of 36,000 would have routed it a tier too low.
+</p>
+<p>
+    Rates are master data: <strong>Master Data → Currencies</strong> holds one rate per currency, expressed as
+    <em>how much base currency one unit is worth</em>. The base currency itself is always 1. A currency with
+    <strong>no rate on record cannot be routed</strong> — both the chain builder and the API refuse the request and name
+    the currency, rather than falling back to 1:1 and under-routing. Mixed-currency requests are refused as before.
+</p>
 
 <h3>Chain mechanics</h3>
 <ol>

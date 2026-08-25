@@ -44,7 +44,7 @@ class MasterDataImportTest extends TestCase
             'business-units' => ['Name *'],
             'departments' => ['Name *'],
             'locations' => ['Name *'],
-            'currencies' => ['Name *'],
+            'currencies' => ['Name *', 'Exchange Rate'],
         ];
 
         foreach ($entities as $entity => $expectedHeadings) {
@@ -98,8 +98,8 @@ class MasterDataImportTest extends TestCase
                 ['Bulk Location'],
             ],
             'currencies' => [
-                ['Name *'],
-                ['JPY'],
+                ['Name *', 'Exchange Rate'],
+                ['JPY', 0.024],
             ],
         ];
 
@@ -126,7 +126,7 @@ class MasterDataImportTest extends TestCase
         $this->assertDatabaseHas('business_units', ['name' => 'Bulk Business Unit']);
         $this->assertDatabaseHas('departments', ['name' => 'Bulk Department']);
         $this->assertDatabaseHas('locations', ['name' => 'Bulk Location']);
-        $this->assertDatabaseHas('currencies', ['name' => 'JPY', 'is_active' => true]);
+        $this->assertDatabaseHas('currencies', ['name' => 'JPY', 'exchange_rate' => 0.024, 'is_active' => true]);
         $this->assertSame(6, AuditLog::where('action', 'master_data_imported')->count());
     }
 

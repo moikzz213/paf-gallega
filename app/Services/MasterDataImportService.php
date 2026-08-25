@@ -118,6 +118,11 @@ class MasterDataImportService
         if (array_key_exists('credit_days', $data) && ($data['credit_days'] === '' || $data['credit_days'] === null)) {
             $data['credit_days'] = 0;
         }
+        // An unrated currency is allowed in (the base currency needs none, and a rate can be filled
+        // in later) — it is sending one for approval that is refused, not recording it.
+        if (array_key_exists('exchange_rate', $data) && ($data['exchange_rate'] === '' || $data['exchange_rate'] === null)) {
+            $data['exchange_rate'] = null;
+        }
         if ($definition['code_key'] && $data[$definition['code_key']] === '') {
             $data[$definition['code_key']] = null;
         }
@@ -147,6 +152,10 @@ class MasterDataImportService
             ];
             $rules['credit_limit'] = ['required', 'numeric', 'min:0', 'max:999999999999'];
             $rules['credit_days'] = ['required', 'integer', 'min:0', 'max:365'];
+        }
+
+        if (collect($definition['columns'])->contains(fn ($column) => $column['key'] === 'exchange_rate')) {
+            $rules['exchange_rate'] = ['nullable', 'numeric', 'gt:0', 'max:999999999'];
         }
 
         return $rules;

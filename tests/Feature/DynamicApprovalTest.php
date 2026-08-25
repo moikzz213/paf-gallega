@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\ApprovalLevel;
+use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\PaymentRequest;
 use App\Models\User;
@@ -187,7 +188,10 @@ class DynamicApprovalTest extends TestCase
         $this->assertSame(0, PaymentRequest::count());
         $this->assertSame(Invoice::PAY_NOT_INITIATED, $eur->refresh()->payment_status);
 
-        // one currency at a time is fine, and the request reports that currency
+        // one currency at a time is fine, and the request reports that currency. It needs a rate:
+        // the chain measures its base-currency worth against the thresholds (Currency::toBase).
+        Currency::where('name', 'EUR')->update(['exchange_rate' => 3.95]);
+
         $this->actingAs($finance)->postJson('/api/payment-requests', [
             'invoice_ids' => [$eur->id],
             'approvers' => [1 => $a1->id],

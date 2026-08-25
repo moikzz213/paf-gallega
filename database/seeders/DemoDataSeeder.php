@@ -147,7 +147,7 @@ class DemoDataSeeder extends Seeder
             'payment_status' => Invoice::PAY_IN_APPROVAL,
         ]);
 
-        $levels = ApprovalLevel::requiredFor((float) $total)->values();
+        $levels = ApprovalLevel::requiredForInvoices($invoices)->values();
         $stages = [];
         foreach ($levels as $idx => $level) {
             $stages[] = PaymentRequestApproval::create([

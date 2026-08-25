@@ -80,9 +80,16 @@ final class MasterDataDefinition
                 'name_rules' => ['string', 'size:3', 'alpha:ascii', 'uppercase'],
                 'columns' => [
                     self::column('name', 'Name', true, 'Three-letter currency code in upper case, e.g. AED. Must be unique.', 34),
+                    self::column('exchange_rate', 'Exchange Rate', false, 'How much '.self::baseCurrency().' one unit is worth, e.g. 3.6725 for USD. Approval thresholds are '.self::baseCurrency().' amounts, so a currency with no rate cannot be sent for approval. Leave blank for '.self::baseCurrency().' itself.', 22),
                 ],
             ],
         ];
+    }
+
+    /** The currency approval thresholds are measured in — every other rate converts into it. */
+    public static function baseCurrency(): string
+    {
+        return strtoupper((string) config('paf.base_currency', 'AED'));
     }
 
     /** Validation rules for an entity's name, excluding required/unique (callers add those). */
