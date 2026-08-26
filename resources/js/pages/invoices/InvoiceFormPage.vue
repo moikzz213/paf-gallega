@@ -27,6 +27,9 @@ const saving = ref(false);
 const formRef = ref(null);
 const files = ref([]);
 const existingDocuments = ref([]);
+// The document awaiting a remove confirmation, and the id currently being deleted.
+const documentToRemove = ref(null);
+const removingDocument = ref(null);
 
 const form = ref({
     vendor_id: null,
@@ -211,6 +214,33 @@ onMounted(async () => {
         }
     }
 });
+
+function downloadDocument(doc) {
+    window.open(`/api/documents/${doc.id}/download`, '_blank');
+}
+
+// Only the uploader (or an admin) may remove a document, and only while the invoice is still
+// editable — an in-place correction is held by a payment request, so its documents stay put.
+function canRemoveDocument(doc) {
+    return !correction.value && (auth.isAdmin || doc.uploaded_by === auth.user?.id);
+}
+
+async function removeDocument() {
+    const doc = documentToRemove.value;
+    if (!doc) return;
+
+    removingDocument.value = doc.id;
+    try {
+        await api.delete(`/documents/${doc.id}`);
+        existingDocuments.value = existingDocuments.value.filter((d) => d.id !== doc.id);
+        notify.success(`${doc.original_name} removed.`);
+        documentToRemove.value = null;
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        removingDocument.value = null;
+    }
+}
 
 async function save() {
     if (correctionExceeded.value) {
@@ -439,7 +469,27 @@ async function save() {
                             :title="doc.original_name"
                             :subtitle="fileSize(doc.size)"
                             prepend-icon="mdi-paperclip"
-                        />
+                        >
+                            <template #append>
+                                <v-btn
+                                    icon="mdi-download"
+                                    variant="text"
+                                    size="small"
+                                    title="Download"
+                                    @click="downloadDocument(doc)"
+                                />
+                                <v-btn
+                                    v-if="canRemoveDocument(doc)"
+                                    icon="mdi-delete-outline"
+                                    variant="text"
+                                    size="small"
+                                    color="error"
+                                    title="Remove"
+                                    :loading="removingDocument === doc.id"
+                                    @click="documentToRemove = doc"
+                                />
+                            </template>
+                        </v-list-item>
                     </v-list>
                     <v-file-input
                         v-model="files"
@@ -454,6 +504,21 @@ async function save() {
                     />
                 </v-card-text>
             </v-card>
+
+            <v-dialog :model-value="!!documentToRemove" max-width="440" @update:model-value="documentToRemove = null">
+                <v-card>
+                    <v-card-title class="text-subtitle-1">Remove attachment</v-card-title>
+                    <v-card-text class="text-body-2">
+                        <strong>{{ documentToRemove?.original_name }}</strong> will be deleted from this invoice.
+                        This cannot be undone.
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer />
+                        <v-btn variant="text" @click="documentToRemove = null">Cancel</v-btn>
+                        <v-btn color="error" variant="flat" :loading="!!removingDocument" @click="removeDocument">Remove</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
 
             <div class="d-flex ga-3">
                 <v-btn color="primary" size="large" :loading="saving" prepend-icon="mdi-send" @click="save">
