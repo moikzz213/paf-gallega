@@ -24,7 +24,7 @@ class MasterDataController extends Controller
         $filters = $request->validate([
             'q' => ['nullable', 'string', 'max:255'],
             'page' => ['nullable', 'integer', 'min:1'],
-            'per_page' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:1000'],
         ]);
         $query = $model::query();
 
