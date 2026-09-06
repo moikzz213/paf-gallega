@@ -99,6 +99,29 @@ class MasterDataAccessTest extends TestCase
         $this->getJson('/api/approval-levels')->assertForbidden();
     }
 
+    /** The 1000-row page size offered by the Master Data table must be accepted, and 1000 is the ceiling. */
+    public function test_per_page_accepts_a_thousand_but_no_more(): void
+    {
+        $this->actingAs($this->user(User::ROLE_FINANCE));
+
+        $this->getJson('/api/master-data/vendors?per_page=1000')
+            ->assertOk()
+            ->assertJsonPath('per_page', 1000);
+
+        $this->getJson('/api/master-data/vendors?per_page=1001')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('per_page');
+
+        $this->getJson('/api/master-data/vendors?per_page=0')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('per_page');
+
+        // Omitting it keeps the documented default.
+        $this->getJson('/api/master-data/vendors')
+            ->assertOk()
+            ->assertJsonPath('per_page', 15);
+    }
+
     public function test_finance_reaches_the_import_endpoint_rather_than_being_refused(): void
     {
         $this->actingAs($this->user(User::ROLE_FINANCE));

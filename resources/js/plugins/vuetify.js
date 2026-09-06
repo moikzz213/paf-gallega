@@ -2,6 +2,8 @@ import 'vuetify/styles';
 import '@mdi/font/css/materialdesignicons.css';
 import { createVuetify } from 'vuetify';
 
+export const ITEMS_PER_PAGE_OPTIONS = [10, 15, 25, 50, 100];
+
 export default createVuetify({
     theme: {
         defaultTheme: 'light',
@@ -29,5 +31,9 @@ export default createVuetify({
         VTextarea: { variant: 'outlined', density: 'comfortable', autocomplete: 'off' },
         VFileInput: { variant: 'outlined', density: 'comfortable', autocomplete: 'off' },
         VCard: { elevation: 1 },
+        // One items-per-page list for every paginated table. "All" (-1) is deliberately absent:
+        // these tables page on the server, and an unbounded page is a heavy query.
+        VDataTable: { itemsPerPageOptions: ITEMS_PER_PAGE_OPTIONS },
+        VDataTableServer: { itemsPerPageOptions: ITEMS_PER_PAGE_OPTIONS },
     },
 });

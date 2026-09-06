@@ -4,6 +4,7 @@ import api, { errorMessage } from '../../services/api';
 import { money } from '../../utils/format';
 import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
+import { ITEMS_PER_PAGE_OPTIONS } from '../../plugins/vuetify';
 
 const meta = useMetaStore();
 const notify = useNotifyStore();
@@ -14,6 +15,10 @@ const items = ref([]);
 const total = ref(0);
 const search = ref('');
 const options = reactive({ page: 1, itemsPerPage: 15 });
+// Master data lists are small enough to review whole, so this table offers a 1000-row page on top of
+// the shared options. Scoped here rather than in the global defaults: the other tables page over much
+// larger data. The backend caps per_page at 1000 to match.
+const itemsPerPageOptions = [...ITEMS_PER_PAGE_OPTIONS, 1000];
 const saving = ref(false);
 const importing = ref(false);
 const importDialog = ref(false);
@@ -266,12 +271,12 @@ async function remove(item) {
             <v-data-table-server
                 v-model:page="options.page"
                 v-model:items-per-page="options.itemsPerPage"
+                :items-per-page-options="itemsPerPageOptions"
                 :headers="headers(tab)"
                 :items="items"
                 :items-length="total"
                 :loading="loading"
                 density="comfortable"
-                :items-per-page-options="[10, 15, 25, 50]"
                 @update:options="load"
             >
                 <template #item.name="{ item }">
