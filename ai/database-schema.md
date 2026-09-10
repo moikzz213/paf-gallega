@@ -130,7 +130,7 @@ Lifecycle & posting columns:
 | `created_by` | FK users | Finance user who initiated |
 | `status` | string, default `draft` | `draft \| in_approval \| approved \| rejected \| withdrawn \| paid` (idx) |
 | `current_stage` | uint, nullable | sequence of the stage awaiting action |
-| `total_amount` | decimal(15,2) | sum of member invoices |
+| `total_amount` | decimal(15,2) | sum of member invoices; enforced **> 0** at creation and on an in-place correction, so a credit-only invoice must be grouped with the charge it offsets (a non-positive total matches no `approval_levels.min_amount` and could be routed to nobody) |
 | `sent_at`, `approved_at`, `rejected_at` | timestamp, nullable | |
 | `rejection_reason` | text, nullable | |
 | `withdrawn_at` | timestamp, nullable | set when Finance pulls an **approved** PRF back before payment |
@@ -176,8 +176,8 @@ Line items on an invoice (replaces the single amount/tax on the invoice itself).
 | `customer_id` | FK customers, nullable | nullOnDelete |
 | `description` | text, nullable | |
 | `currency` | string(3) | |
-| `amount` | decimal(15,2) | |
-| `tax_rate` | decimal(5,2) | default 0. Tax / VAT as a **percentage** of `amount` - this is what the form captures |
+| `amount` | decimal(15,2) | **signed** - negative is a vendor credit note, netted off by the header sums. Never 0, and the lines must not net to exactly 0; netting below 0 is a credit-only invoice, which a payment request must offset with a charge (validation only; the column always allowed it, so no migration was needed and no existing row changed). Historical rows hold credit notes as **positive** amounts, from before a negative was accepted — Finance corrects one by marking it when raising a PRF (`credit_note_marked`), which flips the sign on the header and every line together |
+| `tax_rate` | decimal(5,2) | default 0. Tax / VAT as a **percentage** of `amount` - this is what the form captures. Non-negative, but `tax_amount` inherits `amount`'s sign, so a credit line's tax is a reduction |
 | `tax_amount` | decimal(15,2) | default 0. **Derived** server-side: `round(amount * tax_rate / 100, 2)`. Kept as a column because every total, export and PDF reads the cash figure |
 | `total_amount` | decimal(15,2) | amount + tax |
 | timestamps | | |

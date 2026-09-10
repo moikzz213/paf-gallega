@@ -38,7 +38,129 @@ class PaymentRequestService
         }
     }
 
-    public function create(array $invoiceIds, User $creator, array $stages): PaymentRequest
+    /**
+     * A request has to ask for more than zero.
+     *
+     * An invoice may net below zero — a credit note that arrived on its own — but a payment request
+     * is where money leaves, so the floor lifted off the invoice lives here. It is structural rather
+     * than a policy preference: `ApprovalLevel::requiredFor` filters on `min_amount` (default 0), so
+     * a request at or below zero matches no level at all, could be routed to nobody, and has nothing
+     * to pay. A credit is settled by being selected alongside the charge it offsets.
+     *
+     * Public and static for the same reason as `assertSingleCurrency`: the chain is built before
+     * `create` runs, and building it on a non-positive total finds no levels, which would surface as
+     * a missing approver instead of the netting problem it actually is.
+     */
+    public static function assertPayableTotal($invoices): void
+    {
+        $invoices = collect($invoices);
+        $total = round($invoices->sum(fn ($invoice) => (float) $invoice->total_amount), 2);
+
+        if ($total > 0) {
+            return;
+        }
+
+        $currency = $invoices->pluck('currency')->filter()->first() ?? '';
+        $credits = $invoices->filter(fn ($invoice) => (float) $invoice->total_amount < 0);
+
+        throw ValidationException::withMessages([
+            'invoices' => trim("The selected invoices come to {$currency} ".number_format($total, 2))
+                .', so nothing would be paid. '
+                .($credits->isNotEmpty()
+                    ? 'A credit note is settled against a charge — also select the invoice(s) that '
+                        .$credits->pluck('reference_no')->implode(', ')
+                        .' offsets, so the request comes to more than zero.'
+                    : 'Select at least one invoice with an amount owed.'),
+        ]);
+    }
+
+    /**
+     * Apply Finance's "this one is a credit note" marks to a selection, in memory.
+     *
+     * Invoices already on record carry credit notes entered as **positive** amounts, because the
+     * system used to refuse a negative one — so grouping such an invoice added it to the request
+     * instead of deducting it. Marking it corrects the sign, which is the truth of the document: it
+     * always was a credit note. Correcting rather than flagging is what keeps everything else
+     * honest — the approval routing, the request total, `syncTotal`, the release and correction
+     * guards, the PDF, the emails and the reports all read `total_amount`, and none of them has to
+     * know this mark ever existed.
+     *
+     * Mutates the models without saving, so the caller can build the chain on the netted figure;
+     * `create` persists the same flip inside its transaction, so a request that is then refused
+     * never leaves a rewritten invoice behind.
+     *
+     * @param  array<int>  $creditIds  ids of invoices Finance marked as credit notes
+     */
+    public static function applyCreditMarks($invoices, array $creditIds): void
+    {
+        if (empty($creditIds)) {
+            return;
+        }
+
+        $creditIds = array_map('intval', $creditIds);
+        $marked = collect($invoices)->whereIn('id', $creditIds);
+
+        if ($unknown = array_diff($creditIds, $marked->pluck('id')->all())) {
+            throw ValidationException::withMessages([
+                'credit_invoice_ids' => 'A credit-note mark refers to an invoice that is not in this selection ('.implode(', ', $unknown).').',
+            ]);
+        }
+
+        // A negative invoice is already deducted as it stands, so there is no sign to correct —
+        // marking it would turn a credit note back into a charge. The screen only offers the mark on
+        // a positive invoice; this closes the same door on the server.
+        $already = $marked->filter(fn ($invoice) => (float) $invoice->total_amount < 0);
+        if ($already->isNotEmpty()) {
+            throw ValidationException::withMessages([
+                'credit_invoice_ids' => 'Already recorded as a credit note and deducted as it stands, so it cannot be marked again: '
+                    .$already->pluck('reference_no')->implode(', ').'.',
+            ]);
+        }
+
+        foreach ($marked as $invoice) {
+            $invoice->amount = -(float) $invoice->amount;
+            $invoice->tax_amount = -(float) $invoice->tax_amount;
+            $invoice->total_amount = -(float) $invoice->total_amount;
+        }
+    }
+
+    /**
+     * Persist a credit-note mark. The invoice and its lines change sign together, so the header
+     * stays the sum of its lines, and the correction is logged with the figures it replaced — the
+     * original amounts are recoverable from the audit trail.
+     */
+    private function persistCreditMark(Invoice $invoice, PaymentRequest $pr): void
+    {
+        $old = [
+            'amount' => $invoice->getOriginal('amount'),
+            'tax_amount' => $invoice->getOriginal('tax_amount'),
+            'total_amount' => $invoice->getOriginal('total_amount'),
+        ];
+
+        $invoice->save();
+
+        foreach ($invoice->items as $item) {
+            $item->update([
+                'amount' => -(float) $item->amount,
+                'tax_amount' => -(float) $item->tax_amount,
+                'total_amount' => -(float) $item->total_amount,
+            ]);
+        }
+
+        AuditLogger::log(
+            'credit_note_marked',
+            "Invoice {$invoice->reference_no} marked as a credit note when {$pr->reference_no} was raised: recorded as "
+                ."{$invoice->currency} ".number_format((float) $old['total_amount'], 2).', corrected to '
+                .number_format((float) $invoice->total_amount, 2)
+                .' so it is deducted from the request instead of added to it.',
+            $invoice, $old, $invoice->only(['amount', 'tax_amount', 'total_amount']), $pr,
+        );
+    }
+
+    /**
+     * @param  array<int>  $creditIds  ids of invoices Finance marked as credit notes (see applyCreditMarks)
+     */
+    public function create(array $invoiceIds, User $creator, array $stages, array $creditIds = []): PaymentRequest
     {
         $invoices = Invoice::whereIn('id', $invoiceIds)->get();
 
@@ -53,7 +175,12 @@ class PaymentRequestService
             ]);
         }
 
+        // Ahead of both checks below, so the currency and the payable total are measured on what the
+        // request will actually ask for once the marked invoices are deducted.
+        self::applyCreditMarks($invoices, $creditIds);
+
         self::assertSingleCurrency($invoices);
+        self::assertPayableTotal($invoices);
 
         $stages = array_values(array_filter($stages, fn ($s) => ! empty($s['approver_id'])));
         if (empty($stages)) {
@@ -69,7 +196,7 @@ class PaymentRequestService
             ]);
         }
 
-        $pr = DB::transaction(function () use ($invoices, $creator, $stages) {
+        $pr = DB::transaction(function () use ($invoices, $creator, $stages, $creditIds) {
             $pr = PaymentRequest::create([
                 'reference_no' => PaymentRequest::nextReferenceNo(),
                 'created_by' => $creator->id,
@@ -90,6 +217,13 @@ class PaymentRequestService
                     'approver_id' => (int) $stage['approver_id'],
                     'status' => PaymentRequestApproval::STATUS_PENDING,
                 ]);
+            }
+
+            // Inside the transaction, so a failure anywhere in creation leaves the invoice with the
+            // sign it had. Before the reservation below, which is a query-builder update and would
+            // otherwise be overwritten by the model save.
+            foreach ($invoices->whereIn('id', array_map('intval', $creditIds)) as $invoice) {
+                $this->persistCreditMark($invoice, $pr);
             }
 
             Invoice::whereIn('id', $invoices->pluck('id'))->update([
@@ -287,6 +421,11 @@ class PaymentRequestService
      * approvals and stay payable. Safe because the total only ever falls, and
      * `ApprovalLevel::requiredFor` filters on `min_amount`, so a smaller total requires a subset of
      * the levels that already approved the larger one.
+     *
+     * That "only ever falls" rests on every invoice total being positive. Vendor credit notes are
+     * captured as negative lines, so the guard below asserts it rather than assuming it: releasing
+     * an invoice worth nothing or less would *raise* what the request still asks for, past the
+     * figure its recorded approvals cover.
      */
     public function releaseInvoice(Invoice $invoice, User $actor, string $reason): PaymentRequest
     {
@@ -307,6 +446,12 @@ class PaymentRequestService
         if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_APPROVED], true)) {
             throw ValidationException::withMessages([
                 'status' => 'Only an in-approval or approved payment request can have an invoice released.',
+            ]);
+        }
+
+        if ((float) $invoice->total_amount <= 0 && $pr->invoices()->count() > 1) {
+            throw ValidationException::withMessages([
+                'invoice' => "Nothing is owed on {$invoice->reference_no} ({$invoice->currency} {$invoice->total_amount}), so releasing it would raise what {$pr->reference_no} still asks for — above the figure its approvals cover. Withdraw {$pr->reference_no} instead, then send the invoices that are still needed for approval again.",
             ]);
         }
 
@@ -365,6 +510,51 @@ class PaymentRequestService
 
             return $pr->refresh();
         });
+    }
+
+    /**
+     * Correct the payment reference on a paid request.
+     *
+     * The reference is the transfer or cheque number, typed by hand when the payment is recorded, and
+     * it is what reconciles a PAF payment to the bank statement. Until now it could only ever be set
+     * once: `markPaid` refuses a request that is not `approved`, so one already paid can never pass
+     * through it again, and nothing else writes the field. A typo was therefore permanent.
+     *
+     * Only the person who recorded the payment may correct it — they had the bank record in front of
+     * them — or an admin, which is the way through once that person has left. Correcting is not
+     * re-paying: `paid_by`, `paid_at` and the `paid` status stand, because they are facts about what
+     * happened; the correction is logged as its own event with the value it replaced.
+     *
+     * No uniqueness rule: one transfer legitimately settles several requests, so two of them sharing
+     * a reference is normal rather than a mistake.
+     */
+    public function updatePaymentReference(PaymentRequest $pr, User $actor, string $reference): PaymentRequest
+    {
+        if ($pr->status !== PaymentRequest::STATUS_PAID) {
+            throw ValidationException::withMessages([
+                'status' => 'Only a paid payment request has a payment reference to correct.',
+            ]);
+        }
+
+        if ($pr->paid_by !== $actor->id && ! $actor->isAdmin()) {
+            $payer = $pr->payer?->name ?? 'whoever recorded the payment';
+            abort(403, "This payment was recorded by {$payer}, so only they can correct its reference. Ask them, or an administrator, to make the correction.");
+        }
+
+        $old = $pr->payment_reference;
+
+        $pr->update(['payment_reference' => $reference]);
+
+        AuditLogger::log(
+            'payment_reference_corrected',
+            "Payment reference corrected on {$pr->reference_no}: {$old} → {$reference}. Recorded as paid by "
+                .($pr->payer?->name ?? 'unknown')
+                .($pr->paid_at ? ' on '.$pr->paid_at->format('Y-m-d') : '')
+                .', which the correction does not change.',
+            null, ['payment_reference' => $old], ['payment_reference' => $reference], $pr,
+        );
+
+        return $pr->refresh();
     }
 
     private function assertActionable(PaymentRequest $pr, User $actor): void

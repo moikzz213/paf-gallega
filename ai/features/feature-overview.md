@@ -15,6 +15,15 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   plain string on the invoice and its lines),
   amount + tax / VAT as a **percentage** per line (the cash figure and the total are computed
   server-side), business unit (GIL/GGL/GGH), submitting department, location,
+  **vendor credit notes** are entered as a line with a **negative amount** — flagged as a credit
+  note in the form, confirmed once before saving (a stray minus sign lowers who has to approve),
+  and deducted by the same header sums. A line may not be `0`, and the invoice may not net to
+  exactly zero — neither a charge nor a credit. A **credit-only invoice** (the whole invoice nets
+  below zero, a credit note that arrived on its own) is allowed and is settled by grouping it into
+  a PRF with the invoice it offsets; the "more than zero" floor lives on the PRF (see §4).
+  Negatives render in accounting style — `AED (1,500.00)` — everywhere money is shown
+  (`money()` in resources/js/utils/format.js, `App\Support\Money::format` for the PDF, the public
+  view and the emails),
   payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
 - System reference `INV-{year}-{00001}`; submitted immediately (status `submitted`).
 - A **queried** invoice can be edited and it returns to `submitted`.
@@ -33,6 +42,16 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
     Only available while the invoice is **outside a payment cycle** (`not_initiated`): a query asks
     for a correction, and an invoice held by a PRF cannot be edited. Return it first (reject the PRF,
     or withdraw it if already approved).
+  - **Edit Posting** — correct a mistyped `erp_doc_no` (or posting date) on an invoice that is
+    already `posted`. The number is keyed by hand and is what reconciles a PAF payment to the ERP
+    document, so a typo had to be fixable; until this, it was permanent. Restricted to the user
+    recorded in `posted_by` — they had the ERP document in front of them — **or** an admin, which is
+    the way through once that person has left; the refusal names the poster. Deliberately available
+    at **any** payment status, paid included: the field is a reference, not an amount, and
+    reconciliation (where a wrong number surfaces) happens after payment. Correcting is **not**
+    re-posting: `posted_by`, `posted_at` and the `posted` status are untouched, and the correction is
+    logged separately as `posting_corrected` with the values it replaced, so the original `posted`
+    entry survives.
   - Re-posting is refused while an invoice is `query_raised` **and** already has an `erp_doc_no` —
     it would overwrite that ERP document. Resolving the query returns it to `submitted`, and posting
     then records the corrected document.
@@ -43,6 +62,19 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Finance selects **multiple eligible invoices** (posted or submitted, not already in a cycle)
   and groups them into one PRF. The selection list can be **filtered** by department, vendor name,
   invoice no, job no, customer name, and currency.
+- **Marking a mis-signed credit note.** Invoices already on record carry credit notes entered as a
+  **positive** amount, from before the system accepted a negative one — grouping one *added* it to
+  the request. A **Credit note** tick-box on each selected row corrects that: the invoice's own
+  figures (header and lines) are corrected to a deduction, so the request deducts it. Shown only on
+  a positive invoice — one already recorded as a credit note is labelled as such and deducted as it
+  stands. Confirmed before sending (recorded → corrected to, plus the resulting total), audited as
+  `credit_note_marked` against both invoice and PRF with the replaced figures, and persisted only
+  inside the creation transaction, so a refused request rewrites nothing.
+- The selection must **net to more than zero**. A credit-only invoice is settled here, by being
+  selected alongside the charge it offsets: the refusal names the credit and says to add the
+  invoice it offsets. This is the floor that makes a credit-only invoice safe to record at all —
+  a request at or below zero matches no `min_amount`, so it could be routed to nobody and there
+  would be nothing to pay.
 - Builds the **approval chain** for the PRF total (pre-filled from level defaults, fully
   editable, ad-hoc stages allowed) and sends it for approval in one step.
 - Selected invoices are reserved (`payment_status = in_approval`) and linked to the PRF.
@@ -63,10 +95,15 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   **currency** and any **increase** to the total, because the recorded approvals only ever covered
   the old figure (thresholds are driven by `min_amount`, so a smaller total needs a subset of the
   same levels — a larger one may need levels nobody has given). Those need a release first.
+  Also locked: a correction that would leave the **PRF** at zero or below — the total only falling
+  is no longer enough now that an invoice can net below zero. Withdraw the PRF instead.
 - **Releasing a single invoice (Finance/Admin only).** When one invoice in a PRF is wrong and the
   others are fine, release just that invoice with a required reason: it returns to the Invoice Log
   while the rest of the PRF stays approved and payable, its total re-synced. Releasing the last
-  invoice withdraws the PRF, since an approved request with nothing to pay is void.
+  invoice withdraws the PRF, since an approved request with nothing to pay is void. This keeps the
+  approvals because the remaining total only ever *falls* — which holds only while invoice totals
+  are positive, so releasing an invoice worth ≤ 0 from a multi-invoice PRF is refused (`422`)
+  rather than silently raising the total past what its approvals cover.
 - **Withdrawal (Finance/Admin only).** A fully approved PRF that has not been paid can be withdrawn
   with a required reason: the PRF becomes `withdrawn`, its invoices return to the Invoice Log
   (`not_initiated`, unlinked), and it can no longer be paid or produce a PDF. The recorded approvals
@@ -112,6 +149,17 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 - Once a PRF is fully `approved`, Finance records a `payment_reference` → PRF `paid`, invoices
   `paid`.
+- **Edit Payment Ref** — correct a mistyped `payment_reference`, shown on the PRF detail page only
+  **once there is one** (the PRF is `paid`). The reference is the transfer/cheque number keyed by
+  hand and is what reconciles the payment to the bank statement, so a typo had to be fixable; until
+  this, `markPaid` refusing anything not `approved` made it permanent. Restricted to the user in
+  `paid_by` — they had the bank record in front of them — **or** an admin, the way through once that
+  person has left; the refusal names the payer. The PRF's **creator** gets no special right: raising
+  a request is not recording its payment. Correcting is **not** re-paying: `paid_by`, `paid_at`, the
+  `paid` status, the total, the invoices and every approval are untouched, and it is refused on any
+  non-`paid` status, so it can never become a route to marking something paid. Logged as
+  `payment_reference_corrected` with the value it replaced, leaving the original `paid` entry
+  intact. No uniqueness rule — one transfer often settles several PRFs.
 
 ## 7. PDF Export
 
@@ -181,6 +229,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 |---------|:--------:|:--------:|:-------:|:-----:|
 | Submit / edit own invoices | ✓ | ✓ (own) | ✓ | ✓ |
 | Post to ERP / raise query | | | ✓ | ✓ |
+| Correct posting details (ERP doc no.) | | | ✓ (only what they posted) | ✓ (any) |
+| Correct a payment reference | | | ✓ (only what they paid) | ✓ (any) |
 | Create payment request | | | ✓ | ✓ |
 | Approve / reject a PRF stage | | ✓ (assigned) | ✓ (assigned, needs a level) | ✓ |
 | …but never on a PRF they created | — | — | — | — |

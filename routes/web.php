@@ -64,6 +64,9 @@ Route::prefix('api')->group(function () {
 
         Route::middleware('role:finance,admin')->group(function () {
             Route::post('/invoices/{invoice}/post', [InvoiceController::class, 'post']);
+            // Correct a mistyped ERP document number after posting. Restricted further inside the
+            // controller to the user who recorded the posting, or an admin.
+            Route::post('/invoices/{invoice}/posting', [InvoiceController::class, 'updatePosting']);
             Route::post('/invoices/{invoice}/query', [InvoiceController::class, 'raiseQuery']);
             // Re-send the query notification when the first one could not be delivered.
             Route::post('/invoices/{invoice}/resend-query', [InvoiceController::class, 'resendQuery'])
@@ -83,6 +86,9 @@ Route::prefix('api')->group(function () {
         Route::post('/payment-requests/{paymentRequest}/approve', [PaymentRequestController::class, 'approve']);
         Route::post('/payment-requests/{paymentRequest}/reject', [PaymentRequestController::class, 'reject']);
         Route::post('/payment-requests/{paymentRequest}/mark-paid', [PaymentRequestController::class, 'markPaid'])->middleware('role:finance,admin');
+        // Correct a mistyped payment reference after the payment is recorded. Narrowed inside the
+        // service to the user who recorded it, or an admin.
+        Route::post('/payment-requests/{paymentRequest}/payment-reference', [PaymentRequestController::class, 'updatePaymentReference'])->middleware('role:finance,admin');
         // Reverses a completed approval, so finance/admin only — never the approvers.
         Route::post('/payment-requests/{paymentRequest}/withdraw', [PaymentRequestController::class, 'withdraw'])->middleware('role:finance,admin');
         Route::get('/payment-requests/{paymentRequest}/pdf', [PaymentRequestController::class, 'downloadPdf']);

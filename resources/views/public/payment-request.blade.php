@@ -123,7 +123,7 @@
         <div class="card">
             <div class="card-header">Details</div>
             <div class="card-body">
-                <div class="amount">{{ $paymentRequest->currency }} {{ number_format($paymentRequest->total_amount, 2) }}</div>
+                <div class="amount">{{ \App\Support\Money::format($paymentRequest->total_amount, $paymentRequest->currency) }}</div>
                 <div style="margin-top: 16px;">
                     <div class="grid">
                         <div class="field">
@@ -176,7 +176,7 @@
                                 <td>{{ $item->job_no ?: '—' }}</td>
                                 <td>{{ $item->customer?->name ?? '—' }}</td>
                                 <td>{{ $item->description ?: ($invoice->description ?: '—') }}</td>
-                                <td style="text-align:right">{{ $item->currency ?: $invoice->currency }} {{ number_format($item->total_amount, 2) }}</td>
+                                <td style="text-align:right">{{ \App\Support\Money::format($item->total_amount, $item->currency ?: $invoice->currency) }}</td>
                             </tr>
                             @empty
                             <tr>
@@ -187,7 +187,7 @@
                                 <td>—</td>
                                 <td>—</td>
                                 <td>{{ $invoice->description ?: '—' }}</td>
-                                <td style="text-align:right">{{ $invoice->currency }} {{ number_format($invoice->total_amount, 2) }}</td>
+                                <td style="text-align:right">{{ \App\Support\Money::format($invoice->total_amount, $invoice->currency) }}</td>
                             </tr>
                             @endforelse
                         @empty

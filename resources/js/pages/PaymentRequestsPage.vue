@@ -74,15 +74,42 @@ watch([search, () => filters.department, () => filters.vendor, () => filters.sta
 
 // ---- create flow ----
 const emptyEligibleFilters = () => ({ department: null, currency: null, vendor: null, invoice_no: '', job_no: '', customer: null });
-const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], saving: false, filters: emptyEligibleFilters() });
+const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], credits: [], saving: false, filters: emptyEligibleFilters() });
 const chain = ref({ assignments: {}, adhoc: [], valid: false });
+const confirmingCredits = ref(false);
 
 const selectedInvoices = computed(() => create.eligible.filter((i) => create.selected.includes(i.id)));
-const selectedTotal = computed(() => selectedInvoices.value.reduce((s, i) => s + Number(i.total_amount), 0));
+
+// Credit notes already on record as a *positive* amount, because the system used to refuse a
+// negative one. Marking one here corrects its sign, so the request deducts it instead of adding it
+// (PaymentRequestService::applyCreditMarks does the same server-side, and persists it).
+// Only offered on a positive invoice: a negative one is already deducted as it stands.
+const canMarkCredit = (invoice) => Number(invoice.total_amount) > 0;
+const isMarkedCredit = (invoice) => create.credits.includes(invoice.id);
+// A mark only counts while its invoice is selected, so deselecting a row cannot leave a stray
+// deduction in the total.
+const markedIds = computed(() => create.credits.filter((id) => create.selected.includes(id)));
+const markedInvoices = computed(() => selectedInvoices.value.filter((i) => markedIds.value.includes(i.id)));
+// What the invoice contributes to this request: a marked one is deducted.
+const contribution = (invoice) => Number(invoice.total_amount) * (markedIds.value.includes(invoice.id) ? -1 : 1);
+
+function toggleCredit(invoice, on) {
+    create.credits = on
+        ? [...new Set([...create.credits, invoice.id])]
+        : create.credits.filter((id) => id !== invoice.id);
+}
+
+const selectedTotal = computed(() => selectedInvoices.value.reduce((s, i) => s + contribution(i), 0));
 
 // One request, one currency — the total is a plain sum and the approval thresholds run off it.
 const selectedCurrency = computed(() => invoicesCurrency(selectedInvoices.value));
 const mixedCurrency = computed(() => selectedCurrency.value === 'MULTI-CURRENCY');
+
+// A request has to ask for more than zero. An invoice may be a credit note on its own, but it is
+// only settled by being selected alongside the charge it offsets: a set netting to zero or below
+// pays nothing and matches no approval level. Mirrors PaymentRequestService::assertPayableTotal.
+const selectedCredits = computed(() => selectedInvoices.value.filter((i) => contribution(i) < 0));
+const nothingPayable = computed(() => !!create.selected.length && Math.round(selectedTotal.value * 100) <= 0);
 
 async function loadEligible() {
     create.loadingEligible = true;
@@ -109,6 +136,7 @@ async function loadEligible() {
 
 function openCreate() {
     create.selected = [];
+    create.credits = [];
     create.filters = emptyEligibleFilters();
     create.show = true;
     loadEligible();
@@ -128,7 +156,17 @@ function onChainChange(payload) {
 async function submitCreate() {
     if (!create.selected.length) return notify.error('Select at least one invoice.');
     if (mixedCurrency.value) return notify.error('All selected invoices must share one currency.');
+    if (nothingPayable.value) return notify.error('The selected invoices come to zero or less, so nothing would be paid — also select the invoice(s) the credit note offsets.');
     if (!chain.value.valid) return notify.error('Assign an approver for every approval stage.');
+
+    // Marking a credit note rewrites the invoice's sign, which is the figure the approval
+    // thresholds are measured against — worth one deliberate confirmation, the same way the
+    // invoice form confirms a credit line before saving.
+    if (markedIds.value.length && !confirmingCredits.value) {
+        confirmingCredits.value = true;
+        return;
+    }
+    confirmingCredits.value = false;
 
     const approvers = {};
     Object.entries(chain.value.assignments).forEach(([lvl, id]) => {
@@ -142,6 +180,7 @@ async function submitCreate() {
     try {
         const { data } = await api.post('/payment-requests', {
             invoice_ids: create.selected,
+            credit_invoice_ids: markedIds.value,
             approvers,
             adhoc_approvers,
         });
@@ -303,6 +342,7 @@ async function submitCreate() {
                                 { title: 'Job / Customer', key: 'jobs', sortable: false },
                                 { title: 'Dept', key: 'department', sortable: false },
                                 { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
+                                { title: 'Credit note', key: 'credit', align: 'center', sortable: false },
                             ]"
                             :items="create.eligible"
                             item-value="id"
@@ -323,12 +363,37 @@ async function submitCreate() {
                                 <span v-if="!(item.items || []).length" class="text-caption text-medium-emphasis">—</span>
                             </template>
                             <template #item.total_amount="{ item }">
-                                {{ money(item.total_amount, item.currency) }}
+                                <span :class="{ 'text-error': isMarkedCredit(item) || Number(item.total_amount) < 0 }">
+                                    {{ money(contribution(item), item.currency) }}
+                                </span>
+                            </template>
+                            <template #item.credit="{ item }">
+                                <!-- Only offered on a positive invoice; a negative one is already deducted. -->
+                                <v-checkbox
+                                    v-if="canMarkCredit(item)"
+                                    :model-value="isMarkedCredit(item)"
+                                    :disabled="!create.selected.includes(item.id)"
+                                    color="error"
+                                    density="compact"
+                                    hide-details
+                                    class="d-inline-flex"
+                                    @update:model-value="(on) => toggleCredit(item, on)"
+                                />
+                                <v-chip v-else size="x-small" color="error" variant="tonal">Credit note</v-chip>
                             </template>
                         </v-data-table>
+                        <div class="text-caption text-medium-emphasis mb-2">
+                            Tick <strong>Credit note</strong> on a selected invoice that is really a vendor credit
+                            recorded as a positive amount — it is then <strong>deducted</strong> from this request
+                            instead of added to it, and the invoice's own figures are corrected to match. Invoices
+                            already recorded as a credit note are deducted as they stand.
+                        </div>
 
-                        <div class="d-flex align-center my-4">
+                        <div class="d-flex align-center flex-wrap ga-2 my-4">
                             <v-chip color="primary" variant="tonal">{{ create.selected.length }} selected</v-chip>
+                            <v-chip v-if="markedInvoices.length" color="error" variant="tonal" prepend-icon="mdi-minus-circle-outline">
+                                {{ markedInvoices.length }} marked as credit note{{ markedInvoices.length === 1 ? '' : 's' }}
+                            </v-chip>
                             <v-spacer />
                             <div class="text-body-1">
                                 <span class="text-medium-emphasis">Total:</span>
@@ -345,9 +410,22 @@ async function submitCreate() {
                             text="The selected invoices are in different currencies. A payment request covers one currency only — narrow the selection before sending."
                         />
 
-                        <v-divider class="mb-4" />
-                        <div class="text-subtitle-2 mb-2">Approval chain</div>
-                        <ApprovalChainBuilder :total="selectedTotal" :currency="selectedCurrency" @change="onChainChange" />
+                        <v-alert v-if="nothingPayable" type="warning" variant="tonal" density="compact" class="mb-4">
+                            The selected invoices come to
+                            <strong>{{ money(selectedTotal, selectedCurrency) }}</strong>, so nothing would be paid.
+                            <template v-if="selectedCredits.length">
+                                A credit note is settled against a charge — also select the invoice(s) that
+                                <strong>{{ selectedCredits.map((i) => i.reference_no).join(', ') }}</strong>
+                                offsets, so the request comes to more than zero.
+                            </template>
+                            <template v-else>Select at least one invoice with an amount owed.</template>
+                        </v-alert>
+
+                        <template v-if="!nothingPayable">
+                            <v-divider class="mb-4" />
+                            <div class="text-subtitle-2 mb-2">Approval chain</div>
+                            <ApprovalChainBuilder :total="selectedTotal" :currency="selectedCurrency" @change="onChainChange" />
+                        </template>
                     </template>
                 </v-card-text>
                 <v-divider />
@@ -356,6 +434,52 @@ async function submitCreate() {
                     <v-btn variant="text" @click="create.show = false">Cancel</v-btn>
                     <v-btn color="primary" variant="flat" :loading="create.saving" prepend-icon="mdi-send" @click="submitCreate">
                         Send for Approval
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <v-dialog v-model="confirmingCredits" max-width="560">
+            <v-card>
+                <v-card-title class="text-subtitle-1">Confirm the credit notes</v-card-title>
+                <v-card-text class="text-body-2">
+                    <p class="mb-3">
+                        <strong>{{ markedInvoices.length }} invoice{{ markedInvoices.length === 1 ? '' : 's' }}</strong>
+                        marked as a credit note. Each one's recorded amount is
+                        <strong>corrected to a deduction</strong> — the invoice always was a credit note, and this
+                        puts its own figures right as well as this request's.
+                    </p>
+                    <v-table density="compact" class="mb-3">
+                        <thead>
+                            <tr>
+                                <th>Invoice</th>
+                                <th class="text-right">Recorded</th>
+                                <th class="text-right">Corrected to</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="inv in markedInvoices" :key="inv.id">
+                                <td>
+                                    {{ inv.reference_no }}
+                                    <div class="text-caption text-medium-emphasis">{{ inv.vendor_name }}</div>
+                                </td>
+                                <td class="text-right">{{ money(inv.total_amount, inv.currency) }}</td>
+                                <td class="text-right text-error">{{ money(-Number(inv.total_amount), inv.currency) }}</td>
+                            </tr>
+                        </tbody>
+                    </v-table>
+                    <p>
+                        This request will ask for
+                        <strong>{{ money(selectedTotal, selectedCurrency) }}</strong>, and that is the figure that
+                        goes for approval and payment. Check it before continuing — a deduction lowers the amount,
+                        and so lowers who has to approve it.
+                    </p>
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="confirmingCredits = false">Go back</v-btn>
+                    <v-btn color="primary" variant="flat" :loading="create.saving" @click="submitCreate">
+                        Confirm &amp; send
                     </v-btn>
                 </v-card-actions>
             </v-card>
