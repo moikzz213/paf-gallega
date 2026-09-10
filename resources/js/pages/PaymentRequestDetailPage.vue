@@ -46,6 +46,13 @@ const canAct = computed(() => {
 const canPay = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
 // Reversing a completed approval is a Finance/admin call, never an approver's.
 const canWithdraw = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
+// The payment reference is the transfer/cheque number keyed by hand when the payment is recorded,
+// and it is what reconciles this request to the bank statement — so a typo has to be fixable. Only
+// once there is one to correct, and only for the person who recorded the payment (an admin is the
+// way through once they have left). Mirrors PaymentRequestService::updatePaymentReference.
+const canEditPaymentRef = computed(() => pr.value?.status === 'paid'
+    && !!pr.value?.payment_reference
+    && (pr.value?.paid_by === auth.user?.id || auth.isAdmin));
 
 const invoiceLines = computed(() => (pr.value?.invoices ?? []).flatMap((invoice) => {
     const items = invoice.items?.length ? invoice.items : [null];
@@ -63,6 +70,11 @@ const invoiceLines = computed(() => (pr.value?.invoices ?? []).flatMap((invoice)
 
 function openDialog(kind) {
     dialog.value = { show: true, kind, comments: '', payment_reference: '' };
+
+    // A correction starts from what is recorded — the point is to fix a keystroke in it.
+    if (kind === 'editPaymentRef') {
+        dialog.value.payment_reference = pr.value?.payment_reference ?? '';
+    }
 }
 
 const dialogTitle = computed(() => ({
@@ -70,6 +82,7 @@ const dialogTitle = computed(() => ({
     reject: 'Reject Payment Request',
     withdraw: 'Withdraw Payment Request',
     pay: 'Mark as Paid',
+    editPaymentRef: 'Correct Payment Reference',
 }[dialog.value.kind]));
 
 async function runAction(kind, payload = {}) {
@@ -80,6 +93,7 @@ async function runAction(kind, payload = {}) {
             reject: `/payment-requests/${props.id}/reject`,
             withdraw: `/payment-requests/${props.id}/withdraw`,
             pay: `/payment-requests/${props.id}/mark-paid`,
+            editPaymentRef: `/payment-requests/${props.id}/payment-reference`,
         };
         await api.post(urls[kind], payload);
         notify.success({
@@ -87,6 +101,7 @@ async function runAction(kind, payload = {}) {
             reject: 'Payment request rejected.',
             withdraw: 'Payment request withdrawn — its invoices are back in the Invoice Log.',
             pay: 'Payment recorded.',
+            editPaymentRef: 'Payment reference corrected.',
         }[kind]);
         dialog.value.show = false;
         await load();
@@ -111,6 +126,13 @@ function confirmDialog() {
     if (kind === 'pay') {
         if (!payment_reference.trim()) return notify.error('A payment reference is required.');
         return runAction('pay', { payment_reference });
+    }
+    if (kind === 'editPaymentRef') {
+        if (!payment_reference.trim()) return notify.error('A payment reference is required.');
+        if (payment_reference === pr.value?.payment_reference) {
+            return notify.error('Nothing changed — edit the payment reference first.');
+        }
+        return runAction('editPaymentRef', { payment_reference });
     }
 }
 
@@ -145,6 +167,13 @@ function approvalColor(status) {
             <v-btn v-if="canAct" color="error" variant="tonal" prepend-icon="mdi-close" @click="openDialog('reject')">Reject</v-btn>
             <v-btn v-if="canPay" color="success" prepend-icon="mdi-cash-check" @click="openDialog('pay')">Mark Paid</v-btn>
             <v-btn v-if="canWithdraw" color="warning" variant="tonal" prepend-icon="mdi-undo-variant" @click="openDialog('withdraw')">Withdraw</v-btn>
+            <v-btn
+                v-if="canEditPaymentRef"
+                variant="tonal"
+                prepend-icon="mdi-pencil-outline"
+                title="Correct a mistyped payment reference"
+                @click="openDialog('editPaymentRef')"
+            >Edit Payment Ref</v-btn>
             <v-btn v-if="pr.status === 'approved' || pr.status === 'paid'" variant="tonal" prepend-icon="mdi-file-pdf-box" :href="`/api/payment-requests/${id}/pdf`" target="_blank">Download PDF</v-btn>
         </div>
 
@@ -297,6 +326,15 @@ function approvalColor(status) {
                     </template>
                     <template v-else-if="dialog.kind === 'pay'">
                         <v-text-field v-model="dialog.payment_reference" label="Payment reference / transaction #" autofocus />
+                    </template>
+                    <template v-else-if="dialog.kind === 'editPaymentRef'">
+                        <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+                            Correcting the payment reference recorded against this request. It stays paid, and
+                            <strong>{{ pr.payer?.name || 'whoever recorded the payment' }}</strong> remains recorded
+                            as having recorded it{{ pr.paid_at ? ` on ${shortDate(pr.paid_at)}` : '' }} — only the
+                            reference changes, and the correction is logged.
+                        </v-alert>
+                        <v-text-field v-model="dialog.payment_reference" label="Payment reference / transaction # *" autofocus />
                     </template>
                 </v-card-text>
                 <v-card-actions>

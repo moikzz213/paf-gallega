@@ -30,6 +30,10 @@ const existingDocuments = ref([]);
 // The document awaiting a remove confirmation, and the id currently being deleted.
 const documentToRemove = ref(null);
 const removingDocument = ref(null);
+// Credit-note lines are confirmed once before saving; the flag survives the dialog so the second
+// save goes straight through, and resets whenever the lines change.
+const confirmingCredits = ref(false);
+const creditsConfirmed = ref(false);
 
 const form = ref({
     vendor_id: null,
@@ -51,7 +55,8 @@ const items = ref([
 
 const rules = {
     required: (v) => (v !== null && v !== undefined && v !== '') || 'Required',
-    positive: (v) => Number(v) > 0 || 'Must be greater than zero',
+    // A negative amount is a vendor credit note, netted off the invoice. Zero is neither.
+    nonZero: (v) => Math.round(Number(v) * 100) !== 0 || 'Cannot be zero',
     nonNegative: (v) => v === '' || v === null || Number(v) >= 0 || 'Cannot be negative',
     percentage: (v) => v === '' || v === null || (Number(v) >= 0 && Number(v) <= 100) || 'Must be between 0 and 100',
     itemsMin: () => items.value.length > 0 || 'At least one line item is required',
@@ -135,7 +140,29 @@ function onItemCurrencyChange(currency) {
     items.value.forEach((item) => { item.currency = currency; });
 }
 
+// A negative line is a vendor credit note. Flagged as it is typed so a mistyped minus sign shows
+// itself immediately, and confirmed on save (see creditsToConfirm) rather than only server-side.
+function isCredit(item) {
+    return Math.round((Number(item.amount) || 0) * 100) < 0;
+}
+
 const grandTotal = computed(() => items.value.reduce((s, i) => s + itemTotal(i), 0));
+const creditLines = computed(() => items.value.filter(isCredit));
+const creditTotal = computed(() => creditLines.value.reduce((s, i) => s + itemTotal(i), 0));
+// Mirrors the server rules in InvoiceController::validatedItems. An invoice may net below zero —
+// a credit-only invoice, settled by grouping it with the charge it offsets in a payment request —
+// but exactly zero is neither a charge nor a credit and there is nothing to record.
+const netsToZero = computed(() => Math.round(grandTotal.value * 100) === 0);
+const creditOnly = computed(() => Math.round(grandTotal.value * 100) < 0);
+
+// Editing a line after confirming means the figures the confirmation covered have moved on.
+watch(items, () => { creditsConfirmed.value = false; }, { deep: true });
+
+function confirmCredits() {
+    creditsConfirmed.value = true;
+    confirmingCredits.value = false;
+    save();
+}
 // In correction mode the approvals already given cover a fixed figure, so the total may fall but
 // never rise. Mirrors InvoiceController::assertInPlaceCorrection.
 const correctionExceeded = computed(() => !!correction.value && grandTotal.value > Number(correction.value.total) + 0.001);
@@ -248,9 +275,21 @@ async function save() {
         return;
     }
 
+    if (netsToZero.value) {
+        notify.error('These lines come to zero, so this invoice is neither a charge nor a credit. Enter what is owed, or enter a credit note as a negative amount.');
+        return;
+    }
+
     const { valid } = await formRef.value.validate();
     if (!valid) {
         notify.error('Please fix the highlighted fields.');
+        return;
+    }
+
+    // A credit note lowers the figure the approval thresholds are measured against, so a stray
+    // minus sign is worth one deliberate confirmation before it reaches Finance.
+    if (creditLines.value.length && !creditsConfirmed.value) {
+        confirmingCredits.value = true;
         return;
     }
 
@@ -349,9 +388,18 @@ async function save() {
                     <v-btn size="small" class="pa-2" color="primary" variant="tonal" prepend-icon="mdi-plus" @click="addItem">Add More</v-btn>
                 </v-card-title>
                 <v-card-text>
-                    <div v-for="(item, idx) in items" :key="idx" class="mb-4 pa-4 rounded" style="border: 1px solid rgba(0,0,0,0.12)">
+                    <div class="text-body-2 text-medium-emphasis mb-4">
+                        Enter a vendor credit note as a line with a <strong>negative amount</strong> — it is deducted
+                        from the invoice, and the net figure is what goes for approval and payment. A credit note that
+                        arrived on its own can be recorded as a credit-only invoice: the whole invoice comes to less
+                        than zero, and it is settled by grouping it with the invoice it offsets in a payment request.
+                    </div>
+                    <div v-for="(item, idx) in items" :key="idx" class="mb-4 pa-4 rounded" :style="`border: 1px solid ${isCredit(item) ? 'rgba(211,47,47,0.5)' : 'rgba(0,0,0,0.12)'}`">
                         <div class="d-flex align-center mb-3">
                             <v-chip size="small" color="primary" variant="tonal" class="mr-2">Item {{ idx + 1 }}</v-chip>
+                            <v-chip v-if="isCredit(item)" size="small" color="error" variant="tonal" prepend-icon="mdi-minus-circle-outline">
+                                Credit note
+                            </v-chip>
                             <v-spacer />
                             <v-btn v-if="items.length > 1" icon="mdi-close" size="x-small" variant="text" color="error" @click="removeItem(idx)" />
                         </div>
@@ -384,7 +432,16 @@ async function save() {
                                 />
                             </v-col>
                             <v-col cols="6" sm="3" md="2">
-                                <v-text-field v-model="item.amount" label="Amount *" type="number" min="0" step="0.01" hide-details density="compact" :rules="[rules.required, rules.positive]" />
+                                <v-text-field
+                                    v-model="item.amount"
+                                    label="Amount *"
+                                    type="number"
+                                    step="0.01"
+                                    hide-details="auto"
+                                    density="compact"
+                                    :rules="[rules.required, rules.nonZero]"
+                                    :messages="isCredit(item) ? 'Credit note — deducted from the invoice' : undefined"
+                                />
                             </v-col>
                             <v-col cols="6" sm="3" md="1">
                                 <v-text-field
@@ -405,7 +462,9 @@ async function save() {
                             </v-col>
                             <v-col cols="6" sm="3" md="2">
                                 <div class="text-caption text-medium-emphasis">Total</div>
-                                <div class="text-body-1 font-weight-bold">{{ money(itemTotal(item), item.currency) }}</div>
+                                <div class="text-body-1 font-weight-bold" :class="isCredit(item) ? 'text-error' : ''">
+                                    {{ money(itemTotal(item), item.currency) }}
+                                </div>
                             </v-col>
                              <v-col cols="12" sm="6" md="12">
                                 <v-text-field v-model="item.description" label="Description" hide-details density="compact" />
@@ -415,10 +474,31 @@ async function save() {
                     <v-row v-if="items.length > 1 || correction" class="mt-2">
                         <v-col cols="12">
                             <div class="d-flex justify-end align-center ga-4">
-                                <div class="text-body-2 text-medium-emphasis">Total: <strong>{{ money(grandTotal, form.currency) }}</strong></div>
+                                <template v-if="creditLines.length">
+                                    <div class="text-body-2 text-medium-emphasis">
+                                        Charges: <strong>{{ money(grandTotal - creditTotal, form.currency) }}</strong>
+                                    </div>
+                                    <div class="text-body-2 text-error">
+                                        Credit notes: <strong>{{ money(creditTotal, form.currency) }}</strong>
+                                    </div>
+                                </template>
+                                <div class="text-body-2 text-medium-emphasis">
+                                    {{ creditLines.length ? 'Net payable' : 'Total' }}:
+                                    <strong>{{ money(grandTotal, form.currency) }}</strong>
+                                </div>
                             </div>
                         </v-col>
                     </v-row>
+                    <v-alert v-if="netsToZero" type="error" variant="tonal" density="compact" class="mt-2">
+                        These lines come to <strong>{{ money(0, form.currency) }}</strong>, so this invoice is neither a
+                        charge nor a credit. Enter what is owed, or enter a credit note as a negative amount.
+                    </v-alert>
+                    <v-alert v-else-if="creditOnly" type="info" variant="tonal" density="compact" class="mt-2">
+                        This invoice comes to <strong>{{ money(grandTotal, form.currency) }}</strong> — a credit-only
+                        invoice, which the vendor owes back rather than one we pay. It can be recorded now and is
+                        settled later by selecting it in a payment request alongside the invoice it offsets. On its own
+                        it cannot be paid, because a payment request has to come to more than zero.
+                    </v-alert>
                     <v-alert v-if="taxWillShift" type="info" variant="tonal" density="compact" class="mt-2">
                         This invoice was saved with {{ money(loadedTax, form.currency) }} tax. At the rates above it
                         works out to <strong>{{ money(grandTax, form.currency) }}</strong>, so saving will record that
@@ -504,6 +584,43 @@ async function save() {
                     />
                 </v-card-text>
             </v-card>
+
+            <v-dialog v-model="confirmingCredits" max-width="520">
+                <v-card>
+                    <v-card-title class="text-subtitle-1">Confirm the credit notes</v-card-title>
+                    <v-card-text class="text-body-2">
+                        <p class="mb-3">
+                            This invoice has
+                            <strong>{{ creditLines.length }} line{{ creditLines.length === 1 ? '' : 's' }}</strong>
+                            entered as a credit note, deducting
+                            <strong class="text-error">{{ money(-creditTotal, form.currency) }}</strong>.
+                        </p>
+                        <v-table density="compact" class="mb-3">
+                            <tbody>
+                                <tr v-for="(item, idx) in creditLines" :key="idx">
+                                    <td>{{ item.description || item.job_no || 'Credit note' }}</td>
+                                    <td class="text-right text-error">{{ money(itemTotal(item), item.currency) }}</td>
+                                </tr>
+                            </tbody>
+                        </v-table>
+                        <p v-if="creditOnly">
+                            The invoice comes to <strong>{{ money(grandTotal, form.currency) }}</strong> — the whole
+                            invoice is a credit, so there is nothing to pay on it. Check it before continuing: it can
+                            only be settled by grouping it with the invoice it offsets in a payment request.
+                        </p>
+                        <p v-else>
+                            The invoice comes to <strong>{{ money(grandTotal, form.currency) }}</strong>, and that is
+                            the figure that goes for approval and payment. Check it before continuing — a credit
+                            lowers the amount, and so lowers who has to approve it.
+                        </p>
+                    </v-card-text>
+                    <v-card-actions>
+                        <v-spacer />
+                        <v-btn variant="text" @click="confirmingCredits = false">Go back</v-btn>
+                        <v-btn color="primary" variant="flat" @click="confirmCredits">Confirm &amp; save</v-btn>
+                    </v-card-actions>
+                </v-card>
+            </v-dialog>
 
             <v-dialog :model-value="!!documentToRemove" max-width="440" @update:model-value="documentToRemove = null">
                 <v-card>

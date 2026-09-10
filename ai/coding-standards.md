@@ -48,7 +48,9 @@ Conventions observed in this codebase. Follow them so new code reads like the ex
 - **Status/priority colors & labels:** always resolve from `utils/format.js` (`STATUS_META`,
   `PRIORITY_META`) and render statuses via `StatusChip` — do not invent per-page colors.
 - **Formatting:** use the `money`, `shortDate`, `dateTime`, `fileSize` helpers in
-  `utils/format.js`.
+  `utils/format.js`. Blade (PDF, public view, emails) uses `App\Support\Money::format` — the same
+  accounting presentation, so a credit note reads as `AED (1,500.00)` on every surface. Keep the
+  two in step; never hand-roll `number_format` for money in a view.
 - **Routing/authorization:** when adding a route, set `meta.auth`/`meta.roles` on the route AND
   add the nav item guard in `AppLayout` — the two authorization vocabularies must stay in sync.
 - **Do not add Tailwind classes** — Tailwind is installed but not wired in; styling is Vuetify +

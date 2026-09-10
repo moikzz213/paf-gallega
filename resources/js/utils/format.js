@@ -1,6 +1,14 @@
+/**
+ * Accounting presentation: a vendor credit note is stored as a negative line, and on a dense table
+ * or an emailed summary a leading minus sign is easy to miss — parentheses are not. Mirrors
+ * App\Support\Money::format so the screen, the PDF, the public view and the emails agree.
+ */
 export function money(value, currency = 'AED') {
-    const number = Number(value ?? 0);
-    return `${currency || 'AED'} ${number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const amount = Math.round(Number(value ?? 0) * 100) / 100;
+    const code = currency || 'AED';
+    const figure = Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    return amount < 0 ? `${code} (${figure})` : `${code} ${figure}`;
 }
 
 /**

@@ -97,7 +97,7 @@ class InvoiceController extends Controller
                 'total_amount' => $invoice->items()->sum('total_amount'),
             ]);
 
-            AuditLogger::log('submitted', "Invoice {$invoice->reference_no} submitted to Finance for {$invoice->vendor_name} ({$invoice->currency} {$invoice->total_amount})", $invoice);
+            AuditLogger::log('submitted', "Invoice {$invoice->reference_no} submitted to Finance for {$invoice->vendor_name} ({$invoice->currency} {$invoice->total_amount})".$this->creditSummary($invoice), $invoice);
 
             $this->storeDocuments($request, $invoice);
 
@@ -173,9 +173,10 @@ class InvoiceController extends Controller
 
         AuditLogger::log(
             'updated',
-            $pr
+            ($pr
                 ? "Invoice {$invoice->reference_no} corrected in place by Finance while held by {$pr->reference_no}"
-                : "Invoice {$invoice->reference_no} updated",
+                : "Invoice {$invoice->reference_no} updated")
+                ." ({$invoice->currency} {$invoice->total_amount})".$this->creditSummary($invoice),
             $invoice, $old, $data, $pr,
         );
 
@@ -204,11 +205,51 @@ class InvoiceController extends Controller
                 'items' => "This invoice is held by {$held}, whose approvals cover {$invoice->currency} {$invoice->total_amount}. A correction cannot raise the total to {$newTotal}. {$release}",
             ]);
         }
+
+        // The request itself has to be left asking for more than zero, for the same reason creation
+        // requires it (PaymentRequestService::assertPayableTotal): a request at or below zero matches
+        // no approval level and has nothing to pay. Reachable now that an invoice may net below zero
+        // — a correction turning a charge into a credit drags the whole request under, and the total
+        // only falling is no longer enough to keep the request payable.
+        if ($pr = $invoice->paymentRequest) {
+            $requestTotal = round((float) $pr->total_amount - (float) $invoice->total_amount + $newTotal, 2);
+
+            if ($requestTotal <= 0) {
+                throw ValidationException::withMessages([
+                    'items' => "This correction would leave {$held} asking for {$invoice->currency} ".number_format($requestTotal, 2).', so nothing would be paid. '."{$release}",
+                ]);
+            }
+        }
     }
 
     private function totalOf(array $itemsData): float
     {
         return round(array_sum(array_column($itemsData, 'total_amount')), 2);
+    }
+
+    /**
+     * The credit notes netted off an invoice, for the audit log.
+     *
+     * A credit line lowers the figure the approval thresholds are measured against, so the net
+     * total on its own does not tell a reviewer enough — the log has to say what was credited and
+     * what the invoice would otherwise have come to. Empty string for an ordinary invoice, so the
+     * existing messages are unchanged when nothing was credited.
+     */
+    private function creditSummary(Invoice $invoice): string
+    {
+        $credits = $invoice->items()->where('total_amount', '<', 0)->get();
+
+        if ($credits->isEmpty()) {
+            return '';
+        }
+
+        $credited = abs(round((float) $credits->sum('total_amount'), 2));
+        $gross = round((float) $invoice->total_amount + $credited, 2);
+        $lines = $credits->count();
+
+        return " — net of {$invoice->currency} ".number_format($credited, 2)
+            .' credited on '.$lines.' line'.($lines === 1 ? '' : 's')
+            .", gross {$invoice->currency} ".number_format($gross, 2);
     }
 
     /** Finance posts the invoice in the ERP. */
@@ -242,6 +283,74 @@ class InvoiceController extends Controller
         AuditLogger::log('posted', "Invoice {$invoice->reference_no} posted in ERP (doc {$invoice->erp_doc_no})", $invoice);
 
         return response()->json($invoice->refresh()->load('poster:id,name'));
+    }
+
+    /**
+     * Correct the posting details of an already-posted invoice.
+     *
+     * The ERP document number is typed by hand from the ERP, so it can be keyed wrong — and once
+     * posted there was no way back: `post()` refuses an invoice that is no longer `submitted`, and
+     * `update()` never touches these fields. The number is what reconciles a PAF payment to the ERP
+     * document, and it is printed on the payment request, so a wrong one has to be fixable.
+     *
+     * Only the person who recorded the posting may correct it (or an admin, who is the way through
+     * when that person has left). Correcting is not re-posting: `posted_by` and `posted_at` record
+     * who posted the invoice and when, which the correction does not change — it is logged separately
+     * instead, with the values it replaced.
+     *
+     * Deliberately available at any payment status, paid included. This is a reference to an external
+     * document, not an amount: it changes nothing about what was approved or paid, and reconciliation
+     * against the ERP — the moment a wrong number actually surfaces — happens after payment.
+     */
+    public function updatePosting(Request $request, Invoice $invoice)
+    {
+        $user = $request->user();
+
+        if ($invoice->status !== Invoice::STATUS_POSTED) {
+            abort(422, 'Only a posted invoice has posting details to correct.');
+        }
+
+        if ($invoice->posted_by !== $user->id && ! $user->isAdmin()) {
+            $poster = $invoice->poster?->name ?? 'whoever posted it';
+            abort(403, "This invoice was posted by {$poster}, so only they can correct its posting details. Ask them, or an administrator, to make the correction.");
+        }
+
+        $data = $request->validate([
+            'erp_doc_no' => ['required', 'string', 'max:100'],
+            'posting_date' => ['nullable', 'date'],
+        ]);
+
+        // `posting_date` is cast to a date, so it is read as a plain Y-m-d string here — a Carbon
+        // instance would neither compare nor render usefully in the log below.
+        $old = [
+            'erp_doc_no' => $invoice->erp_doc_no,
+            'posting_date' => $invoice->posting_date?->toDateString(),
+        ];
+
+        $invoice->update([
+            'erp_doc_no' => $data['erp_doc_no'],
+            'posting_date' => $data['posting_date'] ?? $old['posting_date'],
+        ]);
+
+        $invoice->refresh();
+
+        $new = [
+            'erp_doc_no' => $invoice->erp_doc_no,
+            'posting_date' => $invoice->posting_date?->toDateString(),
+        ];
+
+        // Both values go in the message, so the log reads as a correction rather than as a posting.
+        AuditLogger::log(
+            'posting_corrected',
+            "Posting details corrected on {$invoice->reference_no}: ERP doc {$old['erp_doc_no']} → {$new['erp_doc_no']}"
+                .($old['posting_date'] !== $new['posting_date']
+                    ? ", posting date {$old['posting_date']} → {$new['posting_date']}"
+                    : '')
+                .'. Posted by '.($invoice->poster?->name ?? 'unknown').', which the correction does not change.',
+            $invoice, $old, $new,
+        );
+
+        return response()->json($invoice->load('poster:id,name'));
     }
 
     /** Finance raises a query back to the submitting department. */
@@ -401,7 +510,13 @@ class InvoiceController extends Controller
             'items.*.customer_id' => ['nullable', 'integer', Rule::exists('customers', 'id')->where('is_active', true)],
             'items.*.description' => ['nullable', 'string', 'max:2000'],
             'items.*.currency' => ['required', 'string', Rule::exists('currencies', 'name')->where('is_active', true)],
-            'items.*.amount' => ['required', 'numeric', 'min:0.01', 'max:999999999999'],
+            // Negative is a vendor credit note, netted off the invoice by the sums below. Zero is
+            // never a credit note or a charge, only a line someone forgot to fill in.
+            'items.*.amount' => ['required', 'numeric', 'min:-999999999999', 'max:999999999999', function ($attribute, $value, $fail) {
+                if (round((float) $value, 2) === 0.0) {
+                    $fail('A line amount cannot be zero — enter a charge, or a credit note as a negative amount.');
+                }
+            }],
             // Tax is captured as a percentage of the line amount; the cash figure is derived below,
             // so the server owns it and the two can never disagree.
             'items.*.tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
@@ -409,6 +524,8 @@ class InvoiceController extends Controller
 
         foreach ($items['items'] as &$item) {
             $item['tax_rate'] = round((float) ($item['tax_rate'] ?? 0), 2);
+            // Signed throughout: a credit line's tax is a reduction of the tax owed, which is the
+            // right treatment for a credit note and keeps the derived figures consistent.
             $item['tax_amount'] = round($item['amount'] * $item['tax_rate'] / 100, 2);
             $item['total_amount'] = round($item['amount'] + $item['tax_amount'], 2);
         }
@@ -419,6 +536,21 @@ class InvoiceController extends Controller
         if (count(array_unique(array_column($items['items'], 'currency'))) > 1) {
             throw ValidationException::withMessages([
                 'items' => 'All line items on an invoice must use the same currency.',
+            ]);
+        }
+
+        // An invoice may net below zero: a credit-only invoice, a credit note that arrived on its own
+        // rather than alongside a charge. It is settled by being grouped with the invoice it offsets,
+        // so the "must come to more than zero" floor lives on the payment request — where the money
+        // actually leaves — instead of here. See PaymentRequestService::assertPayableTotal.
+        //
+        // Exactly zero stays refused: neither a charge nor a credit, so there is nothing to pay and
+        // nothing to claim back, and no reason to record the document at all.
+        $net = $this->totalOf($items['items']);
+        if ($net === 0.0) {
+            $currency = $this->currencyOf($items['items']);
+            throw ValidationException::withMessages([
+                'items' => "These lines come to {$currency} 0.00, so this invoice is neither a charge nor a credit. Enter what is owed, or enter a credit note as a negative amount.",
             ]);
         }
 

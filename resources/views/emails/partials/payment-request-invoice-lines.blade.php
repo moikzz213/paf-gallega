@@ -24,14 +24,14 @@
                                 <td style="padding: 7px 8px; border-bottom: 1px solid #eee; font-size: 12px;">{{ $item->job_no ?: '—' }}</td>
                                 <td style="padding: 7px 8px; border-bottom: 1px solid #eee; font-size: 12px;">{{ $item->customer?->name ?? '—' }}</td>
                                 <td style="padding: 7px 8px; border-bottom: 1px solid #eee; font-size: 12px;">{{ $item->description ?: ($invoice->description ?: '—') }}</td>
-                                <td style="padding: 7px 8px; border-bottom: 1px solid #eee; font-size: 12px; text-align: right;">{{ $item->currency ?: $invoice->currency }} {{ number_format($item->total_amount, 2) }}</td>
+                                <td style="padding: 7px 8px; border-bottom: 1px solid #eee; font-size: 12px; text-align: right;">{{ \App\Support\Money::format($item->total_amount, $item->currency ?: $invoice->currency) }}</td>
                             </tr>
                         @empty
                             <tr>
                                 <td style="padding: 7px 8px; font-size: 12px;">—</td>
                                 <td style="padding: 7px 8px; font-size: 12px;">—</td>
                                 <td style="padding: 7px 8px; font-size: 12px;">{{ $invoice->description ?: '—' }}</td>
-                                <td style="padding: 7px 8px; font-size: 12px; text-align: right;">{{ $invoice->currency }} {{ number_format($invoice->total_amount, 2) }}</td>
+                                <td style="padding: 7px 8px; font-size: 12px; text-align: right;">{{ \App\Support\Money::format($invoice->total_amount, $invoice->currency) }}</td>
                             </tr>
                         @endforelse
                     </tbody>

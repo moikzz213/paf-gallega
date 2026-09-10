@@ -58,15 +58,28 @@ const canQuery = computed(() => auth.canProcessPayments && ['submitted', 'posted
 // The query email is queued, so a rotated SMTP password shows up as a job that never arrived.
 // Finance can push it again without touching the invoice.
 const canResendQuery = computed(() => auth.canProcessPayments && invoice.value?.status === 'query_raised');
+// The ERP doc no. is keyed by hand, so it can be keyed wrong — and it is what reconciles a payment
+// to the ERP document. Only the person who recorded the posting can correct it (an admin is the way
+// through once that person has left). Available at any payment status: it is a reference to an
+// external document, not an amount. Mirrors InvoiceController::updatePosting.
+const canEditPosting = computed(() => invoice.value?.status === 'posted'
+    && (invoice.value?.posted_by === auth.user?.id || auth.isAdmin));
 
 const pr = computed(() => invoice.value?.payment_request);
 
 function openDialog(kind) {
     dialog.value = { show: true, kind, erp_doc_no: '', posting_date: '', finance_remarks: '', reason: '' };
+
+    // A correction starts from what is already recorded — the point is to fix one keystroke in it.
+    if (kind === 'editPosting') {
+        dialog.value.erp_doc_no = invoice.value?.erp_doc_no ?? '';
+        dialog.value.posting_date = invoice.value?.posting_date ?? '';
+    }
 }
 
 const dialogTitle = computed(() => ({
     post: 'Post to ERP',
+    editPosting: 'Correct Posting Details',
     query: 'Raise Query',
     release: 'Release from Payment Request',
 }[dialog.value.kind]));
@@ -76,6 +89,7 @@ async function runAction(kind, payload = {}) {
     try {
         const urls = {
             post: `/invoices/${props.id}/post`,
+            editPosting: `/invoices/${props.id}/posting`,
             query: `/invoices/${props.id}/query`,
             cancel: `/invoices/${props.id}/cancel`,
             release: `/invoices/${props.id}/release`,
@@ -92,6 +106,7 @@ async function runAction(kind, payload = {}) {
         } else {
             notify.success({
                 post: 'Invoice posted in ERP.',
+                editPosting: 'Posting details corrected.',
                 query: 'Query raised — the submitter has been notified.',
                 cancel: 'Invoice cancelled.',
                 release: 'Invoice released — it is back in the Invoice Log and can be corrected.',
@@ -112,6 +127,13 @@ function confirmDialog() {
     if (kind === 'post') {
         if (!erp_doc_no.trim()) return notify.error('ERP document number is required.');
         return runAction('post', { erp_doc_no, posting_date: posting_date || undefined });
+    }
+    if (kind === 'editPosting') {
+        if (!erp_doc_no.trim()) return notify.error('ERP document number is required.');
+        if (erp_doc_no === invoice.value?.erp_doc_no && posting_date === (invoice.value?.posting_date ?? '')) {
+            return notify.error('Nothing changed — edit the ERP document number or the posting date first.');
+        }
+        return runAction('editPosting', { erp_doc_no, posting_date: posting_date || undefined });
     }
     if (kind === 'query') {
         if (!finance_remarks.trim()) return notify.error('A query note is required.');
@@ -152,6 +174,8 @@ const auditIcons = {
     query_raised: 'mdi-help-circle-outline',
     query_notification_resent: 'mdi-email-sync-outline',
     payment_initiated: 'mdi-bank-transfer',
+    credit_note_marked: 'mdi-minus-circle-outline',
+    posting_corrected: 'mdi-file-edit-outline',
     approved: 'mdi-thumb-up-outline',
     rejected: 'mdi-thumb-down-outline',
     paid: 'mdi-cash-check',
@@ -182,6 +206,13 @@ const auditIcons = {
             <v-spacer />
 
             <v-btn v-if="canPost" color="success" prepend-icon="mdi-checkbox-marked-circle-outline" @click="openDialog('post')">Post to ERP</v-btn>
+            <v-btn
+                v-if="canEditPosting"
+                variant="tonal"
+                prepend-icon="mdi-file-edit-outline"
+                title="Correct a mistyped ERP document number or posting date"
+                @click="openDialog('editPosting')"
+            >Edit Posting</v-btn>
             <v-btn v-if="canQuery" color="warning" variant="tonal" prepend-icon="mdi-help-circle-outline" @click="openDialog('query')">Raise Query</v-btn>
             <v-btn
                 v-if="canResendQuery"
@@ -390,6 +421,15 @@ const auditIcons = {
                     <template v-if="dialog.kind === 'post'">
                         <v-text-field v-model="dialog.erp_doc_no" label="ERP document number *" autofocus />
                         <v-text-field v-model="dialog.posting_date" label="Posting date (defaults to today)" type="date" />
+                    </template>
+                    <template v-else-if="dialog.kind === 'editPosting'">
+                        <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+                            Correcting the ERP document number recorded against this invoice. It stays posted, and
+                            <strong>{{ invoice.poster?.name || 'whoever posted it' }}</strong> remains recorded as
+                            having posted it — only the details below change, and the correction is logged.
+                        </v-alert>
+                        <v-text-field v-model="dialog.erp_doc_no" label="ERP document number *" autofocus />
+                        <v-text-field v-model="dialog.posting_date" label="Posting date" type="date" />
                     </template>
                     <v-textarea v-else-if="dialog.kind === 'query'" v-model="dialog.finance_remarks" label="Query / remarks to the department *" rows="3" autofocus />
                     <template v-else-if="dialog.kind === 'release'">

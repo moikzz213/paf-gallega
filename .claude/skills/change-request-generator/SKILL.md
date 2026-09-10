@@ -1,156 +1,152 @@
 ---
 name: "change-request-generator"
-description: "Generate enterprise Change Request markdown documents with impact analysis, risk assessment, security review, rollout plan, and rollback plan. Use when implementing, modifying, or fixing application features, APIs, infrastructure, security controls, database changes, or integrations."
+description: "Generate management-friendly Change Request documents with business impact analysis, risk assessment, implementation planning, testing requirements, and rollback strategy. Use before implementing enhancements, bug fixes, security updates, integrations, or infrastructure changes."
 ---
 
 # Change Request Generator
 
-## Objective
+## Purpose
 
-Generate a Change Request (CR) document for any requested enhancement, bug fix, security update, infrastructure modification, API change, database modification, or business process change.
+Generate enterprise Change Request (CR) documents that are suitable for:
 
-Before creating the Change Request, perform a complete impact assessment of the codebase and affected systems.
+- Executive Management
+- Department Heads
+- Project Sponsors
+- Business Stakeholders
+- Change Advisory Board (CAB)
+
+The document must be written in clear business language and should be understandable by non-technical readers.
+
+The AI may perform deep technical analysis internally, but the generated Change Request should focus primarily on:
+
+- Business value
+- Business impact
+- Risks
+- Benefits
+- Implementation approach
+- Operational impact
+
+Avoid excessive technical terminology unless required to explain risk or impact.
+
+---
+
+# Workflow
+
+## Phase 1 - Repository Analysis
+
+Before generating the Change Request, analyze the codebase and determine the affected:
+
+### Functional Areas
+
+- Features
+- Business Processes
+- User Workflows
+- Reports
+- Dashboards
+- Integrations
+
+### Technical Areas
+
+- Controllers
+- Services
+- Models
+- APIs
+- Database
+- Security Components
+- Infrastructure
+
+### Compliance & Security
+
+Analyze:
+
+- Authentication
+- Authorization
+- Permissions
+- Data Exposure Risks
+- Audit Requirements
+- Regulatory Implications
+
+This analysis should be used internally to determine scope and risk.
+
+Do NOT overwhelm the final Change Request with technical implementation details.
 
 ---
 
 # Output Location
 
-Store all generated change requests under:
+Store generated Change Requests under:
 
 /ai/change-requests/
 
-If the directory does not exist:
+If the folder does not exist:
 
-1. Create the directory automatically.
-2. Continue generating the document.
+```bash
+mkdir -p ai/change-requests
+```
 
 ---
 
 # Filename Rules
 
-Generate a meaningful filename from the request subject.
+Generate filenames from the Change Request subject using kebab-case.
 
-Convert to kebab-case.
+Example:
 
-Examples:
-
-"Add Vehicle Forecast Confidence"
+Add AI Forecast Confidence Score
 
 becomes:
 
-add-vehicle-forecast-confidence.md
+add-ai-forecast-confidence-score.md
 
-"Fix Purchase Order Approval Workflow"
+Store as:
 
-becomes:
-
-fix-purchase-order-approval-workflow.md
-
-File path example:
-
-/ai/change-requests/fix-purchase-order-approval-workflow.md
+/ai/change-requests/add-ai-forecast-confidence-score.md
 
 ---
 
-# Required Analysis Phase
+# Executive Writing Standards
 
-Before generating the document, analyze and identify all affected areas.
+The primary audience is senior management.
 
-## Functional Analysis
+The generated document must:
 
-Identify:
+✅ Focus on business outcomes
 
-- Features
-- Business processes
-- User workflows
-- Reports
-- Dashboards
-- Scheduled jobs
-- Integrations
+✅ Focus on operational impact
 
----
+✅ Focus on benefits and risks
 
-## Technical Analysis
+✅ Use plain English
 
-Identify:
+✅ Explain technical changes in a business-friendly way
 
-- Controllers
-- Services
-- Repositories
-- Models
-- Middleware
-- Policies
-- Events
-- Listeners
-- Queues
-- Commands
-- Jobs
-- Views
-- Frontend Components
+Avoid:
 
----
+❌ Controller names
 
-## API Analysis
+❌ API endpoint details
 
-Identify:
+❌ Database schema descriptions
 
-- Internal APIs
-- External APIs
-- Third-party services
-- Endpoints
-- Request payload changes
-- Response format changes
-- Authentication impacts
+❌ Source code references
 
----
+❌ Development jargon
 
-## Database Analysis
+Only include technical details when necessary to explain:
 
-Identify:
-
-- Tables
-- Columns
-- Relationships
-- Constraints
-- Migrations
-- Stored procedures
-- Views
-
----
-
-## Security Analysis
-
-Identify:
-
-- Authentication impact
-- Authorization impact
-- Roles and permissions
-- Data exposure risks
-- Compliance risks
-- Audit logging requirements
-
----
-
-## Infrastructure Analysis
-
-Identify:
-
-- Environment variables
-- Queues
-- Background workers
-- Cron jobs
-- Storage
-- Cache
-- Deployment requirements
+- risk
+- effort
+- dependency
+- system impact
 
 ---
 
 # Emergency Change Assessment
 
-Answer each question with:
+Answer the following using:
 
 - Assessment (Yes/No)
-- Justification
+- Business Justification
 
 Questions:
 
@@ -165,10 +161,9 @@ Questions:
 Determine:
 
 Emergency Change Classification:
-Yes/No
+Yes / No
 
-Reason:
-<Explain>
+Business Reason:
 
 ---
 
@@ -176,64 +171,83 @@ Reason:
 
 Determine:
 
-Risk Level:
-
 - Low
 - Medium
 - High
 - Critical
 
-Identify:
+Include:
 
-- Technical Risks
-- Security Risks
-- Operational Risks
+### Business Risks
 
-Provide mitigation actions.
+### Operational Risks
+
+### Security Risks
+
+### Mitigation Actions
+
+Risk descriptions should be business-oriented rather than technical.
 
 ---
 
 # Confidence Scoring
 
-Generate confidence scoring:
+Generate:
 
-Analysis Confidence Score: %
+Analysis Confidence Score
 
-Affected Features Confidence: %
+Affected Features Confidence
 
-Affected APIs Confidence: %
+Business Impact Confidence
 
-Affected Security Impact Confidence: %
+Security Impact Confidence
 
-Overall Risk Assessment Confidence: %
+Risk Assessment Confidence
 
 ---
 
-# Generate Markdown Document
-
-Use the following structure.
+# Change Request Template
 
 # Change Request
 
 ## Subject
 
-## Affected Areas
+---
 
-### Features
+## Executive Summary
 
-### Modules
+Provide a concise summary of:
 
-### Controllers
+- what is changing
+- why the change is required
+- expected business outcome
 
-### Services
+Maximum 5 paragraphs.
 
-### APIs
+---
 
-### Database
+## Business Reason for Change
 
-### Security
+Describe:
 
-### Infrastructure
+- business challenge
+- opportunity
+- compliance requirement
+- operational need
+
+---
+
+## Affected Business Areas
+
+Identify:
+
+- Departments
+- Teams
+- Users
+- Processes
+- Reports
+
+Avoid technical file references.
 
 ---
 
@@ -242,21 +256,25 @@ Use the following structure.
 ### Business Continuity
 
 Assessment:
+
 Justification:
 
 ### Workaround Availability
 
 Assessment:
+
 Justification:
 
 ### Operational Impact
 
 Assessment:
+
 Justification:
 
 ### Timeline Constraints
 
 Assessment:
+
 Justification:
 
 Emergency Change Classification:
@@ -265,73 +283,72 @@ Reason:
 
 ---
 
-## Risk
+## Risk Assessment
 
 ### Risk Level
 
-### Identified Risks
+Low / Medium / High / Critical
 
-### Mitigation Actions
+### Risks Identified
 
----
-
-## Description
+### Risk Mitigation Plan
 
 ---
 
-## Reason for Change
+## Expected Business Impact
 
----
+### Positive Impact
 
-## Impact
-
-### Business Impact
-
-### Technical Impact
-
-### Security Impact
+### Potential Negative Impact
 
 ### User Impact
 
 ### Reporting Impact
+
+### Compliance Impact
+
+---
+
+## Implementation Overview
+
+Provide a high-level implementation summary.
+
+Do not include technical implementation details.
 
 ---
 
 ## Rollout Plan
 
 1. Development
-2. Unit Testing
-3. Code Review
-4. QA Testing
-5. UAT Testing
-6. Staging Deployment
-7. Production Deployment
-8. Post Deployment Verification
+2. Internal Validation
+3. QA Verification
+4. User Acceptance Testing
+5. Production Deployment
+6. Post Deployment Monitoring
 
 ---
 
 ## Backout Plan
 
-1. Disable feature
-2. Restore previous version
-3. Rollback database changes
-4. Restore backup
-5. Validate application health
-6. Notify stakeholders
+1. Suspend new functionality
+2. Restore previous application state
+3. Restore backups if required
+4. Validate business operations
+5. Notify stakeholders
 
 ---
 
-## Testing Requirements
+## Approval Requirements
 
-### Unit Testing
+### Requestor
 
-### Integration Testing
+### Department Manager
 
-### Regression Testing
+### IT Manager
 
-### Security Testing
+### Business Owner
 
-### User Acceptance Testing
+### CAB Approval (if applicable)
 
 ---
 
@@ -346,3 +363,123 @@ Risk Rating:
 Emergency Change:
 
 Analysis Confidence:
+
+---
+
+# Technical Analysis Appendix
+
+This section is optional.
+
+Include only when necessary.
+
+Possible Sections:
+
+- Affected Systems
+- Integrations
+- Security Controls
+- High-Level Architecture Impact
+
+Keep technical detail minimal and management-friendly.
+
+---
+
+# Post Approval Process
+
+If stakeholders approve the Change Request and provide instruction to proceed with implementation:
+
+Automatically generate a Test Case document.
+
+---
+
+# Test Case Generation
+
+Output Location:
+
+/ai/test-cases/
+
+If folder does not exist:
+
+```bash
+mkdir -p ai/test-cases
+```
+
+---
+
+# Filename Rules
+
+The Test Case filename MUST exactly match the Change Request filename.
+
+Example:
+
+CR:
+
+/ai/change-requests/add-ai-forecast-confidence-score.md
+
+Test Cases:
+
+/ai/test-cases/add-ai-forecast-confidence-score.md
+
+---
+
+# Test Case Requirements
+
+Generate:
+
+# Test Cases
+
+## Related Change Request
+
+Reference the originating Change Request.
+
+## Objective
+
+## Scope
+
+## Test Scenarios
+
+### Happy Path Tests
+
+### Negative Tests
+
+### Security Tests
+
+### Regression Tests
+
+### User Acceptance Tests
+
+---
+
+## Expected Results
+
+---
+
+## Pass/Fail Criteria
+
+---
+
+## Test Execution Checklist
+
+---
+
+## Sign-Off
+
+### QA Lead
+
+### Business Owner
+
+### UAT Sign-Off
+
+---
+
+# Traceability Rules
+
+Every Test Case document must reference:
+
+- Change Request Subject
+- Change Request Filename
+- Risk Rating
+- Implementation Date
+
+This ensures full traceability between:
+
+Change Request → Development → Testing → Deployment

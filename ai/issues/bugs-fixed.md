@@ -5,6 +5,106 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-09-10] A mistyped payment reference was permanent once a PRF was marked paid
+
+- **Symptom:** `payment_reference` — the transfer/cheque number — is keyed by hand in the Mark Paid
+  dialog, and could not be corrected afterwards. `markPaid()` refuses a PRF that is not `approved`,
+  so one already `paid` can never pass through it again, and nothing else writes the field. It is
+  what reconciles a PAF payment to the bank statement, so a wrong one leaves the payment unmatchable
+  and every supplier or audit query about it a manual investigation. The only remedies were to leave
+  it wrong or edit the database directly.
+- **Cause:** Same shape as the ERP-doc-no gap below: no correction path existed, and re-recording the
+  payment is deliberately refused because it would replace the reference *and* rewrite
+  `paid_by`/`paid_at`.
+- **Fix:** `POST /api/payment-requests/{paymentRequest}/payment-reference`
+  (`PaymentRequestService::updatePaymentReference`) plus an **Edit Payment Ref** action on
+  `PaymentRequestDetailPage`, shown only once there is a reference to correct (status `paid`).
+  Restricted to the user in `paid_by` — they had the bank record in front of them — or an admin, the
+  way through once that person has left; the 403 names the payer. The PRF **creator** gets no
+  special right, which the user confirmed when asked: raising a request is not recording its
+  payment. Corrects `payment_reference` only: `paid_by`, `paid_at`, `status`, the total, the invoices
+  and every approval are untouched, and any non-`paid` status is refused — so it can never be a back
+  door to marking something paid. No uniqueness rule, because one transfer legitimately settles
+  several PRFs. Logged as `payment_reference_corrected` with the replaced value; the original `paid`
+  entry survives. The dialog prefills what is recorded, names the payer and payment date, and
+  refuses a confirm that changes nothing.
+- **Verified:** `PaymentReferenceCorrectionTest` (18 tests) covers the correction, the admin
+  override, repeat corrections, two PRFs sharing a reference, that `paid_by`/`paid_at`/status never
+  move, that the total, invoice statuses and the whole approval chain are byte-for-byte unchanged,
+  every refusal (another Finance user, **the PRF creator**, requester, approver, and each of
+  in-approval / approved / rejected), validation, and the audit content. Exercised in the running app
+  as Abrar on PRF-2026-00003 (which she paid): the button appeared, the dialog prefilled
+  `TRF-ECCBC87E` and named "Abrar … on 28 Apr 2026", the no-change confirm was refused, and
+  `TRF-ECCBC87E → TRF-CORRECTED-01` persisted with `paid_by` still 7 and the original `paid` entry
+  intact. On an in-approval PRF the button was correctly absent. Demo value restored afterwards.
+
+## [2026-09-10] A mistyped ERP document number was permanent once an invoice was posted
+
+- **Symptom:** `erp_doc_no` is keyed by hand from the ERP at posting time, and a typo could not be
+  corrected afterwards. `post()` refuses an invoice that is no longer `submitted`/`query_raised`, and
+  `update()` never touches the posting fields, so the number was final. It is what reconciles a PAF
+  payment to the ERP document and it is printed on the PRF, so a wrong one either points at nothing
+  or — worse — at a different document. The only remedies were to leave it wrong or edit the database
+  directly, which is unrecorded and bypasses the application's controls.
+- **Cause:** No correction path existed. Re-posting is deliberately refused (it would silently
+  replace the number *and* rewrite `posted_by`/`posted_at`), and nothing narrower was offered.
+- **Fix:** `POST /api/invoices/{invoice}/posting` (`InvoiceController::updatePosting`) plus an
+  **Edit Posting** action on `InvoiceDetailPage`, offered while the invoice is `posted`. Restricted to
+  the user in `posted_by` — they had the ERP document in front of them — or an admin, the way through
+  once that person has left; the 403 names the poster to ask. Corrects `erp_doc_no` and
+  `posting_date` only: `posted_by`, `posted_at` and `status` are untouched, so a correction cannot
+  reassign responsibility for the posting. Allowed at **any** payment status, paid included, on the
+  grounds that the field is a reference to an external document rather than an amount, and
+  reconciliation — where a wrong number actually surfaces — happens after payment. Logged as
+  `posting_corrected` with the replaced values; the original `posted` entry survives, so the history
+  is added to rather than rewritten. The dialog prefills what is recorded and refuses a confirm that
+  changes nothing.
+- **Verified:** `InvoicePostingCorrectionTest` (18 tests) covers the correction, the date handling,
+  the admin override, that `posted_by`/`posted_at` never move, correction at in-approval / approved /
+  **paid** with the PRF total, approvals and payment status asserted unchanged, every refusal
+  (another Finance user, requester, approver, the invoice's own submitter, unposted and
+  query-carrying-a-doc-no states), validation, and the audit content. Exercised in the running app
+  both ways: as Abrar (finance) on an invoice posted by System Admin the button was absent and the
+  endpoint returned 403 naming System Admin; on an invoice Abrar posted, **Edit Posting** appeared
+  prefilled, the no-change confirm was refused, and `5112345678 → 5187654321` with
+  `2026-09-10 → 2026-09-08` persisted with `posted_by` still 7 and the audit row rendering on the
+  timeline.
+
+## [2026-09-10] A credit note recorded as a positive amount was added to a PRF, not deducted
+
+- **Symptom:** Production invoices hold vendor credit notes entered as ordinary **positive**
+  amounts. Grouping one into a payment request *increased* what the request asked for — a PRF that
+  should have asked AED 14,750 asked AED 25,250 — and, because `ApprovalLevel::requiredForInvoices`
+  measures the same figure, it also routed to a more senior tier than the real payable needed. An
+  approved PRF of that kind overpays the vendor by the value of the credit.
+- **Cause:** Not a coding error but a data one, created by an earlier constraint: until
+  [allow-negative-line-amounts-for-credit-notes](../change-requests/allow-negative-line-amounts-for-credit-notes.md)
+  the system refused a negative amount, so a credit note could only be recorded as a positive
+  figure. Every total in the app is a plain sum of `invoices.total_amount`, so those rows are
+  indistinguishable from a charge. Finance's only remedy was to hand-edit each invoice before
+  grouping it.
+- **Fix:** A **Credit note** tick-box per selected invoice on the PRF creation screen
+  (`PaymentRequestService::applyCreditMarks`, `credit_invoice_ids[]` on `POST /api/payment-requests`).
+  Marking **corrects the invoice's sign** — header and every line together — rather than flagging
+  it, because the PRF total, `syncTotal`, the release and correction guards, the PDF, the emails and
+  every report all read `total_amount`; a PRF-local flag would leave each of those reading the
+  uncorrected figure and break the equality those guards rest on. Offered only on a positive
+  invoice: marking a negative one would turn a credit back into a charge, refused on the server as
+  well as hidden on the screen. Applied in memory for the currency/payable checks and the chain,
+  persisted only **inside** the creation transaction, so a refused PRF rewrites nothing. Audited as
+  `credit_note_marked` against both invoice and PRF, keeping the replaced figures, so a mis-tick is
+  recoverable. Confirmed before sending, mirroring the invoice form's credit-line confirmation.
+- **Verified:** `PaymentRequestCreditMarkTest` (17 tests) covers the deduction, the header/line
+  correction, `syncTotal` agreement, routing on the corrected total, the refusals, the audit trail,
+  and — the one that matters most — that a PRF refused for a missing approver or its own chain
+  leaves the invoice and its lines untouched. Exercised in the running app end to end: the running
+  total moved from AED 25,250.00 to AED 14,750.00 on ticking, the confirmation listed
+  `5,250.00 → (5,250.00)`, PAF-2026-00024 persisted at 14,750.00 with `invoices()->sum()` agreeing,
+  routing on L1+L2, and the audit entry holding the original `5250.00`. An already-negative row
+  showed a "Credit note" label and no tick-box.
+- **Note:** no bulk restatement — each affected invoice is corrected the first time Finance handles
+  it, so historical reports run before a correction will differ for that invoice.
+
 ## [2026-08-17] A query on an invoice inside an approved PRF stranded it permanently
 - **Symptom:** Production invoice INV-2026-00054 sat at `status = query_raised` **and**
   `payment_status = approved_for_payment` inside the fully approved PAF-2026-00018. The query asked

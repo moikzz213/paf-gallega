@@ -104,13 +104,22 @@ class PaymentRequestController extends Controller
         $data = $this->validatedChain($request);
 
         $invoices = Invoice::whereIn('id', $data['invoice_ids'])->get();
+        $creditIds = $data['credit_invoice_ids'] ?? [];
+        // Corrects the sign of the invoices Finance marked as credit notes, in memory only, so both
+        // checks below and the chain are measured on what the request will actually ask for. The
+        // same flip is persisted inside `create`'s transaction.
+        PaymentRequestService::applyCreditMarks($invoices, $creditIds);
         // Ahead of the chain, which converts each invoice into the base currency: a mixed set has no
         // single currency to report on and should be refused as mixed, not as an unrated currency.
         PaymentRequestService::assertSingleCurrency($invoices);
+        // Ahead of it for the same reason: a set that nets to zero or below requires no approval
+        // level, so the chain builder would report it as a missing approver rather than as a
+        // selection that pays nothing.
+        PaymentRequestService::assertPayableTotal($invoices);
 
         $stages = $this->buildStages($invoices, $data['approvers'] ?? [], $data['adhoc_approvers'] ?? []);
 
-        $pr = $this->service->create($data['invoice_ids'], $request->user(), $stages);
+        $pr = $this->service->create($data['invoice_ids'], $request->user(), $stages, $creditIds);
 
         return response()->json($pr->load('invoices', 'approvals.approver:id,name'), 201);
     }
@@ -175,6 +184,18 @@ class PaymentRequestController extends Controller
         $pr = $this->service->markPaid($paymentRequest, $request->user(), $data['payment_reference']);
 
         return response()->json($pr->load('invoices'));
+    }
+
+    /**
+     * Correct a mistyped payment reference. Restricted to the user who recorded the payment, or an
+     * admin — enforced in the service, which owns the rest of the payment lifecycle rules.
+     */
+    public function updatePaymentReference(Request $request, PaymentRequest $paymentRequest)
+    {
+        $data = $request->validate(['payment_reference' => ['required', 'string', 'max:100']]);
+        $pr = $this->service->updatePaymentReference($paymentRequest, $request->user(), $data['payment_reference']);
+
+        return response()->json($pr->load('payer:id,name'));
     }
 
     public function downloadPdf(Request $request, PaymentRequest $paymentRequest)
@@ -357,6 +378,11 @@ class PaymentRequestController extends Controller
         return $request->validate([
             'invoice_ids' => ['required', 'array', 'min:1'],
             'invoice_ids.*' => ['integer', 'exists:invoices,id'],
+            // Invoices in this selection that are really credit notes recorded as a positive amount.
+            // Marking one corrects its sign so the request deducts it — see
+            // PaymentRequestService::applyCreditMarks, which owns the rules.
+            'credit_invoice_ids' => ['nullable', 'array'],
+            'credit_invoice_ids.*' => ['integer', 'exists:invoices,id'],
             'approvers' => ['nullable', 'array'],
             'approvers.*' => ['nullable', 'integer', $isApprover],
             'adhoc_approvers' => ['nullable', 'array', 'max:10'],

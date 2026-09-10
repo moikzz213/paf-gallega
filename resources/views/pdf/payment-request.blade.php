@@ -233,9 +233,9 @@
                             <td>{{ $item->description ?: ($invoice->description ?: '-') }}</td>
                             <td class="center">{{ $item->job_no ?: '-' }}</td>
                             <td class="center">{{ $invoice->invoice_date?->format('d/m/Y') ?? '-' }}</td>
-                            <td class="number">{{ $cur }} {{ number_format((float) $item->amount, 2) }}</td>
-                            <td class="number">{{ $cur }} {{ number_format((float) $item->tax_amount, 2) }}</td>
-                            <td class="number">{{ $cur }} {{ number_format((float) $item->total_amount, 2) }}</td>
+                            <td class="number">{{ \App\Support\Money::format((float) $item->amount, $cur) }}</td>
+                            <td class="number">{{ \App\Support\Money::format((float) $item->tax_amount, $cur) }}</td>
+                            <td class="number">{{ \App\Support\Money::format((float) $item->total_amount, $cur) }}</td>
                         </tr>
                     @empty
                         @php $sr++; @endphp
@@ -247,9 +247,9 @@
                             <td>{{ $invoice->description ?: '-' }}</td>
                             <td class="center">-</td>
                             <td class="center">{{ $invoice->invoice_date?->format('d/m/Y') ?? '-' }}</td>
-                            <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->amount, 2) }}</td>
-                            <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->tax_amount, 2) }}</td>
-                            <td class="number">{{ $invoice->currency }} {{ number_format((float) $invoice->total_amount, 2) }}</td>
+                            <td class="number">{{ \App\Support\Money::format((float) $invoice->amount, $invoice->currency) }}</td>
+                            <td class="number">{{ \App\Support\Money::format((float) $invoice->tax_amount, $invoice->currency) }}</td>
+                            <td class="number">{{ \App\Support\Money::format((float) $invoice->total_amount, $invoice->currency) }}</td>
                         </tr>
                     @endforelse
                 @endforeach
@@ -260,7 +260,7 @@
                     <td class="amount-words-label" colspan="2">AMOUNT IN WORDS</td>
                     <td class="amount-words" colspan="5">{{ $amountWords }}</td>
                     <td class="center">TOTAL</td>
-                    <td colspan="2" class="number">{{ $displayCurrency }} {{ number_format((float) $paymentRequest->total_amount, 2) }}</td>
+                    <td colspan="2" class="number">{{ \App\Support\Money::format((float) $paymentRequest->total_amount, $displayCurrency) }}</td>
                 </tr>
             </tbody>
         </table>
