@@ -181,9 +181,21 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 ## 7. Dashboard
 
-- KPI cards (total invoices, awaiting posting, in approval, paid this month), an approver
+- KPI cards (total invoices, awaiting posting, in approval, paid), an approver
   "queue waiting" alert, and Chart.js visuals (invoice-status distribution, monthly submitted vs
   paid, top vendors, spend by business unit) plus a recent-invoices table. All scoped to the viewer.
+- **One period governs the whole screen.** A From/To month filter with presets (This Month, Last 3/6
+  Months, Year to Date, Last 12 Months, All Time) sits at the top; every card, chart and the recent
+  list reports on it, and the period is labelled next to each figure. Default is year to date.
+  Before this, three cards were all-time, one was this-month and the trend chart was pinned to six
+  months, with nothing on screen saying so.
+- **Each metric is anchored on its own date**, not one shared column: work entering the system by
+  `submitted_at`, the Paid card by the payment request's `paid_at`, and the two spend charts by
+  `invoice_date`. The cards therefore overlap rather than describe one identical set — an invoice
+  can be paid in a period it was not submitted in. This is also why the same From/To months can give
+  different totals here and on the Reports page, which anchors everything on `invoice_date`.
+- **The approver "queue waiting" alert is never period-filtered.** It is a live work queue; hiding a
+  pending approval behind a date range would mean real work going unseen.
 
 ## 8. Reports & Excel export
 
