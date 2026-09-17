@@ -25,8 +25,7 @@
         <div class="body">
             <p>Hello {{ $paymentRequest->currentApproval()?->approver?->name }},</p>
 
-            <p>A new payment request has been submitted and is now awaiting your approval at
-               <strong>{{ $paymentRequest->currentApproval()?->label }}</strong>.</p>
+            <p>A new payment request has been submitted and is now awaiting your approval.</p>
 
             <div class="detail-row">
                 <span class="label">Reference:</span> {{ $paymentRequest->reference_no }}

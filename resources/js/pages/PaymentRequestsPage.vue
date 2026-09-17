@@ -75,7 +75,7 @@ watch([search, () => filters.department, () => filters.vendor, () => filters.sta
 // ---- create flow ----
 const emptyEligibleFilters = () => ({ department: null, currency: null, vendor: null, invoice_no: '', job_no: '', customer: null });
 const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], credits: [], saving: false, filters: emptyEligibleFilters() });
-const chain = ref({ assignments: {}, adhoc: [], valid: false });
+const chain = ref({ assignments: {}, adhoc: [], l2a_approver_id: null, valid: false });
 const confirmingCredits = ref(false);
 
 const selectedInvoices = computed(() => create.eligible.filter((i) => create.selected.includes(i.id)));
@@ -183,6 +183,7 @@ async function submitCreate() {
             credit_invoice_ids: markedIds.value,
             approvers,
             adhoc_approvers,
+            l2a_approver_id: chain.value.l2a_approver_id ?? null,
         });
         notify.success(`${data.reference_no} created and sent for approval.`);
         create.show = false;
@@ -297,7 +298,7 @@ async function submitCreate() {
                     {{ shortDate(item.created_at) }}
                 </template>
                 <template #item.actions="{ item }">
-                    <v-btn v-if="item.status === 'approved' || item.status === 'paid'" icon="mdi-file-pdf-box" size="small" variant="text" :href="`/api/payment-requests/${item.id}/pdf`" target="_blank" title="Download PDF" />
+                    <v-btn icon="mdi-file-pdf-box" size="small" variant="text" :href="`/api/payment-requests/${item.id}/pdf`" target="_blank" :title="item.status === 'approved' || item.status === 'paid' ? 'Download PAF' : 'Download PAF (draft — not yet approved)'" />
                 </template>
             </v-data-table-server>
         </v-card>

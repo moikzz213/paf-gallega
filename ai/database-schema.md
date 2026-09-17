@@ -174,7 +174,7 @@ Line items on an invoice (replaces the single amount/tax on the invoice itself).
 | `sort_order` | unsigned smallint | display order |
 | `job_no` | string(100), nullable | |
 | `customer_id` | FK customers, nullable | nullOnDelete |
-| `description` | text, nullable | |
+| `description` | text, nullable | **Required on submission** since the PAF Enhancements change — a line with an amount but no stated purpose leaves the approver, and the auditor, nothing to approve against. Validation only (`InvoiceController::validatedItems`); the column stays nullable so the rows that predate the rule are still readable, so no migration and no backfill. Also the first source for the approval email's subject line (`PaymentRequest::subjectSummary`) |
 | `currency` | string(3) | |
 | `amount` | decimal(15,2) | **signed** - negative is a vendor credit note, netted off by the header sums. Never 0, and the lines must not net to exactly 0; netting below 0 is a credit-only invoice, which a payment request must offset with a charge (validation only; the column always allowed it, so no migration was needed and no existing row changed). Historical rows hold credit notes as **positive** amounts, from before a negative was accepted — Finance corrects one by marking it when raising a PRF (`credit_note_marked`), which flips the sign on the header and every line together |
 | `tax_rate` | decimal(5,2) | default 0. Tax / VAT as a **percentage** of `amount` - this is what the form captures. Non-negative, but `tax_amount` inherits `amount`'s sign, so a credit line's tax is a reduction |

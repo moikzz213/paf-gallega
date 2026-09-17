@@ -508,7 +508,10 @@ class InvoiceController extends Controller
             'items' => ['required', 'array', 'min:1'],
             'items.*.job_no' => ['nullable', 'string', 'max:100'],
             'items.*.customer_id' => ['nullable', 'integer', Rule::exists('customers', 'id')->where('is_active', true)],
-            'items.*.description' => ['nullable', 'string', 'max:2000'],
+            // Mandatory since the PAF Enhancements change: a line with an amount but no stated
+            // purpose leaves the approver, and later the auditor, with nothing to approve against.
+            // Whitespace alone is not a description — TrimStrings empties it before `required` runs.
+            'items.*.description' => ['required', 'string', 'max:2000'],
             'items.*.currency' => ['required', 'string', Rule::exists('currencies', 'name')->where('is_active', true)],
             // Negative is a vendor credit note, netted off the invoice by the sums below. Zero is
             // never a credit note or a charge, only a line someone forgot to fill in.
@@ -520,6 +523,8 @@ class InvoiceController extends Controller
             // Tax is captured as a percentage of the line amount; the cash figure is derived below,
             // so the server owns it and the two can never disagree.
             'items.*.tax_rate' => ['nullable', 'numeric', 'min:0', 'max:100'],
+        ], [
+            'items.*.description.required' => 'Enter a description for every line — it tells the approver what the payment is for.',
         ]);
 
         foreach ($items['items'] as &$item) {

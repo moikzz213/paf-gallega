@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\Money;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Str;
@@ -74,6 +75,67 @@ class PaymentRequest extends Model
         }
 
         return $codes->count() === 1 ? $codes->first() : 'MULTI-CURRENCY';
+    }
+
+    /**
+     * The vendor a request is for, as it should be named to a reader.
+     *
+     * A request groups invoices and is not constrained to one vendor, so a set spanning several is
+     * labelled rather than mislabelled with the first of them.
+     */
+    public function getVendorLabelAttribute(): string
+    {
+        $names = $this->invoices->pluck('vendor_name')->filter()->unique()->values();
+
+        return match (true) {
+            $names->isEmpty() => 'Vendor not recorded',
+            $names->count() === 1 => (string) $names->first(),
+            default => $names->first().' + '.($names->count() - 1).' more',
+        };
+    }
+
+    /**
+     * What the request is paying for, in one line.
+     *
+     * Line descriptions are mandatory from the PAF Enhancements change, so a request raised since
+     * then always has one to show; the invoice-level description and then the reference are the
+     * fallbacks for the records that predate it.
+     */
+    public function getPurposeAttribute(): string
+    {
+        foreach ($this->invoices as $invoice) {
+            foreach ($invoice->items as $item) {
+                if (trim((string) $item->description) !== '') {
+                    return trim($item->description);
+                }
+            }
+
+            if (trim((string) $invoice->description) !== '') {
+                return trim($invoice->description);
+            }
+        }
+
+        return 'Payment request';
+    }
+
+    /**
+     * The identifying line an approver reads in an email subject: what it is for, who it pays, how
+     * much, and which PAF — the order the business asked for, most identifying detail first so it
+     * survives truncation on a phone.
+     *
+     * Capped because mail clients cut a subject at around 70-80 characters; the purpose is what gets
+     * shortened, since the vendor, amount and reference are each meaningless in part.
+     */
+    public function subjectSummary(int $purposeLimit = 60): string
+    {
+        $this->loadMissing('invoices.items');
+
+        return implode(' - ', [
+            Str::limit($this->purpose, $purposeLimit),
+            $this->vendor_label,
+            Money::format($this->total_amount, $this->currency),
+            $this->reference_no,
+        ]);
     }
 
     public function creator()

@@ -87,6 +87,16 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   view-only and the next approver receives their own link via email. Approval and reminder emails
   show each invoice submitter and the invoice-line job no., customer, description, and
   currency-prefixed line total.
+- **The subject line identifies the payment** — `purpose - vendor - total - PAF number`
+  (`PaymentRequest::subjectSummary`), on the submitted, reminder and fully-approved emails alike, so
+  an approver can tell requests apart from the inbox without opening them. Most identifying detail
+  first, and the purpose is the part that gets shortened, because a truncated vendor, amount or
+  reference is worse than a truncated description. The purpose is the first line description on the
+  request; the vendor is the single vendor, or the first with a `+N more` suffix for a request
+  spanning several.
+- The token-gated page **shows the PAF itself**, with its supporting documents merged in, directly
+  above the Approve and Reject buttons — the approver decides against the form rather than against a
+  summary. The individual attachment links stay below it as a fallback.
 - A **daily reminder email** is sent to each approver with a pending PRF (scheduled at 09:00
   via `prf:send-reminders` Artisan command).
 - **Correcting an invoice already in a PRF (Finance/Admin, no approval needed).** Finance can fix an
@@ -106,7 +116,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   rather than silently raising the total past what its approvals cover.
 - **Withdrawal (Finance/Admin only).** A fully approved PRF that has not been paid can be withdrawn
   with a required reason: the PRF becomes `withdrawn`, its invoices return to the Invoice Log
-  (`not_initiated`, unlinked), and it can no longer be paid or produce a PDF. The recorded approvals
+  (`not_initiated`, unlinked), and it can no longer be paid. Its PAF still renders — it is part of
+  the record — but stamped `WITHDRAWN` and marked as not payable. The recorded approvals
   are kept as history but never reused — a correction that changes the amount or currency changes
   which thresholds apply, so the corrected invoices go through a **new PRF with a fresh chain**.
   While a PRF is still `in_approval` the exit is an approver **rejection**, not withdrawal; once
@@ -125,6 +136,15 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   Finance user without a level is not an approver anywhere: not in the chain builder, not in the
   ad-hoc list, and with no approvals queue. One level per person, so a nominated user appears under
   that level only; the ad-hoc "Additional approvers" stages still accept any eligible user.
+- **L2-A — the optional second signature at level 2.** Finance can nominate one extra approver on
+  the payment page who signs **immediately after L2**, ahead of any higher level and ahead of the
+  ad-hoc stages. It exists for the payments the business wants a department head or business-unit
+  controller to countersign without making that person a standing tier on every request. The slot is
+  only offered when the amount actually reaches level 2, and the request is refused rather than
+  silently rerouted if it is set when it cannot apply, or set to the person already holding L2 — a
+  dropped approver is worse than a refused request, because whoever added them would never find out.
+  Leaving it empty routes exactly as before. It is recorded as an ad-hoc stage (no level of its own,
+  labelled `L2-A — {job title}`) and audited like any other.
 - **Each stage carries the approver's job title**, not the approval level's name. "Department
   Manager" describes the level; the person signing at that level is often something else (an AP
   Accountant from the Finance group), and the chain, the PAF PDF and the public approval page all show
@@ -163,7 +183,14 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 ## 7. PDF Export
 
-- Every PRF has a **Download PDF** button (detail page and list page) that generates a landscape
+- Every PRF has a **Download PAF** button (detail page and list page), available **from the moment
+  the request is created** rather than only once it is fully approved — the PAF is the document the
+  approval chain is signing, so it has to exist while that chain is running. It is rendered on
+  demand by `PafDocumentService` and never stored, so it always reflects the approvals reached so
+  far. Anything short of `approved`/`paid` carries a red `PENDING APPROVAL` watermark (or `REJECTED` /
+  `WITHDRAWN`) and a banner saying it is not an authorisation to pay, so a draft in circulation
+  cannot be mistaken for a signed one. The button reads "Download PAF (draft)" until then.
+- The document is a landscape
   Payment Approval Form matching the company PAF layout, including the Gallega logo and aligned
   approval-flow connectors: voucher/request and accounts-document
   details, supplier line items, totals and amount in words, payment-approval limits, comments,
@@ -250,7 +277,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | Withdraw an approved PRF | | | ✓ | ✓ |
 | Release one invoice from a PRF | | | ✓ | ✓ |
 | Correct an invoice held by a PRF | | | ✓ | ✓ |
-| Download PRF PDF | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
+| Download PRF PAF (any status) | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Audit log viewer, manage users/levels | | | | ✓ |
 

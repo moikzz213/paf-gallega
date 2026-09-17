@@ -51,8 +51,8 @@ class InvoiceSubmitTest extends TestCase
             'priority' => 'normal',
             'description' => 'test only',
             'items' => [
-                ['job_no' => 'JOB-X', 'currency' => 'AED', 'amount' => 1000, 'tax_rate' => 5],
-                ['job_no' => 'JOB-Y', 'currency' => 'AED', 'amount' => 200, 'tax_rate' => 0],
+                ['job_no' => 'JOB-X', 'currency' => 'AED', 'description' => 'Test line', 'amount' => 1000, 'tax_rate' => 5],
+                ['job_no' => 'JOB-Y', 'currency' => 'AED', 'description' => 'Test line', 'amount' => 200, 'tax_rate' => 0],
             ],
         ]);
 
@@ -92,7 +92,7 @@ class InvoiceSubmitTest extends TestCase
             'payment_method' => 'bank_transfer',
             'priority' => 'normal',
             'items' => [
-                ['currency' => 'EUR', 'amount' => 500, 'tax_rate' => 5],
+                ['currency' => 'EUR', 'description' => 'Test line', 'amount' => 500, 'tax_rate' => 5],
             ],
         ])->assertCreated();
 
@@ -114,8 +114,8 @@ class InvoiceSubmitTest extends TestCase
             'payment_method' => 'bank_transfer',
             'priority' => 'normal',
             'items' => [
-                ['currency' => 'EUR', 'amount' => 500, 'tax_rate' => 0],
-                ['currency' => 'AED', 'amount' => 300, 'tax_rate' => 0],
+                ['currency' => 'EUR', 'description' => 'Test line', 'amount' => 500, 'tax_rate' => 0],
+                ['currency' => 'AED', 'description' => 'Test line', 'amount' => 300, 'tax_rate' => 0],
             ],
         ])->assertStatus(422)->assertJsonValidationErrors('items');
 
@@ -143,7 +143,7 @@ class InvoiceSubmitTest extends TestCase
             'payment_method' => 'bank_transfer',
             'priority' => 'normal',
             'items' => [
-                ['currency' => 'AED', 'amount' => 100, 'tax_rate' => 0],
+                ['currency' => 'AED', 'description' => 'Test line', 'amount' => 100, 'tax_rate' => 0],
             ],
         ])->assertCreated();
 

@@ -64,6 +64,15 @@
         .attach-item img { display: block; max-width: 100%; max-height: 165mm; margin: 7px auto 0; }
         .embedded-file-note { margin-top: 7px; padding: 12px; border: 1px solid #bbb; background: #f2f2f2; text-align: center; }
         a { color: inherit; text-decoration: none; }
+        /* The PAF exists from the moment a request is raised, so an unsigned one circulates while
+           the chain is still running. It is stamped rather than merely labelled: a draft must never
+           read as an authorisation to pay, however it is printed or forwarded. */
+        .draft-mark { position: absolute; top: 74mm; left: 0; width: 100%; text-align: center;
+                      color: #d32f2f; font-size: 46px; font-weight: bold; letter-spacing: 5px;
+                      opacity: 0.16; }
+        .draft-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #d32f2f;
+                        background: #fdecea; color: #b71c1c; font-size: 7px; font-weight: bold;
+                        text-align: center; }
     </style>
 </head>
 <body>
@@ -152,7 +161,30 @@
         ];
     @endphp
 
+    @php
+        // Approved and paid are the only states in which the sheet is an authorisation; everything
+        // before that is a draft of one, and everything after a rejection or withdrawal is void.
+        $isAuthorised = in_array($paymentRequest->status, ['approved', 'paid'], true);
+        $draftNotice = match ($paymentRequest->status) {
+            'rejected' => 'REJECTED — this payment request was not approved and must not be paid.',
+            'withdrawn' => 'WITHDRAWN — this payment request was pulled back and must not be paid.',
+            default => 'DRAFT — NOT YET APPROVED. This form is still in the approval chain and is not an authorisation to pay.',
+        };
+        $draftStamp = match ($paymentRequest->status) {
+            'rejected' => 'REJECTED',
+            'withdrawn' => 'WITHDRAWN',
+            default => 'PENDING APPROVAL',
+        };
+    @endphp
+
+    @unless($isAuthorised)
+    <div class="draft-mark">{{ $draftStamp }}</div>
+    @endunless
+
     <div class="sheet">
+        @unless($isAuthorised)
+        <div class="draft-banner">{{ $draftNotice }}</div>
+        @endunless
         <table class="heading top-line">
             <tr>
                 <td class="logo-cell"><img class="company-logo" src="data:image/png;base64,{{ $companyLogo }}" alt="Gallega Global Logistics"></td>

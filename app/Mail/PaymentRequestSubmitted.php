@@ -27,7 +27,7 @@ class PaymentRequestSubmitted extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "New Payment Request {$this->paymentRequest->reference_no} Awaiting Your Approval",
+            subject: "Approval Required: {$this->paymentRequest->subjectSummary()}",
         );
     }
 

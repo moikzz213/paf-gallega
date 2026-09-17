@@ -46,6 +46,12 @@
         .footer { text-align: center; padding: 20px; color: #999; font-size: 12px; }
         @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
 
+        /* PAF viewer — the form being approved, shown where the decision is made */
+        .paf-frame { width: 100%; height: 70vh; min-height: 420px; border: 0; display: block; background: #fff; }
+        .paf-fallback { padding: 18px; font-size: 13px; color: #666; text-align: center; }
+        .paf-actions { padding: 10px 14px; border-top: 1px solid #eee; font-size: 12px; color: #666; text-align: right; }
+        @media (max-width: 600px) { .paf-frame { height: 55vh; min-height: 320px; } }
+
         /* Action panel */
         .action-panel { background: #e8eaf6; border: 2px solid #1a237e; border-radius: 8px; padding: 24px; margin-bottom: 20px; text-align: center; }
         .action-panel h3 { margin-bottom: 8px; color: #1a237e; }
@@ -93,6 +99,21 @@
         @if(session('error'))
         <div class="alert alert-error">{{ session('error') }}</div>
         @endif
+
+        <div class="card">
+            <div class="card-header">Payment Approval Form
+                @if(! in_array($paymentRequest->status, ['approved', 'paid'], true))
+                    &mdash; draft, not yet approved
+                @endif
+            </div>
+            <iframe class="paf-frame" src="{{ route('payment-request.public.paf', ['id' => $paymentRequest->id, 'token' => $token]) }}" title="Payment Approval Form {{ $paymentRequest->reference_no }}">
+                <div class="paf-fallback">Your browser cannot display the form here.</div>
+            </iframe>
+            <div class="paf-actions">
+                Supporting documents are included in the form above, and listed individually below.
+                <a href="{{ route('payment-request.public.paf', ['id' => $paymentRequest->id, 'token' => $token]) }}" target="_blank" rel="noopener" style="color:#1a237e;font-weight:600;">Open in a new tab</a>
+            </div>
+        </div>
 
         @if($paymentRequest->status === 'in_approval')
         @php

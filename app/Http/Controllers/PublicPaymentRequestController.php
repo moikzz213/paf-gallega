@@ -7,6 +7,7 @@ use App\Models\InvoiceDocument;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
 use App\Services\AuditLogger;
+use App\Services\PafDocumentService;
 use App\Services\PaymentRequestService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -151,6 +152,22 @@ class PublicPaymentRequestController extends Controller
         abort_unless(Storage::disk('local')->exists($document->file_path), 404, 'File not found on disk.');
 
         return Storage::disk('local')->download($document->file_path, $document->original_name);
+    }
+
+    /**
+     * The PAF itself, streamed inline so the approval page can show it beside the Approve and
+     * Reject buttons instead of asking the approver to download it first.
+     *
+     * Reachable on exactly the same terms as the page it is embedded in: `resolvePr` refuses any
+     * token that is neither the request's own view token nor one of its approval stages'.
+     */
+    public function paf(string $id, string $token, PafDocumentService $paf)
+    {
+        $pr = $this->resolvePr($id, $token);
+
+        return response($paf->render($pr), 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'inline; filename="'.$paf->filename($pr).'"');
     }
 
     /**

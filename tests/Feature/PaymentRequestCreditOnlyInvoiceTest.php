@@ -67,7 +67,7 @@ class PaymentRequestCreditOnlyInvoiceTest extends TestCase
             'location' => 'Dubai',
             'payment_method' => 'bank_transfer',
             'priority' => 'normal',
-            'items' => array_map(fn ($item) => array_merge(['currency' => 'AED'], $item), $items),
+            'items' => array_map(fn ($item) => array_merge(['currency' => 'AED', 'description' => 'Test line'], $item), $items),
         ];
     }
 

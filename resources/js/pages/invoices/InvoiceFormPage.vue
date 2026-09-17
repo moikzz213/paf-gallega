@@ -60,6 +60,9 @@ const rules = {
     nonNegative: (v) => v === '' || v === null || Number(v) >= 0 || 'Cannot be negative',
     percentage: (v) => v === '' || v === null || (Number(v) >= 0 && Number(v) <= 100) || 'Must be between 0 and 100',
     itemsMin: () => items.value.length > 0 || 'At least one line item is required',
+    // Mirrors InvoiceController::validatedItems — whitespace is not a description, and the server
+    // refuses it either way (TrimStrings empties it before the required rule runs).
+    description: (v) => String(v ?? '').trim() !== '' || 'Describe what this line is for',
 };
 
 const paymentMethodOptions = computed(() =>
@@ -467,7 +470,15 @@ async function save() {
                                 </div>
                             </v-col>
                              <v-col cols="12" sm="6" md="12">
-                                <v-text-field v-model="item.description" label="Description" hide-details density="compact" />
+                                <v-text-field
+                                    v-model="item.description"
+                                    label="Description *"
+                                    placeholder="What this line is for — the approver reads this"
+                                    persistent-placeholder
+                                    hide-details="auto"
+                                    density="compact"
+                                    :rules="[rules.description]"
+                                />
                             </v-col>
                         </v-row>
                     </div>
