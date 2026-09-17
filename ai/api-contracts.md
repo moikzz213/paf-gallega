@@ -41,7 +41,7 @@
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
-| GET | `/api/invoices` | scoped `visibleTo` | filters `mine, status[], payment_status[], department, priority[], date_from/to, q`; `sort∈{submitted_at,invoice_date,due_date,total_amount,status,priority}`; paginated 15 |
+| GET | `/api/invoices` | scoped `visibleTo` | filters `mine, status[], payment_status[], department, priority[], advance_payment, date_from/to, q` (`advance_payment` is tri-state — absent means no filter, `1` advances only, `0` ordinary payments only); `sort∈{submitted_at,invoice_date,due_date,total_amount,status,priority}`; paginated 15 |
 | POST | `/api/invoices` | any auth | multipart: `vendor_id`, invoice_no, invoice_date, due_date?, currency, business_unit, department, location, payment_method, priority, description?, `items[]` (job_no?, customer_id?, description?, currency, amount, **tax_rate?** as a percentage), documents? → status `submitted`; the server snapshots the selected vendor name; **201** with vendor, items + documents |
 | GET | `/api/invoices/{invoice}` | canViewAll / owner / assigned approver (via PRF) | loads submitter, poster, items.customer, documents, `paymentRequest.approvals.approver`, auditLogs |
 | POST | `/api/invoices/{invoice}` | owner, admin **or finance** | update (multipart, same fields as create); a queried invoice returns to `submitted`. Two modes: **normal** when `isEditable()`; **in-place correction** when finance/admin edit an invoice held by a PRF (`isCorrectableInPlace()`: payment `in_approval`/`approved_for_payment`, not cancelled) — no further approval needed, but the currency may **not** change and the total may **not** rise (`422` on `items` otherwise), the invoice status is left alone, and the PRF's `total_amount` is re-synced. Requesters still get `422` on an invoice inside a PRF |
@@ -62,7 +62,12 @@ header sums; zero is only ever an unfilled line), and the **lines must not net t
 neither a charge nor a credit, so there is nothing to record (`422` on `items`). A net **below** 0
 is allowed: a **credit-only invoice**, settled by being grouped into a PRF alongside the charge it
 offsets, which is where the "more than 0" floor now lives (see `POST /api/payment-requests`); tax_rate 0–100 (a percentage; the server derives `tax_amount` and ignores any posted value — signed, so a credit line's tax is a reduction); business_unit/department/location must be active master-data names, payment_method/priority in config (Rule::in);
-description ≤5000; documents ≤10 files, config mimes, ≤10 MB.
+description ≤5000; documents ≤10 files, config mimes, ≤10 MB;
+`is_advance_payment` is read with `$request->boolean()` and carries **no** validation rule — the
+form posts multipart, where FormData stringifies a switch to `"true"`/`"false"`, which Laravel's
+`boolean` rule rejects (it accepts only 1/0 and their string forms). `boolean()` coerces every
+form a browser sends and treats anything unrecognised as not an advance. It may not change once
+a payment request holds the invoice (`422` on `is_advance_payment`).
 
 ## Export API (key-authenticated, no session)
 
@@ -95,6 +100,7 @@ deactivates that key immediately.
 
 | Method | Path | Auth | Notes |
 |--------|------|------|-------|
+| POST | `/api/invoices/{invoice}/documents` | Finance/admin, or the invoice's submitter | **Documents only** — never the invoice's fields. `documents[]` required, min 1, same mime/size/count limits as create (the existing attachments count toward the maximum). Open while the invoice is editable, and — this is why it exists — on an **advance payment** whose request is `in_approval`, `approved_for_payment` or `paid` (`Invoice::acceptsLateDocuments`): an advance is paid before the vendor's final tax invoice exists, so the document that completes the record arrives after everything else is frozen. Anything posted alongside the files is **ignored**, not refused, so there is no path through this route by which an approved figure could move. A file attached after approval is stored with `uploaded_after_approval` and audited as `document_uploaded_after_approval` against both the invoice and its payment request. `422` on a non-advance invoice that is no longer editable; `403` for anyone else, approvers included |
 | GET | `/api/payment-requests/eligible` | `role:finance,admin` | invoices payable (not_initiated & posted/submitted); filters `department, currency, vendor, invoice_no, job_no` (via items), `customer` (via items.customer name); paginated 100 |
 | GET | `/api/payment-requests/pending` | any `canApprove()` user for their own stages (approver, **or finance with a level**) / admin (all); `403` otherwise | PRFs `in_approval` awaiting the current user's stage; invoice payload includes submitter and `items.customer` for the decision dialog |
 | GET | `/api/payment-requests` | scoped `visibleTo` | filters `status[], department, vendor, q` (searches reference_no, invoice_no); paginated 15 |

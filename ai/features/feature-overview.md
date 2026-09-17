@@ -99,6 +99,26 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   summary. The individual attachment links stay below it as a fallback.
 - A **daily reminder email** is sent to each approver with a pending PRF (scheduled at 09:00
   via `prf:send-reminders` Artisan command).
+- **Advance payments.** An invoice can be marked as an **advance payment** — money paid before the
+  business has what it paid for, a deposit or part-payment against an order. It follows exactly the
+  same submission, posting, grouping and approval process as any other invoice: the marker describes
+  the payment, it does not route it differently. It shows on the invoice, in the Invoice Log (which
+  can be filtered to advances or to ordinary payments), on the token-gated approval page, and on the
+  PAF itself — both as a banner and against the individual lines, so a mixed request shows which
+  invoices are advances. The marker is **frozen once a payment request holds the invoice**: it is
+  part of what the approvers were shown, and it is what opens the late-upload route below. Release
+  the invoice to change it. Invoices raised before this existed carry no marker and are not
+  backfilled — nothing on record reliably says which of them were advances.
+- **Attaching the final vendor invoice to a paid advance.** An advance is raised and paid *before*
+  the vendor's final tax invoice exists, so the document that completes the record arrives after
+  everything else is deliberately frozen. Finance, an admin, or the invoice's own submitter can
+  attach supporting documents to an advance-payment invoice at any point in its payment cycle,
+  including after it is **paid**. Documents only: the route reads the files and nothing else, so no
+  amount, currency, date, line item, status or approval state can move through it — anything posted
+  alongside the files is ignored rather than refused. A file attached after the chain signed is
+  marked as such wherever documents are listed, and audited apart from an ordinary upload, so
+  "what was in front of the approver?" stays answerable. Ordinary invoices are unaffected and stay
+  closed once paid.
 - **Correcting an invoice already in a PRF (Finance/Admin, no approval needed).** Finance can fix an
   invoice a PRF is holding without withdrawing anything — job no., customer, description, dates,
   even a **lower** total. The PRF keeps its approvals and its total is re-synced. Locked: the

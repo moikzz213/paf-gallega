@@ -16,6 +16,8 @@ const router = useRouter();
 const invoice = ref(null);
 const loading = ref(true);
 const acting = ref(false);
+const lateFiles = ref([]);
+const uploading = ref(false);
 
 const dialog = ref({ show: false, kind: null, erp_doc_no: '', posting_date: '', finance_remarks: '', reason: '' });
 
@@ -160,6 +162,40 @@ function download(doc) {
     window.open(`/api/documents/${doc.id}/download`, '_blank');
 }
 
+// The one thing that stays open on an advance once its payment request is approved or paid:
+// documents, and nothing else. Mirrors Invoice::acceptsLateDocuments and the controller's
+// authorization — Finance/admin, or the person who raised it.
+const canAttachLate = computed(() =>
+    !!invoice.value?.is_advance_payment
+    && invoice.value?.status !== 'cancelled'
+    && ['in_approval', 'approved_for_payment', 'paid'].includes(invoice.value?.payment_status)
+    && (auth.canProcessPayments || isOwner.value));
+
+async function uploadLateDocuments() {
+    if (!lateFiles.value.length) return;
+
+    uploading.value = true;
+    try {
+        const payload = new FormData();
+        lateFiles.value.forEach((file) => payload.append('documents[]', file));
+
+        const { data } = await api.post(`/invoices/${props.id}/documents`, payload, {
+            headers: { 'Content-Type': 'multipart/form-data' },
+        });
+
+        // Re-read the whole invoice rather than patching the list: the audit trail gained an entry
+        // too, and it is on screen right below.
+        invoice.value = { ...invoice.value, documents: data.documents };
+        lateFiles.value = [];
+        notify.success(`${data.documents.length} document(s) attached.`);
+        await load();
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        uploading.value = false;
+    }
+}
+
 function approvalIcon(status) {
     return { approved: 'mdi-check-circle', rejected: 'mdi-close-circle', pending: 'mdi-circle-outline' }[status];
 }
@@ -181,6 +217,7 @@ const auditIcons = {
     paid: 'mdi-cash-check',
     cancelled: 'mdi-cancel',
     document_uploaded: 'mdi-paperclip',
+    document_uploaded_after_approval: 'mdi-paperclip-plus',
     document_deleted: 'mdi-paperclip-off',
 };
 </script>
@@ -198,6 +235,9 @@ const auditIcons = {
                     {{ invoice.reference_no }}
                     <StatusChip :status="invoice.status" size="default" />
                     <StatusChip v-if="invoice.payment_status !== 'not_initiated'" :status="invoice.payment_status" size="small" />
+                    <v-chip v-if="invoice.is_advance_payment" size="small" color="warning" variant="flat" prepend-icon="mdi-cash-fast">
+                        Advance payment
+                    </v-chip>
                 </h1>
                 <div class="text-body-2 text-medium-emphasis">
                     {{ invoice.vendor_name }}{{ invoice.vendor?.vendor_code ? ` (${invoice.vendor.vendor_code})` : '' }} · Invoice {{ invoice.invoice_no }} · Submitted by {{ invoice.submitter?.name }}
@@ -322,10 +362,48 @@ const auditIcons = {
                                 prepend-icon="mdi-file-outline"
                             >
                                 <template #append>
+                                    <!-- What the approvers actually saw matters when reading this list back. -->
+                                    <v-chip v-if="doc.uploaded_after_approval" size="x-small" color="warning" variant="tonal" class="mr-2">
+                                        added after approval
+                                    </v-chip>
                                     <v-btn icon="mdi-download" variant="text" size="small" @click="download(doc)" />
                                 </template>
                             </v-list-item>
                         </v-list>
+
+                        <!-- An advance is paid before the vendor's final tax invoice exists, so this
+                             stays open once everything else on the record is frozen. Documents only. -->
+                        <template v-if="canAttachLate">
+                            <v-divider class="my-4" />
+                            <div class="text-body-2 font-weight-medium mb-1">Attach the vendor's final invoice</div>
+                            <div class="text-caption text-medium-emphasis mb-3">
+                                This invoice is an advance payment, so supporting documents can still be added.
+                                Nothing else on the record can change — amounts, currency and line items stay as approved.
+                            </div>
+                            <v-file-input
+                                v-model="lateFiles"
+                                label="Choose file(s)"
+                                variant="outlined"
+                                density="compact"
+                                multiple
+                                chips
+                                show-size
+                                prepend-icon=""
+                                prepend-inner-icon="mdi-paperclip"
+                                hide-details="auto"
+                                :disabled="uploading"
+                            />
+                            <div class="d-flex justify-end mt-3">
+                                <v-btn
+                                    color="primary"
+                                    variant="flat"
+                                    prepend-icon="mdi-upload"
+                                    :loading="uploading"
+                                    :disabled="!lateFiles.length"
+                                    @click="uploadLateDocuments"
+                                >Attach</v-btn>
+                            </div>
+                        </template>
                     </v-card-text>
                 </v-card>
 

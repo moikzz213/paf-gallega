@@ -46,6 +46,12 @@ class InvoiceController extends Controller
             $query->whereIn('priority', is_array($priority) ? $priority : explode(',', $priority));
         }
 
+        // Advances could not be listed at all before they carried a flag — the whole point of
+        // recording one. `filled` rather than `boolean`, so the filter is off unless asked for.
+        if ($request->filled('advance_payment')) {
+            $query->where('is_advance_payment', $request->boolean('advance_payment'));
+        }
+
         if ($request->filled('date_from')) {
             $query->whereDate('submitted_at', '>=', $request->date('date_from'));
         }
@@ -151,6 +157,14 @@ class InvoiceController extends Controller
 
         if ($inPlace) {
             $this->assertInPlaceCorrection($invoice, $data['currency'], $this->totalOf($itemsData));
+            // Whether the payment is an advance is part of what the approvers were shown, and it is
+            // what opens the late-upload route. Neither may be rewritten under an approval already
+            // given. Release the invoice to change it.
+            if ($data['is_advance_payment'] !== (bool) $invoice->is_advance_payment) {
+                throw ValidationException::withMessages([
+                    'is_advance_payment' => 'The advance payment marker cannot be changed while a payment request is holding this invoice — it is part of what was approved. Release it first.',
+                ]);
+            }
         } elseif ($invoice->status === Invoice::STATUS_QUERY) {
             $data['status'] = Invoice::STATUS_SUBMITTED;
             $data['finance_remarks'] = null;
@@ -181,6 +195,63 @@ class InvoiceController extends Controller
         );
 
         return response()->json($invoice->refresh()->load('vendor:id,name,vendor_code,credit_days', 'items.customer', 'documents'));
+    }
+
+    /**
+     * Attach a supporting document to an invoice whose record is otherwise closed to change.
+     *
+     * Deliberately not part of `update`: that route re-validates and re-saves the whole invoice,
+     * which is exactly what must not happen once a payment has been approved. This one reads the
+     * files and nothing else — no header fields, no line items, no totals, no status — so there is
+     * no path through it by which an approved figure could move. Anything else posted alongside the
+     * files is ignored rather than refused; the caller is sending a document, not an edit.
+     *
+     * Limited to advance payments (`Invoice::acceptsLateDocuments`), which are raised and paid
+     * before the vendor's final tax invoice exists. An ordinary invoice has its documents before it
+     * is paid and stays closed.
+     *
+     * CR: ai/change-requests/flag-advance-payment-invoices-and-allow-final-invoice-upload.md
+     */
+    public function uploadDocuments(Request $request, Invoice $invoice)
+    {
+        $user = $request->user();
+        $canCorrect = $user->isAdmin() || $user->isFinance();
+
+        // The submitter keeps a way to complete their own record; everyone else needs the correction
+        // right they already hold. No new role, and approvers gain nothing they did not have.
+        abort_unless(
+            $canCorrect || $invoice->submitted_by === $user->id,
+            403, 'You can only attach documents to your own invoices.',
+        );
+
+        // While the invoice is still editable this adds nothing — `update` already carries documents
+        // — so this route exists for the window after that, and says so when it does not apply.
+        if (! $invoice->isEditable() && ! $invoice->acceptsLateDocuments()) {
+            abort(422, $invoice->is_advance_payment
+                ? 'Documents can no longer be attached to this invoice.'
+                : 'Documents can only be attached after payment on an invoice marked as an advance payment.');
+        }
+
+        $request->validate([
+            'documents' => ['required', 'array', 'min:1', 'max:'.config('paf.max_documents')],
+            'documents.*' => ['file', 'mimes:'.config('paf.document_mimes'), 'max:'.config('paf.max_document_kb')],
+        ], [
+            'documents.required' => 'Choose at least one file to attach.',
+        ]);
+
+        $existing = $invoice->documents()->count();
+        $incoming = count($request->file('documents', []));
+        if ($existing + $incoming > (int) config('paf.max_documents')) {
+            throw ValidationException::withMessages([
+                'documents' => 'This invoice already holds '.$existing.' document(s); the limit is '.config('paf.max_documents').'.',
+            ]);
+        }
+
+        // A document arriving after the chain signed was not in front of the approvers, and the
+        // record has to be able to say so — see InvoiceDocument::uploaded_after_approval.
+        $this->storeDocuments($request, $invoice, late: ! $invoice->isEditable());
+
+        return response()->json($invoice->refresh()->load('documents.uploader:id,name'));
     }
 
     /**
@@ -497,6 +568,15 @@ class InvoiceController extends Controller
 
         unset($data['documents']);
 
+        // Marks money leaving before the business has what it paid for. Same process as any other
+        // invoice — the flag describes the payment, it does not route it differently.
+        //
+        // Read through `boolean()` rather than validated with the `boolean` rule, which accepts only
+        // 1/0 and their string forms: the invoice form posts multipart, where FormData stringifies a
+        // checkbox to "true"/"false" and the rule rejects it. `boolean()` coerces every form a
+        // browser might send, and anything unrecognised is simply not an advance.
+        $data['is_advance_payment'] = $request->boolean('is_advance_payment');
+
         $data['vendor_name'] = Vendor::findOrFail($data['vendor_id'])->name;
 
         return $data;
@@ -587,20 +667,28 @@ class InvoiceController extends Controller
         }
     }
 
-    private function storeDocuments(Request $request, Invoice $invoice): void
+    private function storeDocuments(Request $request, Invoice $invoice, bool $late = false): void
     {
         foreach ($request->file('documents', []) as $file) {
             $path = $file->store("invoices/{$invoice->id}", 'local');
 
             $invoice->documents()->create([
                 'uploaded_by' => $request->user()->id,
+                'uploaded_after_approval' => $late,
                 'original_name' => $file->getClientOriginalName(),
                 'file_path' => $path,
                 'mime_type' => $file->getClientMimeType(),
                 'size' => $file->getSize(),
             ]);
 
-            AuditLogger::log('document_uploaded', "Document '{$file->getClientOriginalName()}' attached to {$invoice->reference_no}", $invoice);
+            // Named apart from an ordinary upload: this one landed on a record the chain had already
+            // signed, which is what an auditor asking "what did the approver see?" needs to find.
+            AuditLogger::log(
+                $late ? 'document_uploaded_after_approval' : 'document_uploaded',
+                "Document '{$file->getClientOriginalName()}' attached to {$invoice->reference_no}"
+                    .($late ? ' after approval' : ''),
+                $invoice, null, null, $late ? $invoice->paymentRequest : null,
+            );
         }
     }
 

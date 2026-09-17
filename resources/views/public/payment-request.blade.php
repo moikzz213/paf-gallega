@@ -46,6 +46,12 @@
         .footer { text-align: center; padding: 20px; color: #999; font-size: 12px; }
         @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
 
+        /* An advance pays ahead of delivery — a different decision from settling a delivered service. */
+        .advance-note { padding: 12px 16px; margin-bottom: 20px; border: 1px solid #b26a00;
+                        border-radius: 6px; background: #fff4e0; color: #8a5200; font-size: 14px; font-weight: 600; }
+        .advance-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px;
+                       background: #fff4e0; color: #8a5200; font-size: 11px; font-weight: 700; white-space: nowrap; }
+
         /* PAF viewer — the form being approved, shown where the decision is made */
         .paf-frame { width: 100%; height: 70vh; min-height: 420px; border: 0; display: block; background: #fff; }
         .paf-fallback { padding: 18px; font-size: 13px; color: #666; text-align: center; }
@@ -98,6 +104,15 @@
         @endif
         @if(session('error'))
         <div class="alert alert-error">{{ session('error') }}</div>
+        @endif
+
+        @if($paymentRequest->invoices->contains('is_advance_payment', true))
+        <div class="advance-note">
+            Advance payment —
+            {{ $paymentRequest->invoices->where('is_advance_payment', true)->count() }} of
+            {{ $paymentRequest->invoices->count() }} invoice(s) on this request are paid before the
+            goods or services are delivered.
+        </div>
         @endif
 
         <div class="card">
@@ -191,7 +206,7 @@
                             @forelse($invoice->items as $item)
                             <tr>
                                 <td>{{ $invoice->reference_no }}</td>
-                                <td>{{ $invoice->vendor_name }}</td>
+                                <td>{{ $invoice->vendor_name }}@if($invoice->is_advance_payment)<span class="advance-tag">ADVANCE</span>@endif</td>
                                 <td>{{ $invoice->invoice_no }}</td>
                                 <td>{{ $invoice->submitter?->name ?? '—' }}</td>
                                 <td>{{ $item->job_no ?: '—' }}</td>
@@ -202,7 +217,7 @@
                             @empty
                             <tr>
                                 <td>{{ $invoice->reference_no }}</td>
-                                <td>{{ $invoice->vendor_name }}</td>
+                                <td>{{ $invoice->vendor_name }}@if($invoice->is_advance_payment)<span class="advance-tag">ADVANCE</span>@endif</td>
                                 <td>{{ $invoice->invoice_no }}</td>
                                 <td>{{ $invoice->submitter?->name ?? '—' }}</td>
                                 <td>—</td>

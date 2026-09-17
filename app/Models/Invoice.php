@@ -44,7 +44,7 @@ class Invoice extends Model
         'invoice_no', 'invoice_date', 'due_date', 'currency',
         'amount', 'tax_amount', 'total_amount',
         'business_unit', 'department', 'location', 'payment_method',
-        'priority', 'description', 'status', 'submitted_by', 'submitted_at',
+        'priority', 'is_advance_payment', 'description', 'status', 'submitted_by', 'submitted_at',
         'posting_date', 'erp_doc_no', 'finance_remarks', 'posted_by', 'posted_at',
         'payment_status', 'payment_request_id',
     ];
@@ -52,6 +52,7 @@ class Invoice extends Model
     protected function casts(): array
     {
         return [
+            'is_advance_payment' => 'boolean',
             'invoice_date' => 'date:Y-m-d',
             'due_date' => 'date:Y-m-d',
             'posting_date' => 'date:Y-m-d',
@@ -142,6 +143,25 @@ class Invoice extends Model
     {
         return in_array($this->payment_status, [self::PAY_IN_APPROVAL, self::PAY_APPROVED], true)
             && $this->status !== self::STATUS_CANCELLED;
+    }
+
+    /**
+     * Open to a supporting document even though the record itself is closed to change.
+     *
+     * An advance is raised and paid *before* the vendor's final tax invoice exists, so the document
+     * that completes the record turns up after the payment is done — the point at which everything
+     * else is deliberately frozen. Attaching evidence alters nothing anyone approved, so this is
+     * allowed where a correction is not; `isCorrectableInPlace` stays exactly as it was, and the
+     * upload route ignores every field but the files (see InvoiceController::uploadDocuments).
+     *
+     * Advance payments only. An ordinary invoice has its documents before it is paid, and widening
+     * this to all of them would reopen closed records for no stated need.
+     */
+    public function acceptsLateDocuments(): bool
+    {
+        return $this->is_advance_payment
+            && $this->status !== self::STATUS_CANCELLED
+            && in_array($this->payment_status, [self::PAY_IN_APPROVAL, self::PAY_APPROVED, self::PAY_PAID], true);
     }
 
     /** Eligible to be pulled into a new payment request. */
