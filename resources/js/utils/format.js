@@ -1,6 +1,41 @@
+/**
+ * Accounting presentation: a vendor credit note is stored as a negative line, and on a dense table
+ * or an emailed summary a leading minus sign is easy to miss — parentheses are not. Mirrors
+ * App\Support\Money::format so the screen, the PDF, the public view and the emails agree.
+ */
 export function money(value, currency = 'AED') {
-    const number = Number(value ?? 0);
-    return `${currency} ${number.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    const amount = Math.round(Number(value ?? 0) * 100) / 100;
+    const code = currency || 'AED';
+    const figure = Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    return amount < 0 ? `${code} (${figure})` : `${code} ${figure}`;
+}
+
+/**
+ * A payment request has no currency of its own — it carries the currency of the invoices it
+ * groups. Mixed sets are labelled rather than mislabelled with one of the currencies (the PDF
+ * uses the same wording). Returns undefined when nothing is loaded yet, so money() falls back.
+ */
+export function invoicesCurrency(invoices) {
+    const codes = [...new Set((invoices ?? []).map((i) => i?.currency).filter(Boolean))];
+    if (codes.length === 1) return codes[0];
+
+    return codes.length ? 'MULTI-CURRENCY' : undefined;
+}
+
+/**
+ * Like invoicesCurrency: a payment request has no vendor of its own, it carries the vendors of the
+ * invoices it groups. Returns { label, all } so a list can show one name and keep the full set for
+ * a tooltip when a request spans several vendors.
+ */
+export function invoicesVendor(invoices) {
+    const names = [...new Set((invoices ?? []).map((i) => i?.vendor_name).filter(Boolean))];
+    if (!names.length) return { label: '—', all: '' };
+
+    return {
+        label: names.length === 1 ? names[0] : `${names[0]} +${names.length - 1} more`,
+        all: names.join(', '),
+    };
 }
 
 export function shortDate(value) {
@@ -23,26 +58,50 @@ export function fileSize(bytes) {
 }
 
 /**
- * Entity-stable status colors (CVD-validated ordering for the dashboard donut).
- * The same hex follows a status everywhere: chips, charts, legends.
+ * Entity-stable status colors. The same hex follows a status everywhere:
+ * chips, charts, legends. Covers invoice statuses, invoice payment statuses,
+ * and payment-request statuses (shared keys carry the same meaning).
  */
 export const STATUS_META = {
+    // Invoice Log lifecycle
+    submitted: { label: 'Submitted', color: '#2a78d6', icon: 'mdi-file-send-outline' },
+    posted: { label: 'Posted', color: '#008300', icon: 'mdi-checkbox-marked-circle-outline' },
+    query_raised: { label: 'Query Raised', color: '#e34948', icon: 'mdi-help-circle-outline' },
+    cancelled: { label: 'Cancelled', color: '#eb6834', icon: 'mdi-cancel' },
+
+    // Invoice payment status
+    not_initiated: { label: 'Not Initiated', color: '#898781', icon: 'mdi-timer-sand-empty' },
+    in_approval: { label: 'In Approval', color: '#eda100', icon: 'mdi-clock-outline' },
+    approved_for_payment: { label: 'Approved for Payment', color: '#1baf7a', icon: 'mdi-cash-check' },
     paid: { label: 'Paid', color: '#008300', icon: 'mdi-check-circle' },
-    scheduled: { label: 'Scheduled', color: '#2a78d6', icon: 'mdi-calendar-clock' },
-    pending_approval: { label: 'Pending Approval', color: '#eda100', icon: 'mdi-clock-outline' },
+
+    // Payment-request status (draft/approved/rejected in addition to the shared ones)
+    draft: { label: 'Draft', color: '#898781', icon: 'mdi-pencil-outline' },
     approved: { label: 'Approved', color: '#1baf7a', icon: 'mdi-thumb-up-outline' },
     rejected: { label: 'Rejected', color: '#e34948', icon: 'mdi-close-circle-outline' },
-    draft: { label: 'Draft', color: '#898781', icon: 'mdi-pencil-outline' },
-    cancelled: { label: 'Cancelled', color: '#eb6834', icon: 'mdi-cancel' },
+    withdrawn: { label: 'Withdrawn', color: '#eb6834', icon: 'mdi-undo-variant' },
 };
 
 export function statusLabel(status) {
     return STATUS_META[status]?.label ?? status;
 }
 
+/**
+ * Display name for a user's role. Approvers carry their level, which is meaningless without it, and
+ * so does a Finance user who has been nominated to approve at one.
+ */
+export function roleLabel(user) {
+    const labels = {
+        admin: 'Administrator',
+        requester: 'Requester',
+        approver: `Approver — L${user?.approval_level ?? ''}`,
+        finance: user?.approval_level != null ? `Finance — L${user.approval_level}` : 'Finance',
+    };
+    return labels[user?.role] ?? user?.role ?? '—';
+}
+
 export const PRIORITY_META = {
-    urgent: { label: 'Urgent', color: '#d03b3b' },
-    high: { label: 'High', color: '#ec835a' },
-    normal: { label: 'Normal', color: '#52514e' },
-    low: { label: 'Low', color: '#898781' },
+    urgent: { label: 'Urgent (24hrs)', color: '#d03b3b' },
+    high: { label: 'High (2 days)', color: '#ec835a' },
+    normal: { label: 'Normal (Credit days)', color: '#52514e' },
 };

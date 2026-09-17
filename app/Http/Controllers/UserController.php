@@ -61,7 +61,7 @@ class UserController extends Controller
             'password' => [$user ? 'nullable' : 'required', 'string', 'min:8'],
             'role' => ['required', Rule::in(User::ROLES)],
             'approval_level' => ['nullable', 'integer', 'min:1', 'max:10', 'required_if:role,approver'],
-            'department' => ['nullable', Rule::in(config('paf.departments'))],
+            'department' => ['nullable', 'string', Rule::exists('departments', 'name')->where('is_active', true)],
             'job_title' => ['nullable', 'string', 'max:255'],
             'is_active' => ['boolean'],
         ]);

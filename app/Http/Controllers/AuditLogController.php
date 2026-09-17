@@ -10,7 +10,7 @@ class AuditLogController extends Controller
     public function index(Request $request)
     {
         $query = AuditLog::query()
-            ->with(['user:id,name,role', 'invoice:id,reference_no']);
+            ->with(['user:id,name,role', 'invoice:id,reference_no', 'paymentRequest:id,reference_no']);
 
         if ($action = $request->input('action')) {
             $query->where('action', $action);
@@ -23,7 +23,8 @@ class AuditLogController extends Controller
         if ($q = trim((string) $request->input('q'))) {
             $query->where(function ($sub) use ($q) {
                 $sub->where('description', 'like', "%{$q}%")
-                    ->orWhereHas('invoice', fn ($i) => $i->where('reference_no', 'like', "%{$q}%"));
+                    ->orWhereHas('invoice', fn ($i) => $i->where('reference_no', 'like', "%{$q}%"))
+                    ->orWhereHas('paymentRequest', fn ($p) => $p->where('reference_no', 'like', "%{$q}%"));
             });
         }
 

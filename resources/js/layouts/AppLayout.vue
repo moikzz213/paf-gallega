@@ -3,6 +3,7 @@ import { computed, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
 import { useNotifyStore } from '../stores/notify';
+import { roleLabel as formatRoleLabel } from '../utils/format';
 
 const auth = useAuthStore();
 const notify = useNotifyStore();
@@ -12,15 +13,12 @@ const drawer = ref(true);
 const navItems = computed(() => {
     const items = [
         { title: 'Dashboard', icon: 'mdi-view-dashboard-outline', to: '/dashboard' },
-        { title: 'Payment Requests', icon: 'mdi-file-document-multiple-outline', to: '/invoices' },
+        { title: 'Invoice Log', icon: 'mdi-file-document-multiple-outline', to: '/invoices' },
+        { title: 'Payment Requests', icon: 'mdi-bank-transfer-out', to: '/payment-requests' },
     ];
 
     if (auth.canApprove) {
         items.push({ title: 'Approvals', icon: 'mdi-stamper', to: '/approvals' });
-    }
-
-    if (auth.canProcessPayments) {
-        items.push({ title: 'Payments', icon: 'mdi-bank-transfer-out', to: '/payments' });
     }
 
     items.push({ title: 'Reports', icon: 'mdi-chart-box-outline', to: '/reports' });
@@ -33,25 +31,22 @@ const navItems = computed(() => {
         );
     }
 
+    // Listed after the admin group so an admin's menu order is unchanged.
+    if (auth.canManageMasterData) {
+        items.push({ title: 'Master Data', icon: 'mdi-database-outline', to: '/admin/master-data' });
+    }
+
     return items;
 });
 
-const roleLabel = computed(() => {
-    const labels = { admin: 'Administrator', requester: 'Requester', approver: `Approver — L${auth.user?.approval_level ?? ''}`, finance: 'Finance' };
-    return labels[auth.user?.role] ?? auth.user?.role;
-});
+const roleLabel = computed(() => formatRoleLabel(auth.user));
 </script>
 
 <template>
     <v-navigation-drawer v-model="drawer" color="#10243e">
-        <div class="pa-4 d-flex align-center">
-            <v-avatar color="primary" size="36" class="mr-3">
-                <v-icon color="white">mdi-file-sign</v-icon>
-            </v-avatar>
-            <div>
-                <div class="text-subtitle-1 font-weight-bold text-white">PAF</div>
-                <div class="text-caption text-blue-lighten-4">Payment Approval</div>
-            </div>
+        <div class="pa-4 text-center">
+            <img :src="'/assets/images/gallega-logo.jpg'" alt="Gallega" style="max-width: 50px; height: auto;" class="mb-2" />
+            <div class="text-caption text-blue-lighten-4">Gallega Vendor Portal</div>
         </div>
         <v-divider color="grey-darken-1" />
         <v-list nav density="comfortable">
@@ -70,11 +65,11 @@ const roleLabel = computed(() => {
     <v-app-bar flat border color="surface">
         <v-app-bar-nav-icon @click="drawer = !drawer" />
         <v-toolbar-title class="text-subtitle-1 font-weight-medium">
-            Invoice Payment Approval Platform
+            Vendor Portal
         </v-toolbar-title>
         <v-spacer />
-        <v-menu>
-            <template #activator="{ props }">
+        <v-menu >
+            <template #activator="{ props }" >
                 <v-btn v-bind="props" variant="text" class="text-none">
                     <v-avatar color="primary" size="30" class="mr-2">
                         <span class="text-white text-caption">{{ auth.user?.name?.charAt(0) }}</span>
@@ -87,6 +82,8 @@ const roleLabel = computed(() => {
                 </v-btn>
             </template>
             <v-list density="compact">
+                <v-list-item prepend-icon="mdi-account-circle-outline" title="My Profile" :to="{ name: 'profile' }" />
+                <v-divider />
                 <v-list-item prepend-icon="mdi-logout" title="Sign out" @click="auth.logout()" />
             </v-list>
         </v-menu>

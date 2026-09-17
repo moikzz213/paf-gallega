@@ -1,0 +1,355 @@
+<script setup>
+import { computed, onMounted, ref } from 'vue';
+import { useRouter } from 'vue-router';
+import api, { errorMessage } from '../services/api';
+import { dateTime, invoicesCurrency, money, shortDate } from '../utils/format';
+import { useAuthStore } from '../stores/auth';
+import { useNotifyStore } from '../stores/notify';
+import StatusChip from '../components/StatusChip.vue';
+
+const props = defineProps({ id: { type: String, required: true } });
+
+const auth = useAuthStore();
+const notify = useNotifyStore();
+const router = useRouter();
+
+const pr = ref(null);
+const loading = ref(true);
+const acting = ref(false);
+const dialog = ref({ show: false, kind: null, comments: '', payment_reference: '' });
+
+async function load() {
+    loading.value = true;
+    try {
+        const { data } = await api.get(`/payment-requests/${props.id}`);
+        pr.value = data;
+    } catch (e) {
+        notify.error(errorMessage(e));
+        router.replace('/payment-requests');
+    } finally {
+        loading.value = false;
+    }
+}
+
+onMounted(load);
+
+const currentStep = computed(() => pr.value?.approvals?.find((s) => s.sequence === pr.value?.current_stage));
+
+// The request itself stores no currency — it takes it from the invoices it groups.
+const currency = computed(() => invoicesCurrency(pr.value?.invoices));
+
+const canAct = computed(() => {
+    if (pr.value?.status !== 'in_approval') return false;
+    if (auth.isAdmin) return true;
+    return currentStep.value?.approver_id === auth.user?.id;
+});
+const canPay = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
+// Reversing a completed approval is a Finance/admin call, never an approver's.
+const canWithdraw = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
+// The payment reference is the transfer/cheque number keyed by hand when the payment is recorded,
+// and it is what reconciles this request to the bank statement — so a typo has to be fixable. Only
+// once there is one to correct, and only for the person who recorded the payment (an admin is the
+// way through once they have left). Mirrors PaymentRequestService::updatePaymentReference.
+const canEditPaymentRef = computed(() => pr.value?.status === 'paid'
+    && !!pr.value?.payment_reference
+    && (pr.value?.paid_by === auth.user?.id || auth.isAdmin));
+
+const invoiceLines = computed(() => (pr.value?.invoices ?? []).flatMap((invoice) => {
+    const items = invoice.items?.length ? invoice.items : [null];
+
+    return items.map((item, index) => ({
+        id: item?.id ?? `${invoice.id}-summary-${index}`,
+        invoice,
+        job_no: item?.job_no || '—',
+        customer_name: item?.customer?.name || '—',
+        description: item?.description || invoice.description || '—',
+        currency: item?.currency || invoice.currency || '—',
+        total_amount: item?.total_amount ?? invoice.total_amount,
+    }));
+}));
+
+function openDialog(kind) {
+    dialog.value = { show: true, kind, comments: '', payment_reference: '' };
+
+    // A correction starts from what is recorded — the point is to fix a keystroke in it.
+    if (kind === 'editPaymentRef') {
+        dialog.value.payment_reference = pr.value?.payment_reference ?? '';
+    }
+}
+
+const dialogTitle = computed(() => ({
+    approve: 'Approve Payment Request',
+    reject: 'Reject Payment Request',
+    withdraw: 'Withdraw Payment Request',
+    pay: 'Mark as Paid',
+    editPaymentRef: 'Correct Payment Reference',
+}[dialog.value.kind]));
+
+async function runAction(kind, payload = {}) {
+    acting.value = true;
+    try {
+        const urls = {
+            approve: `/payment-requests/${props.id}/approve`,
+            reject: `/payment-requests/${props.id}/reject`,
+            withdraw: `/payment-requests/${props.id}/withdraw`,
+            pay: `/payment-requests/${props.id}/mark-paid`,
+            editPaymentRef: `/payment-requests/${props.id}/payment-reference`,
+        };
+        await api.post(urls[kind], payload);
+        notify.success({
+            approve: 'Stage approved.',
+            reject: 'Payment request rejected.',
+            withdraw: 'Payment request withdrawn — its invoices are back in the Invoice Log.',
+            pay: 'Payment recorded.',
+            editPaymentRef: 'Payment reference corrected.',
+        }[kind]);
+        dialog.value.show = false;
+        await load();
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        acting.value = false;
+    }
+}
+
+function confirmDialog() {
+    const { kind, comments, payment_reference } = dialog.value;
+    if (kind === 'approve') return runAction('approve', { comments });
+    if (kind === 'reject') {
+        if (!comments.trim()) return notify.error('A reason is required to reject.');
+        return runAction('reject', { comments });
+    }
+    if (kind === 'withdraw') {
+        if (!comments.trim()) return notify.error('A reason is required to withdraw.');
+        return runAction('withdraw', { reason: comments });
+    }
+    if (kind === 'pay') {
+        if (!payment_reference.trim()) return notify.error('A payment reference is required.');
+        return runAction('pay', { payment_reference });
+    }
+    if (kind === 'editPaymentRef') {
+        if (!payment_reference.trim()) return notify.error('A payment reference is required.');
+        if (payment_reference === pr.value?.payment_reference) {
+            return notify.error('Nothing changed — edit the payment reference first.');
+        }
+        return runAction('editPaymentRef', { payment_reference });
+    }
+}
+
+function approvalIcon(status) {
+    return { approved: 'mdi-check-circle', rejected: 'mdi-close-circle', pending: 'mdi-circle-outline' }[status];
+}
+function approvalColor(status) {
+    return { approved: '#1baf7a', rejected: '#e34948', pending: '#898781' }[status];
+}
+</script>
+
+<template>
+    <div v-if="loading" class="d-flex justify-center py-16">
+        <v-progress-circular indeterminate color="primary" size="48" />
+    </div>
+
+    <div v-else-if="pr">
+        <div class="d-flex align-center flex-wrap mb-6 ga-2">
+            <v-btn icon="mdi-arrow-left" variant="text" @click="router.back()" />
+            <div class="mr-2">
+                <h1 class="text-h5 font-weight-bold d-flex align-center ga-3">
+                    {{ pr.reference_no }}
+                    <StatusChip :status="pr.status" size="default" />
+                </h1>
+                <div class="text-body-2 text-medium-emphasis">
+                    {{ pr.invoices?.length }} invoice(s) · <strong>{{ money(pr.total_amount, currency) }}</strong> · created by {{ pr.creator?.name }}
+                </div>
+            </div>
+            <v-spacer />
+
+            <v-btn v-if="canAct" color="success" prepend-icon="mdi-check" @click="openDialog('approve')">Approve</v-btn>
+            <v-btn v-if="canAct" color="error" variant="tonal" prepend-icon="mdi-close" @click="openDialog('reject')">Reject</v-btn>
+            <v-btn v-if="canPay" color="success" prepend-icon="mdi-cash-check" @click="openDialog('pay')">Mark Paid</v-btn>
+            <v-btn v-if="canWithdraw" color="warning" variant="tonal" prepend-icon="mdi-undo-variant" @click="openDialog('withdraw')">Withdraw</v-btn>
+            <v-btn
+                v-if="canEditPaymentRef"
+                variant="tonal"
+                prepend-icon="mdi-pencil-outline"
+                title="Correct a mistyped payment reference"
+                @click="openDialog('editPaymentRef')"
+            >Edit Payment Ref</v-btn>
+            <v-btn variant="tonal" prepend-icon="mdi-file-pdf-box" :href="`/api/payment-requests/${id}/pdf`" target="_blank">
+                {{ pr.status === 'approved' || pr.status === 'paid' ? 'Download PAF' : 'Download PAF (draft)' }}
+            </v-btn>
+        </div>
+
+        <v-alert v-if="pr.status === 'rejected'" type="error" variant="tonal" class="mb-4" icon="mdi-close-circle-outline">
+            <strong>Rejected:</strong> {{ pr.rejection_reason }} — invoices were returned to the pool for re-initiation.
+        </v-alert>
+        <v-alert v-else-if="pr.status === 'withdrawn'" type="warning" variant="tonal" class="mb-4" icon="mdi-undo-variant">
+            <strong>Withdrawn after approval:</strong> {{ pr.withdrawal_reason }} — invoices were returned to the
+            Invoice Log for correction, and a corrected payment request needs a fresh approval chain.
+        </v-alert>
+        <v-alert v-else-if="pr.status === 'approved'" type="success" variant="tonal" class="mb-4" icon="mdi-check-circle-outline">
+            Fully approved — released for payment.
+        </v-alert>
+        <v-alert v-else-if="pr.status === 'paid'" type="success" variant="tonal" class="mb-4" icon="mdi-cash-check">
+            Paid on {{ dateTime(pr.paid_at) }} · reference {{ pr.payment_reference }}
+        </v-alert>
+
+        <v-row>
+            <v-col cols="12" md="7">
+                <v-card class="mb-4">
+                    <v-card-title class="text-subtitle-1">Invoices in this request</v-card-title>
+                    <v-data-table
+                        :headers="[
+                            { title: 'Reference', key: 'reference_no', sortable: false },
+                            { title: 'Vendor / Invoice #', key: 'vendor_name', sortable: false },
+                            { title: 'Invoice Submitted By', key: 'submitted_by', sortable: false },
+                            { title: 'Job No.', key: 'job_no', sortable: false },
+                            { title: 'Customer', key: 'customer_name', sortable: false },
+                            { title: 'Description', key: 'description', sortable: false },
+                            { title: 'Line Total', key: 'total_amount', align: 'end', sortable: false },
+                        ]"
+                        :items="invoiceLines"
+                        density="compact"
+                        hide-default-footer
+                        :items-per-page="-1"
+                    >
+                        <template #item.reference_no="{ item }">
+                            <router-link :to="`/invoices/${item.invoice.id}`" class="text-primary text-decoration-none">{{ item.invoice.reference_no }}</router-link>
+                        </template>
+                        <template #item.vendor_name="{ item }">
+                            {{ item.invoice.vendor_name }}
+                            <div class="text-caption text-medium-emphasis">{{ item.invoice.invoice_no }}</div>
+                        </template>
+                        <template #item.submitted_by="{ item }">{{ item.invoice.submitter?.name || '—' }}</template>
+                        <template #item.total_amount="{ item }">{{ money(item.total_amount, item.currency) }}</template>
+                    </v-data-table>
+                    <v-divider />
+                    <div class="d-flex justify-space-between pa-4">
+                        <span class="font-weight-medium">Total payment amount</span>
+                        <span class="font-weight-bold">{{ money(pr.total_amount, currency) }}</span>
+                    </div>
+                </v-card>
+
+                <v-card v-if="pr.audit_logs?.length">
+                    <v-card-title class="text-subtitle-1">Audit Trail</v-card-title>
+                    <v-card-text>
+                        <v-timeline density="compact" side="end" truncate-line="both">
+                            <v-timeline-item
+                                v-for="log in pr.audit_logs"
+                                :key="log.id"
+                                size="small"
+                                dot-color="grey-lighten-2"
+                                icon="mdi-information-outline"
+                                icon-color="grey-darken-2"
+                            >
+                                <div class="text-body-2">{{ log.description }}</div>
+                                <div class="text-caption text-medium-emphasis">{{ log.user?.name ?? 'System' }} · {{ dateTime(log.created_at) }}</div>
+                            </v-timeline-item>
+                        </v-timeline>
+                    </v-card-text>
+                </v-card>
+            </v-col>
+
+            <v-col cols="12" md="5">
+                <v-card class="mb-4">
+                    <v-card-title class="text-subtitle-1">Approval Chain</v-card-title>
+                    <v-card-text>
+                        <v-timeline density="compact" side="end" truncate-line="both">
+                            <v-timeline-item
+                                v-for="step in pr.approvals"
+                                :key="step.id"
+                                size="small"
+                                :icon="approvalIcon(step.status)"
+                                :dot-color="step.sequence === pr.current_stage && step.status === 'pending' ? '#eda100' : 'grey-lighten-3'"
+                                :icon-color="approvalColor(step.status)"
+                            >
+                                <div class="text-body-2 font-weight-medium">
+                                    {{ step.is_adhoc ? 'Additional' : `Stage ${step.sequence}` }} — {{ step.label }}
+                                    <v-chip v-if="step.is_adhoc" size="x-small" variant="tonal" class="ml-1">ad-hoc</v-chip>
+                                    <v-chip
+                                        v-if="step.sequence === pr.current_stage && step.status === 'pending'"
+                                        size="x-small" variant="tonal" style="color: #b87a00" class="ml-1"
+                                    >current</v-chip>
+                                </div>
+                                <div class="text-caption text-medium-emphasis">
+                                    <template v-if="step.status === 'pending'">
+                                        {{ step.approver ? `Assigned to ${step.approver.name}` : 'Awaiting decision' }}
+                                    </template>
+                                    <template v-else>
+                                        {{ step.status === 'approved' ? 'Approved' : 'Rejected' }} by {{ step.approver?.name }} · {{ dateTime(step.acted_at) }}
+                                    </template>
+                                </div>
+                                <div v-if="step.comments" class="text-caption font-italic mt-1">“{{ step.comments }}”</div>
+                            </v-timeline-item>
+                        </v-timeline>
+                    </v-card-text>
+                </v-card>
+
+                <v-card>
+                    <v-card-title class="text-subtitle-1">Details</v-card-title>
+                    <v-card-text>
+                        <v-row dense>
+                            <v-col v-for="field in [
+                                ['Created', dateTime(pr.created_at)],
+                                ['Sent for approval', dateTime(pr.sent_at)],
+                                ['Approved', dateTime(pr.approved_at)],
+                                ...(pr.withdrawn_at ? [['Withdrawn', `${dateTime(pr.withdrawn_at)} by ${pr.withdrawer?.name ?? '—'}`]] : []),
+                                ['Paid', dateTime(pr.paid_at)],
+                                ['Payment ref', pr.payment_reference || '—'],
+                                ['Processed by', pr.payer?.name || '—'],
+                            ]" :key="field[0]" cols="12">
+                                <div class="d-flex justify-space-between">
+                                    <span class="text-caption text-medium-emphasis">{{ field[0] }}</span>
+                                    <span class="text-body-2 font-weight-medium">{{ field[1] }}</span>
+                                </div>
+                            </v-col>
+                        </v-row>
+                    </v-card-text>
+                </v-card>
+            </v-col>
+        </v-row>
+
+        <v-dialog v-model="dialog.show" max-width="480">
+            <v-card>
+                <v-card-title>{{ dialogTitle }}</v-card-title>
+                <v-card-text>
+                    <template v-if="dialog.kind === 'approve' || dialog.kind === 'reject' || dialog.kind === 'withdraw'">
+                        <v-alert v-if="dialog.kind === 'withdraw'" type="warning" variant="tonal" density="compact" class="mb-4">
+                            This cancels an approved payment. Its {{ pr.invoices?.length }} invoice(s) go back to the
+                            Invoice Log, and paying the corrected amount needs a new payment request with a new
+                            approval chain — the approvals recorded here only cover
+                            {{ money(pr.total_amount, currency) }}.
+                        </v-alert>
+                        <v-textarea
+                            v-model="dialog.comments"
+                            :label="dialog.kind === 'approve' ? 'Comments (optional)' : 'Reason (required)'"
+                            rows="3"
+                            autofocus
+                        />
+                    </template>
+                    <template v-else-if="dialog.kind === 'pay'">
+                        <v-text-field v-model="dialog.payment_reference" label="Payment reference / transaction #" autofocus />
+                    </template>
+                    <template v-else-if="dialog.kind === 'editPaymentRef'">
+                        <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+                            Correcting the payment reference recorded against this request. It stays paid, and
+                            <strong>{{ pr.payer?.name || 'whoever recorded the payment' }}</strong> remains recorded
+                            as having recorded it{{ pr.paid_at ? ` on ${shortDate(pr.paid_at)}` : '' }} — only the
+                            reference changes, and the correction is logged.
+                        </v-alert>
+                        <v-text-field v-model="dialog.payment_reference" label="Payment reference / transaction # *" autofocus />
+                    </template>
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="dialog.show = false">Cancel</v-btn>
+                    <v-btn
+                        :color="dialog.kind === 'reject' ? 'error' : (dialog.kind === 'withdraw' ? 'warning' : 'primary')"
+                        variant="flat"
+                        :loading="acting"
+                        @click="confirmDialog"
+                    >Confirm</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+    </div>
+</template>

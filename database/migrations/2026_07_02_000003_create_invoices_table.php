@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::create('invoices', function (Blueprint $table) {
             $table->id();
-            $table->string('reference_no')->unique(); // PAF-2026-00001
+            $table->string('reference_no')->unique(); // INV-2026-00001 (PAF- before Aug 2026)
             $table->string('vendor_name');
             $table->string('vendor_email')->nullable();
             $table->string('vendor_trn')->nullable(); // tax registration number

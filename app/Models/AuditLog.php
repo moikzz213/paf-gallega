@@ -9,7 +9,7 @@ class AuditLog extends Model
     public $timestamps = false;
 
     protected $fillable = [
-        'user_id', 'invoice_id', 'action', 'description',
+        'user_id', 'invoice_id', 'payment_request_id', 'action', 'description',
         'old_values', 'new_values', 'ip_address', 'created_at',
     ];
 
@@ -30,5 +30,10 @@ class AuditLog extends Model
     public function invoice()
     {
         return $this->belongsTo(Invoice::class);
+    }
+
+    public function paymentRequest()
+    {
+        return $this->belongsTo(PaymentRequest::class);
     }
 }

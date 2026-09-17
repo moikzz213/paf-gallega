@@ -16,7 +16,7 @@ const options = reactive({ page: 1, itemsPerPage: 25 });
 const filters = reactive({
     status: [],
     department: null,
-    category: null,
+    business_unit: null,
     vendor: '',
     date_from: null,
     date_to: null,
@@ -28,18 +28,56 @@ const headers = [
     { title: 'Reference', key: 'reference_no', sortable: false },
     { title: 'Vendor', key: 'vendor_name', sortable: false },
     { title: 'Invoice #', key: 'invoice_no', sortable: false },
+    { title: 'Job No', key: 'job_no', sortable: false },
     { title: 'Date', key: 'invoice_date', sortable: false },
-    { title: 'Category', key: 'category', sortable: false },
+    { title: 'Business Unit', key: 'business_unit', sortable: false },
     { title: 'Department', key: 'department', sortable: false },
     { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
     { title: 'Status', key: 'status', sortable: false },
+    { title: 'Query Raised', key: 'query_raised', sortable: false },
+    { title: 'Remarks', key: 'remarks', sortable: false },
 ];
+
+// Job numbers sit on the invoice lines, and a line may carry none.
+function jobNumbers(invoice) {
+    const numbers = [...new Set((invoice.items ?? []).map((i) => i?.job_no).filter((j) => j && String(j).trim() !== ''))];
+    return numbers.length ? numbers.join(', ') : '—';
+}
+
+// Every query Finance raised, oldest first — the invoice itself keeps only the latest text. The
+// audit line reads "Query raised on {reference}: {text}", so the prefix comes back off.
+function queriesRaised(invoice) {
+    const prefix = `Query raised on ${invoice.reference_no}: `;
+    const texts = (invoice.query_logs ?? [])
+        .map((log) => String(log?.description ?? ''))
+        .map((text) => (text.startsWith(prefix) ? text.slice(prefix.length) : text).trim())
+        .filter((text) => text !== '');
+    return texts.length ? texts.join(', ') : '—';
+}
+
+// Everything written on the invoice's payment request: the approvers' comments in approval order,
+// then the request-level rejection and withdrawal reasons, labelled so they read as what they are.
+function approverRemarks(invoice) {
+    const pr = invoice.payment_request;
+    const remarks = [...(pr?.approvals ?? [])]
+        .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
+        .map((approval) => String(approval?.comments ?? '').trim());
+
+    const rejection = String(pr?.rejection_reason ?? '').trim();
+    if (rejection) remarks.push(`Rejected: ${rejection}`);
+
+    const withdrawal = String(pr?.withdrawal_reason ?? '').trim();
+    if (withdrawal) remarks.push(`Withdrawn: ${withdrawal}`);
+
+    const written = remarks.filter((text) => text !== '');
+    return written.length ? written.join(', ') : '—';
+}
 
 function params() {
     return {
         status: filters.status.length ? filters.status.join(',') : undefined,
         department: filters.department || undefined,
-        category: filters.category || undefined,
+        business_unit: filters.business_unit || undefined,
         vendor: filters.vendor || undefined,
         date_from: filters.date_from || undefined,
         date_to: filters.date_to || undefined,
@@ -111,7 +149,7 @@ onMounted(() => meta.load());
                         <v-select v-model="filters.department" :items="meta.departments" label="Department" clearable hide-details />
                     </v-col>
                     <v-col cols="12" sm="6" md="2">
-                        <v-select v-model="filters.category" :items="meta.categories" label="Category" clearable hide-details />
+                        <v-autocomplete v-model="filters.business_unit" :items="meta.business_units" label="Business Unit" autocomplete="off" clearable hide-details />
                     </v-col>
                     <v-col cols="12" sm="6" md="2">
                         <v-text-field v-model="filters.vendor" label="Vendor" clearable hide-details />
@@ -162,6 +200,9 @@ onMounted(() => meta.load());
                         {{ item.reference_no }}
                     </router-link>
                 </template>
+                <template #item.job_no="{ item }">
+                    {{ jobNumbers(item) }}
+                </template>
                 <template #item.invoice_date="{ item }">
                     {{ shortDate(item.invoice_date) }}
                 </template>
@@ -170,6 +211,12 @@ onMounted(() => meta.load());
                 </template>
                 <template #item.status="{ item }">
                     <StatusChip :status="item.status" />
+                </template>
+                <template #item.query_raised="{ item }">
+                    <div class="text-body-2" style="min-width: 180px; white-space: pre-wrap">{{ queriesRaised(item) }}</div>
+                </template>
+                <template #item.remarks="{ item }">
+                    <div class="text-body-2" style="min-width: 180px; white-space: pre-wrap">{{ approverRemarks(item) }}</div>
                 </template>
             </v-data-table-server>
         </v-card>

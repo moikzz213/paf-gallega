@@ -17,7 +17,7 @@ const invoice = ref(null);
 const loading = ref(true);
 const acting = ref(false);
 
-const dialog = ref({ show: false, kind: null, comments: '', scheduled_date: '', payment_reference: '' });
+const dialog = ref({ show: false, kind: null, erp_doc_no: '', posting_date: '', finance_remarks: '', reason: '' });
 
 async function load() {
     loading.value = true;
@@ -35,52 +35,84 @@ async function load() {
 onMounted(load);
 
 const isOwner = computed(() => invoice.value?.submitted_by === auth.user?.id);
+const notInitiated = computed(() => invoice.value?.payment_status === 'not_initiated');
 
-const canEdit = computed(() => (isOwner.value || auth.isAdmin) && ['draft', 'rejected'].includes(invoice.value?.status));
-const canSubmit = computed(() => canEdit.value);
-const canCancel = computed(() => (isOwner.value || auth.isAdmin) && ['draft', 'pending_approval'].includes(invoice.value?.status));
-const canDelete = computed(() => (isOwner.value || auth.isAdmin) && invoice.value?.status === 'draft');
+// Finance/admin may also correct an invoice a payment request is still holding — currency and
+// totals stay locked there. Mirrors InvoiceController::update / isCorrectableInPlace.
+const inPaymentCycle = computed(() => ['in_approval', 'approved_for_payment'].includes(invoice.value?.payment_status));
+const canCorrectInPlace = computed(() => auth.canProcessPayments && inPaymentCycle.value && invoice.value?.status !== 'cancelled');
+const canEdit = computed(() =>
+    ((isOwner.value || auth.isAdmin) && ['submitted', 'query_raised'].includes(invoice.value?.status) && notInitiated.value)
+    || canCorrectInPlace.value);
+// Pull just this invoice out of its payment request, leaving the others in it approved.
+const canRelease = computed(() => auth.canProcessPayments && inPaymentCycle.value && !!invoice.value?.payment_request_id);
+const canCancel = computed(() => (isOwner.value || auth.isAdmin) && notInitiated.value && invoice.value?.status !== 'cancelled');
+const canDelete = computed(() => (isOwner.value || auth.isAdmin) && notInitiated.value);
+// Re-posting a queried invoice would overwrite the ERP document it already has; the requester's
+// correction returns it to `submitted`, which is what gets posted. Mirrors InvoiceController::post.
+const canPost = computed(() => auth.canProcessPayments
+    && (invoice.value?.status === 'submitted' || (invoice.value?.status === 'query_raised' && !invoice.value?.erp_doc_no)));
+// A query asks the requester to correct the invoice, which is impossible once it is in a payment
+// request — that combination is what strands an invoice. Mirrors InvoiceController::raiseQuery.
+const canQuery = computed(() => auth.canProcessPayments && ['submitted', 'posted'].includes(invoice.value?.status) && notInitiated.value);
+// The query email is queued, so a rotated SMTP password shows up as a job that never arrived.
+// Finance can push it again without touching the invoice.
+const canResendQuery = computed(() => auth.canProcessPayments && invoice.value?.status === 'query_raised');
+// The ERP doc no. is keyed by hand, so it can be keyed wrong — and it is what reconciles a payment
+// to the ERP document. Only the person who recorded the posting can correct it (an admin is the way
+// through once that person has left). Available at any payment status: it is a reference to an
+// external document, not an amount. Mirrors InvoiceController::updatePosting.
+const canEditPosting = computed(() => invoice.value?.status === 'posted'
+    && (invoice.value?.posted_by === auth.user?.id || auth.isAdmin));
 
-const canAct = computed(() => {
-    if (invoice.value?.status !== 'pending_approval') return false;
-    if (auth.isAdmin) return true;
-    return auth.isApprover && auth.user?.approval_level === invoice.value?.current_level;
-});
-
-const canSchedule = computed(() => auth.canProcessPayments && invoice.value?.status === 'approved');
-const canPay = computed(() => auth.canProcessPayments && ['approved', 'scheduled'].includes(invoice.value?.status));
+const pr = computed(() => invoice.value?.payment_request);
 
 function openDialog(kind) {
-    dialog.value = { show: true, kind, comments: '', scheduled_date: '', payment_reference: '' };
+    dialog.value = { show: true, kind, erp_doc_no: '', posting_date: '', finance_remarks: '', reason: '' };
+
+    // A correction starts from what is already recorded — the point is to fix one keystroke in it.
+    if (kind === 'editPosting') {
+        dialog.value.erp_doc_no = invoice.value?.erp_doc_no ?? '';
+        dialog.value.posting_date = invoice.value?.posting_date ?? '';
+    }
 }
 
 const dialogTitle = computed(() => ({
-    approve: 'Approve Request',
-    reject: 'Reject Request',
-    schedule: 'Schedule Payment',
-    pay: 'Mark as Paid',
+    post: 'Post to ERP',
+    editPosting: 'Correct Posting Details',
+    query: 'Raise Query',
+    release: 'Release from Payment Request',
 }[dialog.value.kind]));
 
 async function runAction(kind, payload = {}) {
     acting.value = true;
     try {
         const urls = {
-            submit: `/invoices/${props.id}/submit`,
+            post: `/invoices/${props.id}/post`,
+            editPosting: `/invoices/${props.id}/posting`,
+            query: `/invoices/${props.id}/query`,
             cancel: `/invoices/${props.id}/cancel`,
-            approve: `/invoices/${props.id}/approve`,
-            reject: `/invoices/${props.id}/reject`,
-            schedule: `/invoices/${props.id}/schedule`,
-            pay: `/invoices/${props.id}/mark-paid`,
+            release: `/invoices/${props.id}/release`,
+            resendQuery: `/invoices/${props.id}/resend-query`,
         };
-        await api.post(urls[kind], payload);
-        notify.success({
-            submit: 'Request submitted for approval.',
-            cancel: 'Request cancelled.',
-            approve: 'Request approved.',
-            reject: 'Request rejected.',
-            schedule: 'Payment scheduled.',
-            pay: 'Payment recorded.',
-        }[kind]);
+        const { data } = await api.post(urls[kind], payload);
+
+        // A query is recorded whether or not its email got out, so say which happened rather than
+        // implying the whole action failed.
+        if ((kind === 'query' || kind === 'resendQuery') && data?.notification_sent === false) {
+            notify.error(kind === 'query'
+                ? 'Query raised, but the notification could not be sent. Check the mail settings, then use Resend Notification.'
+                : 'The notification still could not be sent — check the mail settings and the queue worker.');
+        } else {
+            notify.success({
+                post: 'Invoice posted in ERP.',
+                editPosting: 'Posting details corrected.',
+                query: 'Query raised — the submitter has been notified.',
+                cancel: 'Invoice cancelled.',
+                release: 'Invoice released — it is back in the Invoice Log and can be corrected.',
+                resendQuery: `Notification queued again${data?.sent_to ? ` to ${data.sent_to}` : ''}.`,
+            }[kind]);
+        }
         dialog.value.show = false;
         await load();
     } catch (e) {
@@ -90,28 +122,34 @@ async function runAction(kind, payload = {}) {
     }
 }
 
-async function confirmDialog() {
-    const { kind, comments, scheduled_date, payment_reference } = dialog.value;
-    if (kind === 'approve') return runAction('approve', { comments });
-    if (kind === 'reject') {
-        if (!comments.trim()) return notify.error('A reason is required to reject.');
-        return runAction('reject', { comments });
+function confirmDialog() {
+    const { kind, erp_doc_no, posting_date, finance_remarks } = dialog.value;
+    if (kind === 'post') {
+        if (!erp_doc_no.trim()) return notify.error('ERP document number is required.');
+        return runAction('post', { erp_doc_no, posting_date: posting_date || undefined });
     }
-    if (kind === 'schedule') {
-        if (!scheduled_date) return notify.error('Pick a payment date.');
-        return runAction('schedule', { scheduled_date });
+    if (kind === 'editPosting') {
+        if (!erp_doc_no.trim()) return notify.error('ERP document number is required.');
+        if (erp_doc_no === invoice.value?.erp_doc_no && posting_date === (invoice.value?.posting_date ?? '')) {
+            return notify.error('Nothing changed — edit the ERP document number or the posting date first.');
+        }
+        return runAction('editPosting', { erp_doc_no, posting_date: posting_date || undefined });
     }
-    if (kind === 'pay') {
-        if (!payment_reference.trim()) return notify.error('A payment reference is required.');
-        return runAction('pay', { payment_reference });
+    if (kind === 'query') {
+        if (!finance_remarks.trim()) return notify.error('A query note is required.');
+        return runAction('query', { finance_remarks });
+    }
+    if (kind === 'release') {
+        if (!dialog.value.reason.trim()) return notify.error('A reason is required to release the invoice.');
+        return runAction('release', { reason: dialog.value.reason });
     }
 }
 
-async function deleteDraft() {
-    if (!confirm('Delete this draft permanently?')) return;
+async function deleteInvoice() {
+    if (!confirm('Delete this invoice permanently?')) return;
     try {
         await api.delete(`/invoices/${props.id}`);
-        notify.success('Draft deleted.');
+        notify.success('Invoice deleted.');
         router.replace('/invoices');
     } catch (e) {
         notify.error(errorMessage(e));
@@ -125,18 +163,21 @@ function download(doc) {
 function approvalIcon(status) {
     return { approved: 'mdi-check-circle', rejected: 'mdi-close-circle', pending: 'mdi-circle-outline' }[status];
 }
-
 function approvalColor(status) {
     return { approved: '#1baf7a', rejected: '#e34948', pending: '#898781' }[status];
 }
 
 const auditIcons = {
-    created: 'mdi-plus-circle-outline',
-    updated: 'mdi-pencil-outline',
     submitted: 'mdi-send',
+    updated: 'mdi-pencil-outline',
+    posted: 'mdi-checkbox-marked-circle-outline',
+    query_raised: 'mdi-help-circle-outline',
+    query_notification_resent: 'mdi-email-sync-outline',
+    payment_initiated: 'mdi-bank-transfer',
+    credit_note_marked: 'mdi-minus-circle-outline',
+    posting_corrected: 'mdi-file-edit-outline',
     approved: 'mdi-thumb-up-outline',
     rejected: 'mdi-thumb-down-outline',
-    scheduled: 'mdi-calendar-clock',
     paid: 'mdi-cash-check',
     cancelled: 'mdi-cancel',
     document_uploaded: 'mdi-paperclip',
@@ -156,25 +197,43 @@ const auditIcons = {
                 <h1 class="text-h5 font-weight-bold d-flex align-center ga-3">
                     {{ invoice.reference_no }}
                     <StatusChip :status="invoice.status" size="default" />
+                    <StatusChip v-if="invoice.payment_status !== 'not_initiated'" :status="invoice.payment_status" size="small" />
                 </h1>
                 <div class="text-body-2 text-medium-emphasis">
-                    {{ invoice.vendor_name }} · Invoice {{ invoice.invoice_no }} · Requested by {{ invoice.submitter?.name }}
+                    {{ invoice.vendor_name }}{{ invoice.vendor?.vendor_code ? ` (${invoice.vendor.vendor_code})` : '' }} · Invoice {{ invoice.invoice_no }} · Submitted by {{ invoice.submitter?.name }}
                 </div>
             </div>
             <v-spacer />
 
-            <v-btn v-if="canAct" color="success" prepend-icon="mdi-check" @click="openDialog('approve')">Approve</v-btn>
-            <v-btn v-if="canAct" color="error" variant="tonal" prepend-icon="mdi-close" @click="openDialog('reject')">Reject</v-btn>
-            <v-btn v-if="canSchedule" color="info" prepend-icon="mdi-calendar-clock" @click="openDialog('schedule')">Schedule</v-btn>
-            <v-btn v-if="canPay" color="success" prepend-icon="mdi-cash-check" @click="openDialog('pay')">Mark Paid</v-btn>
-            <v-btn v-if="canSubmit" color="primary" prepend-icon="mdi-send" :loading="acting" @click="runAction('submit')">Submit</v-btn>
-            <v-btn v-if="canEdit" variant="tonal" prepend-icon="mdi-pencil" :to="`/invoices/${invoice.id}/edit`">Edit</v-btn>
+            <v-btn v-if="canPost" color="success" prepend-icon="mdi-checkbox-marked-circle-outline" @click="openDialog('post')">Post to ERP</v-btn>
+            <v-btn
+                v-if="canEditPosting"
+                variant="tonal"
+                prepend-icon="mdi-file-edit-outline"
+                title="Correct a mistyped ERP document number or posting date"
+                @click="openDialog('editPosting')"
+            >Edit Posting</v-btn>
+            <v-btn v-if="canQuery" color="warning" variant="tonal" prepend-icon="mdi-help-circle-outline" @click="openDialog('query')">Raise Query</v-btn>
+            <v-btn
+                v-if="canResendQuery"
+                variant="tonal"
+                prepend-icon="mdi-email-sync-outline"
+                :loading="acting"
+                title="Send the query notification to the submitter again"
+                @click="runAction('resendQuery')"
+            >Resend Notification</v-btn>
+            <v-btn v-if="canEdit" variant="tonal" prepend-icon="mdi-pencil" :to="`/invoices/${invoice.id}/edit`">
+                {{ canCorrectInPlace && !notInitiated ? 'Correct' : 'Edit' }}
+            </v-btn>
+            <v-btn v-if="canRelease" color="warning" variant="tonal" prepend-icon="mdi-undo-variant" @click="openDialog('release')">
+                Release from PRF
+            </v-btn>
             <v-btn v-if="canCancel" variant="text" color="error" prepend-icon="mdi-cancel" :loading="acting" @click="runAction('cancel')">Cancel</v-btn>
-            <v-btn v-if="canDelete" variant="text" color="error" icon="mdi-delete-outline" @click="deleteDraft" />
+            <v-btn v-if="canDelete" variant="text" color="error" icon="mdi-delete-outline" @click="deleteInvoice" />
         </div>
 
-        <v-alert v-if="invoice.status === 'rejected'" type="error" variant="tonal" class="mb-4" icon="mdi-close-circle-outline">
-            <strong>Rejected:</strong> {{ invoice.rejection_reason }}
+        <v-alert v-if="invoice.status === 'query_raised'" type="error" variant="tonal" class="mb-4" icon="mdi-help-circle-outline">
+            <strong>Query:</strong> {{ invoice.finance_remarks }}
         </v-alert>
 
         <v-row>
@@ -184,34 +243,57 @@ const auditIcons = {
                     <v-card-text>
                         <v-row dense>
                             <v-col v-for="field in [
-                                ['Vendor', invoice.vendor_name],
-                                ['Vendor email', invoice.vendor_email || '—'],
-                                ['Vendor TRN', invoice.vendor_trn || '—'],
+                                ['Vendor', invoice.vendor_name + (invoice.vendor?.vendor_code ? ` (${invoice.vendor.vendor_code})` : '')],
                                 ['Invoice #', invoice.invoice_no],
                                 ['Invoice date', shortDate(invoice.invoice_date)],
                                 ['Due date', shortDate(invoice.due_date)],
-                                ['Category', invoice.category],
+                                ['Business Unit', invoice.business_unit],
                                 ['Department', invoice.department],
-                                ['Cost center', invoice.cost_center || '—'],
+                                ['Location', invoice.location || '—'],
                             ]" :key="field[0]" cols="6" md="4">
                                 <div class="text-caption text-medium-emphasis">{{ field[0] }}</div>
                                 <div class="text-body-2 font-weight-medium">{{ field[1] }}</div>
                             </v-col>
                         </v-row>
                         <v-divider class="my-4" />
-                        <v-row dense>
-                            <v-col cols="6" md="3">
-                                <div class="text-caption text-medium-emphasis">Amount</div>
-                                <div class="text-body-1">{{ money(invoice.amount, invoice.currency) }}</div>
-                            </v-col>
-                            <v-col cols="6" md="3">
-                                <div class="text-caption text-medium-emphasis">Tax / VAT</div>
-                                <div class="text-body-1">{{ money(invoice.tax_amount, invoice.currency) }}</div>
-                            </v-col>
-                            <v-col cols="6" md="3">
-                                <div class="text-caption text-medium-emphasis">Total</div>
-                                <div class="text-h6 font-weight-bold">{{ money(invoice.total_amount, invoice.currency) }}</div>
-                            </v-col>
+                        <div class="text-caption text-medium-emphasis mb-2">Line Items</div>
+                        <v-table v-if="invoice.items?.length" density="compact">
+                            <thead>
+                                <tr>
+                                    <th class="text-left">Job No</th>
+                                    <th class="text-left">Customer</th>
+                                    <th class="text-left">Description</th>
+                                    <th class="text-right">Amount</th>
+                                    <th class="text-right">Tax</th>
+                                    <th class="text-right">Total</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr v-for="(item, idx) in invoice.items" :key="idx">
+                                    <td>{{ item.job_no || '—' }}</td>
+                                    <td>{{ item.customer?.name || '—' }}</td>
+                                    <td>{{ item.description || '—' }}</td>
+                                    <td class="text-right">{{ money(item.amount, item.currency) }}</td>
+                                    <td class="text-right">
+                                        {{ money(item.tax_amount, item.currency) }}
+                                        <span v-if="Number(item.tax_rate) > 0" class="text-caption text-medium-emphasis">
+                                            ({{ Number(item.tax_rate) }}%)
+                                        </span>
+                                    </td>
+                                    <td class="text-right font-weight-bold">{{ money(item.total_amount, item.currency) }}</td>
+                                </tr>
+                            </tbody>
+                            <tfoot>
+                                <tr class="font-weight-bold">
+                                    <td colspan="3" class="text-right">Total</td>
+                                    <td class="text-right">{{ money(invoice.amount, invoice.currency) }}</td>
+                                    <td class="text-right">{{ money(invoice.tax_amount, invoice.currency) }}</td>
+                                    <td class="text-right">{{ money(invoice.total_amount, invoice.currency) }}</td>
+                                </tr>
+                            </tfoot>
+                        </v-table>
+                        <div v-else class="text-body-2 text-medium-emphasis">No line items.</div>
+                        <v-row dense class="mt-4">
                             <v-col cols="6" md="3">
                                 <div class="text-caption text-medium-emphasis">Priority</div>
                                 <v-chip size="small" variant="tonal" :style="{ color: PRIORITY_META[invoice.priority]?.color }">
@@ -228,13 +310,9 @@ const auditIcons = {
                 </v-card>
 
                 <v-card class="mb-4">
-                    <v-card-title class="text-subtitle-1">
-                        Supporting Documents ({{ invoice.documents.length }})
-                    </v-card-title>
+                    <v-card-title class="text-subtitle-1">Supporting Documents ({{ invoice.documents.length }})</v-card-title>
                     <v-card-text>
-                        <div v-if="!invoice.documents.length" class="text-body-2 text-medium-emphasis">
-                            No documents attached.
-                        </div>
+                        <div v-if="!invoice.documents.length" class="text-body-2 text-medium-emphasis">No documents attached.</div>
                         <v-list v-else density="comfortable">
                             <v-list-item
                                 v-for="doc in invoice.documents"
@@ -275,61 +353,62 @@ const auditIcons = {
 
             <v-col cols="12" md="4">
                 <v-card class="mb-4">
-                    <v-card-title class="text-subtitle-1">Approval Chain</v-card-title>
+                    <v-card-title class="text-subtitle-1">ERP Posting</v-card-title>
                     <v-card-text>
-                        <div v-if="!invoice.approvals.length" class="text-body-2 text-medium-emphasis">
-                            Not yet submitted — no approval chain.
+                        <v-row dense>
+                            <v-col v-for="field in [
+                                ['Status', null],
+                                ['ERP doc no.', invoice.erp_doc_no || '—'],
+                                ['Posted on', shortDate(invoice.posting_date)],
+                                ['Posted by', invoice.poster?.name || '—'],
+                            ]" :key="field[0]" cols="12">
+                                <div class="d-flex justify-space-between align-center">
+                                    <span class="text-caption text-medium-emphasis">{{ field[0] }}</span>
+                                    <StatusChip v-if="field[0] === 'Status'" :status="invoice.status" size="small" />
+                                    <span v-else class="text-body-2 font-weight-medium">{{ field[1] }}</span>
+                                </div>
+                            </v-col>
+                        </v-row>
+                    </v-card-text>
+                </v-card>
+
+                <v-card v-if="pr">
+                    <v-card-title class="text-subtitle-1 d-flex align-center">
+                        Payment Request
+                        <v-spacer />
+                        <v-btn variant="text" size="small" color="primary" :to="`/payment-requests/${pr.id}`">{{ pr.reference_no }}</v-btn>
+                    </v-card-title>
+                    <v-card-text>
+                        <div class="d-flex align-center ga-2 mb-3">
+                            <StatusChip :status="pr.status" size="small" />
                         </div>
-                        <v-timeline v-else density="compact" side="end" truncate-line="both">
+                        <v-timeline v-if="pr.approvals?.length" density="compact" side="end" truncate-line="both">
                             <v-timeline-item
-                                v-for="step in invoice.approvals"
+                                v-for="step in pr.approvals"
                                 :key="step.id"
                                 size="small"
                                 :icon="approvalIcon(step.status)"
-                                :dot-color="step.level === invoice.current_level && step.status === 'pending' ? '#eda100' : 'grey-lighten-3'"
+                                :dot-color="step.sequence === pr.current_stage && step.status === 'pending' ? '#eda100' : 'grey-lighten-3'"
                                 :icon-color="approvalColor(step.status)"
                             >
                                 <div class="text-body-2 font-weight-medium">
-                                    Level {{ step.level }} — {{ step.level_name }}
-                                    <v-chip
-                                        v-if="step.level === invoice.current_level && step.status === 'pending'"
-                                        size="x-small" variant="tonal" style="color: #b87a00" class="ml-1"
-                                    >
-                                        current
-                                    </v-chip>
+                                    {{ step.is_adhoc ? 'Additional' : `Stage ${step.sequence}` }} — {{ step.label }}
                                 </div>
                                 <div class="text-caption text-medium-emphasis">
-                                    <template v-if="step.status === 'pending'">Awaiting decision</template>
+                                    <template v-if="step.status === 'pending'">
+                                        {{ step.approver ? `Assigned to ${step.approver.name}` : 'Awaiting decision' }}
+                                    </template>
                                     <template v-else>
-                                        {{ step.status === 'approved' ? 'Approved' : 'Rejected' }} by {{ step.approver?.name }}
-                                        · {{ dateTime(step.acted_at) }}
+                                        {{ step.status === 'approved' ? 'Approved' : 'Rejected' }} by {{ step.approver?.name }} · {{ dateTime(step.acted_at) }}
                                     </template>
                                 </div>
-                                <div v-if="step.comments" class="text-caption font-italic mt-1">“{{ step.comments }}”</div>
                             </v-timeline-item>
                         </v-timeline>
                     </v-card-text>
                 </v-card>
-
-                <v-card>
-                    <v-card-title class="text-subtitle-1">Payment</v-card-title>
-                    <v-card-text>
-                        <v-row dense>
-                            <v-col v-for="field in [
-                                ['Method', invoice.payment_method?.replace('_', ' ')],
-                                ['Submitted', dateTime(invoice.submitted_at)],
-                                ['Approved', dateTime(invoice.approved_at)],
-                                ['Scheduled for', shortDate(invoice.scheduled_date)],
-                                ['Paid at', dateTime(invoice.paid_at)],
-                                ['Payment ref', invoice.payment_reference || '—'],
-                                ['Processed by', invoice.payer?.name || '—'],
-                            ]" :key="field[0]" cols="12">
-                                <div class="d-flex justify-space-between">
-                                    <span class="text-caption text-medium-emphasis">{{ field[0] }}</span>
-                                    <span class="text-body-2 font-weight-medium text-capitalize">{{ field[1] }}</span>
-                                </div>
-                            </v-col>
-                        </v-row>
+                <v-card v-else>
+                    <v-card-text class="text-body-2 text-medium-emphasis">
+                        Not yet in a payment cycle. Once posted, Finance can include this invoice in a payment request.
                     </v-card-text>
                 </v-card>
             </v-col>
@@ -339,32 +418,35 @@ const auditIcons = {
             <v-card>
                 <v-card-title>{{ dialogTitle }}</v-card-title>
                 <v-card-text>
-                    <template v-if="dialog.kind === 'approve' || dialog.kind === 'reject'">
-                        <v-textarea
-                            v-model="dialog.comments"
-                            :label="dialog.kind === 'reject' ? 'Reason (required)' : 'Comments (optional)'"
-                            rows="3"
-                            autofocus
-                        />
+                    <template v-if="dialog.kind === 'post'">
+                        <v-text-field v-model="dialog.erp_doc_no" label="ERP document number *" autofocus />
+                        <v-text-field v-model="dialog.posting_date" label="Posting date (defaults to today)" type="date" />
                     </template>
-                    <template v-else-if="dialog.kind === 'schedule'">
-                        <v-text-field v-model="dialog.scheduled_date" label="Payment date" type="date" autofocus />
+                    <template v-else-if="dialog.kind === 'editPosting'">
+                        <v-alert type="info" variant="tonal" density="compact" class="mb-4">
+                            Correcting the ERP document number recorded against this invoice. It stays posted, and
+                            <strong>{{ invoice.poster?.name || 'whoever posted it' }}</strong> remains recorded as
+                            having posted it — only the details below change, and the correction is logged.
+                        </v-alert>
+                        <v-text-field v-model="dialog.erp_doc_no" label="ERP document number *" autofocus />
+                        <v-text-field v-model="dialog.posting_date" label="Posting date" type="date" />
                     </template>
-                    <template v-else-if="dialog.kind === 'pay'">
-                        <v-text-field v-model="dialog.payment_reference" label="Payment reference / transaction #" autofocus />
+                    <v-textarea v-else-if="dialog.kind === 'query'" v-model="dialog.finance_remarks" label="Query / remarks to the department *" rows="3" autofocus />
+                    <template v-else-if="dialog.kind === 'release'">
+                        <v-alert type="warning" variant="tonal" density="compact" class="mb-4">
+                            This invoice returns to the Invoice Log and drops out of
+                            <strong>{{ pr?.reference_no }}</strong>, whose total falls by
+                            {{ money(invoice.total_amount, invoice.currency) }}. Any other invoices in that request
+                            keep their approvals and stay payable. Paying this one after correction needs a new
+                            payment request.
+                        </v-alert>
+                        <v-textarea v-model="dialog.reason" label="Reason *" rows="3" autofocus />
                     </template>
                 </v-card-text>
                 <v-card-actions>
                     <v-spacer />
                     <v-btn variant="text" @click="dialog.show = false">Cancel</v-btn>
-                    <v-btn
-                        :color="dialog.kind === 'reject' ? 'error' : 'primary'"
-                        variant="flat"
-                        :loading="acting"
-                        @click="confirmDialog"
-                    >
-                        Confirm
-                    </v-btn>
+                    <v-btn color="primary" variant="flat" :loading="acting" @click="confirmDialog">Confirm</v-btn>
                 </v-card-actions>
             </v-card>
         </v-dialog>

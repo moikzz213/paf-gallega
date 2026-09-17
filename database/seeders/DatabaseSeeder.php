@@ -9,8 +9,9 @@ class DatabaseSeeder extends Seeder
     public function run(): void
     {
         $this->call([
+            UserSeeder::class,          // users first so levels can reference default approvers
             ApprovalLevelSeeder::class,
-            UserSeeder::class,
+            MasterDataSeeder::class,    // vendors, business units, departments, locations
             DemoDataSeeder::class,
         ]);
     }

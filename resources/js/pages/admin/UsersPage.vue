@@ -25,6 +25,8 @@ const rules = {
 };
 
 const roleLabels = { admin: 'Administrator', requester: 'Requester', approver: 'Approver', finance: 'Finance' };
+// Approvers must have a level; Finance may be given one to become selectable as an approver.
+const takesLevel = (role) => role === 'approver' || role === 'finance';
 const roleColors = { admin: '#4a3aa7', requester: '#2a78d6', approver: '#eda100', finance: '#1baf7a' };
 
 const headers = [
@@ -83,7 +85,7 @@ async function save() {
     saving.value = true;
     try {
         const payload = { ...form.value };
-        if (payload.role !== 'approver') payload.approval_level = null;
+        if (!takesLevel(payload.role)) payload.approval_level = null;
         if (!payload.password) delete payload.password;
 
         if (editing.value) {
@@ -150,7 +152,7 @@ onMounted(() => meta.load());
                     </v-chip>
                 </template>
                 <template #item.approval_level="{ item }">
-                    {{ item.role === 'approver' ? `L${item.approval_level}` : '—' }}
+                    {{ item.approval_level != null ? `L${item.approval_level}` : '—' }}
                 </template>
                 <template #item.is_active="{ item }">
                     <v-chip size="small" variant="tonal" :style="{ color: item.is_active ? '#008300' : '#d03b3b' }">
@@ -190,12 +192,15 @@ onMounted(() => meta.load());
                                     label="Role *"
                                 />
                             </v-col>
-                            <v-col v-if="form.role === 'approver'" cols="12" sm="6">
+                            <v-col v-if="takesLevel(form.role)" cols="12" sm="6">
                                 <v-select
                                     v-model="form.approval_level"
                                     :items="meta.approval_levels.map((l) => ({ value: l.level, title: `L${l.level} — ${l.name}` }))"
-                                    label="Approval level *"
-                                    :rules="[rules.required]"
+                                    :label="form.role === 'approver' ? 'Approval level *' : 'Approval level'"
+                                    :hint="form.role === 'finance' ? 'Optional. Set a level to make this Finance user selectable as an approver at that level.' : undefined"
+                                    :persistent-hint="form.role === 'finance'"
+                                    :rules="form.role === 'approver' ? [rules.required] : []"
+                                    :clearable="form.role === 'finance'"
                                 />
                             </v-col>
                             <v-col cols="12" sm="6">

@@ -16,10 +16,19 @@ if (token) {
     api.defaults.headers.common['X-CSRF-TOKEN'] = token.content;
 }
 
+// Pages a signed-out visitor is meant to reach. On a fresh load the router calls /api/me, which
+// answers 401 when there is no session; without this list that 401 would bounce the visitor to
+// /login and make the password-reset pages unreachable from an emailed link.
+const PUBLIC_PATHS = ['/login', '/forgot-password', '/reset-password'];
+
+function onPublicPage() {
+    return PUBLIC_PATHS.some((path) => window.location.pathname.startsWith(path));
+}
+
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401 && !window.location.pathname.startsWith('/login')) {
+        if (error.response?.status === 401 && !onPublicPage()) {
             window.location.href = '/login';
         }
         return Promise.reject(error);

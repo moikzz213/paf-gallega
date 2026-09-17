@@ -2,6 +2,8 @@ import 'vuetify/styles';
 import '@mdi/font/css/materialdesignicons.css';
 import { createVuetify } from 'vuetify';
 
+export const ITEMS_PER_PAGE_OPTIONS = [10, 15, 25, 50, 100];
+
 export default createVuetify({
     theme: {
         defaultTheme: 'light',
@@ -21,11 +23,17 @@ export default createVuetify({
         },
     },
     defaults: {
-        VTextField: { variant: 'outlined', density: 'comfortable' },
-        VSelect: { variant: 'outlined', density: 'comfortable' },
-        VAutocomplete: { variant: 'outlined', density: 'comfortable' },
-        VTextarea: { variant: 'outlined', density: 'comfortable' },
-        VFileInput: { variant: 'outlined', density: 'comfortable' },
+        // autocomplete off across all inputs; components can override (e.g. the login form).
+        VForm: { autocomplete: 'off' },
+        VTextField: { variant: 'outlined', density: 'comfortable', autocomplete: 'off' },
+        VSelect: { variant: 'outlined', density: 'comfortable', autocomplete: 'off' },
+        VAutocomplete: { variant: 'outlined', density: 'comfortable', autocomplete: 'off' },
+        VTextarea: { variant: 'outlined', density: 'comfortable', autocomplete: 'off' },
+        VFileInput: { variant: 'outlined', density: 'comfortable', autocomplete: 'off' },
         VCard: { elevation: 1 },
+        // One items-per-page list for every paginated table. "All" (-1) is deliberately absent:
+        // these tables page on the server, and an unbounded page is a heavy query.
+        VDataTable: { itemsPerPageOptions: ITEMS_PER_PAGE_OPTIONS },
+        VDataTableServer: { itemsPerPageOptions: ITEMS_PER_PAGE_OPTIONS },
     },
 });

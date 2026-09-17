@@ -9,6 +9,20 @@ const routes = [
         meta: { guest: true },
     },
     {
+        path: '/forgot-password',
+        name: 'forgot-password',
+        component: () => import('../pages/ForgotPasswordPage.vue'),
+        meta: { guest: true },
+    },
+    {
+        // Deliberately neither guest nor auth: an emailed reset link must open whether or not
+        // there is a session in that browser. Marking it guest would bounce a signed-in visitor
+        // to the dashboard with no explanation.
+        path: '/reset-password',
+        name: 'reset-password',
+        component: () => import('../pages/ResetPasswordPage.vue'),
+    },
+    {
         path: '/',
         component: () => import('../layouts/AppLayout.vue'),
         meta: { auth: true },
@@ -19,12 +33,17 @@ const routes = [
             { path: 'invoices/new', name: 'invoice-create', component: () => import('../pages/invoices/InvoiceFormPage.vue') },
             { path: 'invoices/:id', name: 'invoice-detail', component: () => import('../pages/invoices/InvoiceDetailPage.vue'), props: true },
             { path: 'invoices/:id/edit', name: 'invoice-edit', component: () => import('../pages/invoices/InvoiceFormPage.vue'), props: true },
-            { path: 'approvals', name: 'approvals', component: () => import('../pages/ApprovalsPage.vue'), meta: { roles: ['approver', 'admin'] } },
-            { path: 'payments', name: 'payments', component: () => import('../pages/PaymentsPage.vue'), meta: { roles: ['finance', 'admin'] } },
+            // Gated on the store getter rather than a role list: eligibility now depends on the
+            // user's approval level too, and `canApprove` is the client's copy of that rule.
+            { path: 'approvals', name: 'approvals', component: () => import('../pages/ApprovalsPage.vue'), meta: { gate: 'canApprove' } },
+            { path: 'payment-requests', name: 'payment-requests', component: () => import('../pages/PaymentRequestsPage.vue') },
+            { path: 'payment-requests/:id', name: 'payment-request-detail', component: () => import('../pages/PaymentRequestDetailPage.vue'), props: true },
             { path: 'reports', name: 'reports', component: () => import('../pages/ReportsPage.vue') },
+            { path: 'profile', name: 'profile', component: () => import('../pages/ProfilePage.vue') },
             { path: 'audit-log', name: 'audit-log', component: () => import('../pages/AuditLogPage.vue'), meta: { roles: ['admin'] } },
             { path: 'admin/users', name: 'users', component: () => import('../pages/admin/UsersPage.vue'), meta: { roles: ['admin'] } },
             { path: 'admin/approval-levels', name: 'approval-levels', component: () => import('../pages/admin/ApprovalLevelsPage.vue'), meta: { roles: ['admin'] } },
+            { path: 'admin/master-data', name: 'master-data', component: () => import('../pages/admin/MasterDataPage.vue'), meta: { roles: ['admin', 'finance'] } },
         ],
     },
     { path: '/:pathMatch(.*)*', redirect: '/dashboard' },
@@ -49,6 +68,11 @@ router.beforeEach(async (to) => {
 
     const required = to.meta.roles;
     if (required && !required.includes(auth.user?.role)) {
+        return { name: 'dashboard' };
+    }
+
+    const gate = to.matched.map((r) => r.meta.gate).find(Boolean);
+    if (gate && !auth[gate]) {
         return { name: 'dashboard' };
     }
 

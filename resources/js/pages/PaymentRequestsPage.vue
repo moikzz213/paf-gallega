@@ -1,0 +1,489 @@
+<script setup>
+import { computed, onMounted, reactive, ref, watch } from 'vue';
+import api, { errorMessage } from '../services/api';
+import { invoicesCurrency, invoicesVendor, money, shortDate, statusLabel } from '../utils/format';
+import { useAuthStore } from '../stores/auth';
+import { useMetaStore } from '../stores/meta';
+import { useNotifyStore } from '../stores/notify';
+import StatusChip from '../components/StatusChip.vue';
+import ApprovalChainBuilder from '../components/ApprovalChainBuilder.vue';
+
+const auth = useAuthStore();
+const meta = useMetaStore();
+const notify = useNotifyStore();
+
+const loading = ref(false);
+const items = ref([]);
+const total = ref(0);
+const search = ref('');
+const filters = reactive({ department: null, vendor: null, status: null });
+const options = reactive({ page: 1, itemsPerPage: 15 });
+
+// Straight from the server's PaymentRequest::STATUSES, labelled through the same map the status
+// chips use, so a new status appears here without a second list to remember.
+const statusOptions = computed(() =>
+    (meta.pr_statuses ?? []).map((value) => ({ value, title: statusLabel(value) }))
+);
+
+const headers = [
+    { title: 'Reference', key: 'reference_no', sortable: false },
+    { title: 'Vendor', key: 'vendor_name', sortable: false },
+    { title: 'Invoices', key: 'invoices', sortable: false },
+    { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
+    { title: 'Stage', key: 'stage', sortable: false },
+    { title: 'Status', key: 'status', sortable: false },
+    { title: 'Created', key: 'created_at', sortable: false },
+    { title: '', key: 'actions', sortable: false, width: '40px' },
+];
+
+async function load() {
+    loading.value = true;
+    try {
+        const { data } = await api.get('/payment-requests', {
+            params: {
+                page: options.page,
+                per_page: options.itemsPerPage,
+                q: search.value || undefined,
+                department: filters.department || undefined,
+                vendor: filters.vendor || undefined,
+                status: filters.status || undefined,
+            },
+        });
+        items.value = data.data;
+        total.value = data.total;
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        loading.value = false;
+    }
+}
+
+onMounted(() => {
+    meta.load();
+    meta.loadApprovers();
+});
+
+let debounce = null;
+watch([search, () => filters.department, () => filters.vendor, () => filters.status], () => {
+    clearTimeout(debounce);
+    debounce = setTimeout(() => {
+        options.page = 1;
+        load();
+    }, 350);
+});
+
+// ---- create flow ----
+const emptyEligibleFilters = () => ({ department: null, currency: null, vendor: null, invoice_no: '', job_no: '', customer: null });
+const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], credits: [], saving: false, filters: emptyEligibleFilters() });
+const chain = ref({ assignments: {}, adhoc: [], l2a_approver_id: null, valid: false });
+const confirmingCredits = ref(false);
+
+const selectedInvoices = computed(() => create.eligible.filter((i) => create.selected.includes(i.id)));
+
+// Credit notes already on record as a *positive* amount, because the system used to refuse a
+// negative one. Marking one here corrects its sign, so the request deducts it instead of adding it
+// (PaymentRequestService::applyCreditMarks does the same server-side, and persists it).
+// Only offered on a positive invoice: a negative one is already deducted as it stands.
+const canMarkCredit = (invoice) => Number(invoice.total_amount) > 0;
+const isMarkedCredit = (invoice) => create.credits.includes(invoice.id);
+// A mark only counts while its invoice is selected, so deselecting a row cannot leave a stray
+// deduction in the total.
+const markedIds = computed(() => create.credits.filter((id) => create.selected.includes(id)));
+const markedInvoices = computed(() => selectedInvoices.value.filter((i) => markedIds.value.includes(i.id)));
+// What the invoice contributes to this request: a marked one is deducted.
+const contribution = (invoice) => Number(invoice.total_amount) * (markedIds.value.includes(invoice.id) ? -1 : 1);
+
+function toggleCredit(invoice, on) {
+    create.credits = on
+        ? [...new Set([...create.credits, invoice.id])]
+        : create.credits.filter((id) => id !== invoice.id);
+}
+
+const selectedTotal = computed(() => selectedInvoices.value.reduce((s, i) => s + contribution(i), 0));
+
+// One request, one currency — the total is a plain sum and the approval thresholds run off it.
+const selectedCurrency = computed(() => invoicesCurrency(selectedInvoices.value));
+const mixedCurrency = computed(() => selectedCurrency.value === 'MULTI-CURRENCY');
+
+// A request has to ask for more than zero. An invoice may be a credit note on its own, but it is
+// only settled by being selected alongside the charge it offsets: a set netting to zero or below
+// pays nothing and matches no approval level. Mirrors PaymentRequestService::assertPayableTotal.
+const selectedCredits = computed(() => selectedInvoices.value.filter((i) => contribution(i) < 0));
+const nothingPayable = computed(() => !!create.selected.length && Math.round(selectedTotal.value * 100) <= 0);
+
+async function loadEligible() {
+    create.loadingEligible = true;
+    try {
+        const f = create.filters;
+        const { data } = await api.get('/payment-requests/eligible', {
+            params: {
+                per_page: 200,
+                department: f.department || undefined,
+                currency: f.currency || undefined,
+                vendor: f.vendor || undefined,
+                invoice_no: f.invoice_no || undefined,
+                job_no: f.job_no || undefined,
+                customer: f.customer || undefined,
+            },
+        });
+        create.eligible = data.data;
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        create.loadingEligible = false;
+    }
+}
+
+function openCreate() {
+    create.selected = [];
+    create.credits = [];
+    create.filters = emptyEligibleFilters();
+    create.show = true;
+    loadEligible();
+}
+
+let eligDebounce = null;
+watch(() => create.filters, () => {
+    if (!create.show) return;
+    clearTimeout(eligDebounce);
+    eligDebounce = setTimeout(loadEligible, 350);
+}, { deep: true });
+
+function onChainChange(payload) {
+    chain.value = payload;
+}
+
+async function submitCreate() {
+    if (!create.selected.length) return notify.error('Select at least one invoice.');
+    if (mixedCurrency.value) return notify.error('All selected invoices must share one currency.');
+    if (nothingPayable.value) return notify.error('The selected invoices come to zero or less, so nothing would be paid — also select the invoice(s) the credit note offsets.');
+    if (!chain.value.valid) return notify.error('Assign an approver for every approval stage.');
+
+    // Marking a credit note rewrites the invoice's sign, which is the figure the approval
+    // thresholds are measured against — worth one deliberate confirmation, the same way the
+    // invoice form confirms a credit line before saving.
+    if (markedIds.value.length && !confirmingCredits.value) {
+        confirmingCredits.value = true;
+        return;
+    }
+    confirmingCredits.value = false;
+
+    const approvers = {};
+    Object.entries(chain.value.assignments).forEach(([lvl, id]) => {
+        if (id) approvers[lvl] = id;
+    });
+    const adhoc_approvers = chain.value.adhoc
+        .filter((s) => s.approver_id)
+        .map((s) => ({ approver_id: s.approver_id, label: s.label || null }));
+
+    create.saving = true;
+    try {
+        const { data } = await api.post('/payment-requests', {
+            invoice_ids: create.selected,
+            credit_invoice_ids: markedIds.value,
+            approvers,
+            adhoc_approvers,
+            l2a_approver_id: chain.value.l2a_approver_id ?? null,
+        });
+        notify.success(`${data.reference_no} created and sent for approval.`);
+        create.show = false;
+        await load();
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        create.saving = false;
+    }
+}
+</script>
+
+<template>
+    <div>
+        <div class="d-flex align-center mb-6">
+            <div>
+                <h1 class="text-h5 font-weight-bold">Payment Requests</h1>
+                <div class="text-body-2 text-medium-emphasis">Group posted invoices into a payment request and route it for approval</div>
+            </div>
+            <v-spacer />
+            <v-btn v-if="auth.canProcessPayments" color="primary" prepend-icon="mdi-plus" @click="openCreate">New Payment Request</v-btn>
+        </div>
+
+        <v-card class="mb-4">
+            <v-card-text>
+                <v-row dense>
+                    <v-col cols="12" md="3">
+                        <v-text-field
+                            v-model="search"
+                            label="Search reference, invoice"
+                            prepend-inner-icon="mdi-magnify"
+                            clearable
+                            hide-details="auto"
+                            autocomplete="off"
+                        />
+                    </v-col>
+                    <v-col cols="12" sm="6" md="3">
+                        <v-autocomplete
+                            v-model="filters.vendor"
+                            :items="(meta.vendors ?? []).map(v => v.name)"
+                            label="Vendor"
+                            clearable
+                            hide-details="auto"
+                            autocomplete="off"
+                        />
+                    </v-col>
+                    <v-col cols="12" sm="6" md="3">
+                        <v-autocomplete
+                            v-model="filters.department"
+                            :items="meta.departments"
+                            label="Department"
+                            clearable
+                            hide-details="auto"
+                            autocomplete="off"
+                        />
+                    </v-col>
+                    <v-col cols="12" sm="6" md="3">
+                        <v-select
+                            v-model="filters.status"
+                            :items="statusOptions"
+                            label="Status"
+                            clearable
+                            hide-details="auto"
+                        />
+                    </v-col>
+                </v-row>
+            </v-card-text>
+        </v-card>
+
+        <v-card>
+            <v-data-table-server
+                v-model:page="options.page"
+                v-model:items-per-page="options.itemsPerPage"
+                :headers="headers"
+                :items="items"
+                :items-length="total"
+                :loading="loading"
+                density="comfortable"
+                no-data-text="No payment requests yet."
+                @update:options="load"
+            >
+                <template #item.reference_no="{ item }">
+                    <router-link :to="`/payment-requests/${item.id}`" class="text-primary text-decoration-none font-weight-medium">
+                        {{ item.reference_no }}
+                    </router-link>
+                    <div class="text-caption text-medium-emphasis">by {{ item.creator?.name }}</div>
+                </template>
+                <template #item.vendor_name="{ item }">
+                    <span :title="invoicesVendor(item.invoices).all">{{ invoicesVendor(item.invoices).label }}</span>
+                </template>
+                <template #item.invoices="{ item }">
+                    {{ item.invoices?.length ?? 0 }} invoice(s)
+                </template>
+                <template #item.total_amount="{ item }">
+                    <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">
+                        {{ money(item.total_amount, invoicesCurrency(item.invoices)) }}
+                    </span>
+                </template>
+                <template #item.stage="{ item }">
+                    <template v-if="item.status === 'in_approval'">
+                        {{ item.current_stage }} / {{ item.approvals?.length }}
+                        <div v-if="item.approvals?.find(a => a.sequence === item.current_stage)?.approver?.name" class="text-caption text-medium-emphasis">
+                            {{ item.approvals.find(a => a.sequence === item.current_stage).approver.name }}
+                        </div>
+                    </template>
+                    <span v-else class="text-medium-emphasis">—</span>
+                </template>
+                <template #item.status="{ item }">
+                    <StatusChip :status="item.status" size="small" />
+                </template>
+                <template #item.created_at="{ item }">
+                    {{ shortDate(item.created_at) }}
+                </template>
+                <template #item.actions="{ item }">
+                    <v-btn icon="mdi-file-pdf-box" size="small" variant="text" :href="`/api/payment-requests/${item.id}/pdf`" target="_blank" :title="item.status === 'approved' || item.status === 'paid' ? 'Download PAF' : 'Download PAF (draft — not yet approved)'" />
+                </template>
+            </v-data-table-server>
+        </v-card>
+
+        <!-- Create dialog -->
+        <v-dialog v-model="create.show" max-width="100%" scrollable>
+            <v-card>
+                <v-card-title>New Payment Request</v-card-title>
+                <v-card-subtitle>Select posted invoices, then build the approval chain</v-card-subtitle>
+                <v-divider />
+                <v-card-text style="max-height: 90vh">
+                    <div v-if="create.loadingEligible" class="d-flex justify-center py-8">
+                        <v-progress-circular indeterminate color="primary" />
+                    </div>
+                    <template v-else>
+                        <v-row dense class="mb-1">
+                            <v-col cols="12" sm="6" md="2">
+                                <v-autocomplete v-model="create.filters.department" :items="meta.departments" label="Department" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-autocomplete v-model="create.filters.vendor" :items="(meta.vendors ?? []).map(v => v.name)" label="Vendor name" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-text-field v-model="create.filters.invoice_no" label="Invoice No" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-text-field v-model="create.filters.job_no" label="Job No" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-autocomplete v-model="create.filters.customer" :items="(meta.customers ?? []).map(c => c.name)" label="Customer Name" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                            <v-col cols="12" sm="6" md="2">
+                                <v-autocomplete v-model="create.filters.currency" :items="meta.currencies" label="Currency" clearable hide-details="auto" autocomplete="off" density="compact" />
+                            </v-col>
+                        </v-row>
+                        <div class="text-subtitle-2 mb-2">Eligible invoices ({{ create.eligible.length }})</div>
+                        <v-data-table
+                            v-model="create.selected"
+                            :headers="[
+                                { title: 'Reference', key: 'reference_no', sortable: false },
+                                { title: 'Vendor / Invoice #', key: 'vendor_name', sortable: false },
+                                { title: 'Job / Customer', key: 'jobs', sortable: false },
+                                { title: 'Dept', key: 'department', sortable: false },
+                                { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
+                                { title: 'Credit note', key: 'credit', align: 'center', sortable: false },
+                            ]"
+                            :items="create.eligible"
+                            item-value="id"
+                            show-select
+                            density="compact"
+                            hide-default-footer
+                            :items-per-page="-1"
+                            no-data-text="No posted invoices match these filters."
+                        >
+                            <template #item.vendor_name="{ item }">
+                                {{ item.vendor_name }}
+                                <div class="text-caption text-medium-emphasis">{{ item.invoice_no }}</div>
+                            </template>
+                            <template #item.jobs="{ item }">
+                                <div v-for="(it, idx) in (item.items || [])" :key="idx" class="text-caption">
+                                    {{ it.job_no || '—' }}<span v-if="it.customer"> · {{ it.customer.name }}</span>
+                                </div>
+                                <span v-if="!(item.items || []).length" class="text-caption text-medium-emphasis">—</span>
+                            </template>
+                            <template #item.total_amount="{ item }">
+                                <span :class="{ 'text-error': isMarkedCredit(item) || Number(item.total_amount) < 0 }">
+                                    {{ money(contribution(item), item.currency) }}
+                                </span>
+                            </template>
+                            <template #item.credit="{ item }">
+                                <!-- Only offered on a positive invoice; a negative one is already deducted. -->
+                                <v-checkbox
+                                    v-if="canMarkCredit(item)"
+                                    :model-value="isMarkedCredit(item)"
+                                    :disabled="!create.selected.includes(item.id)"
+                                    color="error"
+                                    density="compact"
+                                    hide-details
+                                    class="d-inline-flex"
+                                    @update:model-value="(on) => toggleCredit(item, on)"
+                                />
+                                <v-chip v-else size="x-small" color="error" variant="tonal">Credit note</v-chip>
+                            </template>
+                        </v-data-table>
+                        <div class="text-caption text-medium-emphasis mb-2">
+                            Tick <strong>Credit note</strong> on a selected invoice that is really a vendor credit
+                            recorded as a positive amount — it is then <strong>deducted</strong> from this request
+                            instead of added to it, and the invoice's own figures are corrected to match. Invoices
+                            already recorded as a credit note are deducted as they stand.
+                        </div>
+
+                        <div class="d-flex align-center flex-wrap ga-2 my-4">
+                            <v-chip color="primary" variant="tonal">{{ create.selected.length }} selected</v-chip>
+                            <v-chip v-if="markedInvoices.length" color="error" variant="tonal" prepend-icon="mdi-minus-circle-outline">
+                                {{ markedInvoices.length }} marked as credit note{{ markedInvoices.length === 1 ? '' : 's' }}
+                            </v-chip>
+                            <v-spacer />
+                            <div class="text-body-1">
+                                <span class="text-medium-emphasis">Total:</span>
+                                <strong>{{ money(selectedTotal, selectedCurrency) }}</strong>
+                            </div>
+                        </div>
+
+                        <v-alert
+                            v-if="mixedCurrency"
+                            type="warning"
+                            variant="tonal"
+                            density="compact"
+                            class="mb-4"
+                            text="The selected invoices are in different currencies. A payment request covers one currency only — narrow the selection before sending."
+                        />
+
+                        <v-alert v-if="nothingPayable" type="warning" variant="tonal" density="compact" class="mb-4">
+                            The selected invoices come to
+                            <strong>{{ money(selectedTotal, selectedCurrency) }}</strong>, so nothing would be paid.
+                            <template v-if="selectedCredits.length">
+                                A credit note is settled against a charge — also select the invoice(s) that
+                                <strong>{{ selectedCredits.map((i) => i.reference_no).join(', ') }}</strong>
+                                offsets, so the request comes to more than zero.
+                            </template>
+                            <template v-else>Select at least one invoice with an amount owed.</template>
+                        </v-alert>
+
+                        <template v-if="!nothingPayable">
+                            <v-divider class="mb-4" />
+                            <div class="text-subtitle-2 mb-2">Approval chain</div>
+                            <ApprovalChainBuilder :total="selectedTotal" :currency="selectedCurrency" @change="onChainChange" />
+                        </template>
+                    </template>
+                </v-card-text>
+                <v-divider />
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="create.show = false">Cancel</v-btn>
+                    <v-btn color="primary" variant="flat" :loading="create.saving" prepend-icon="mdi-send" @click="submitCreate">
+                        Send for Approval
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
+        <v-dialog v-model="confirmingCredits" max-width="560">
+            <v-card>
+                <v-card-title class="text-subtitle-1">Confirm the credit notes</v-card-title>
+                <v-card-text class="text-body-2">
+                    <p class="mb-3">
+                        <strong>{{ markedInvoices.length }} invoice{{ markedInvoices.length === 1 ? '' : 's' }}</strong>
+                        marked as a credit note. Each one's recorded amount is
+                        <strong>corrected to a deduction</strong> — the invoice always was a credit note, and this
+                        puts its own figures right as well as this request's.
+                    </p>
+                    <v-table density="compact" class="mb-3">
+                        <thead>
+                            <tr>
+                                <th>Invoice</th>
+                                <th class="text-right">Recorded</th>
+                                <th class="text-right">Corrected to</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr v-for="inv in markedInvoices" :key="inv.id">
+                                <td>
+                                    {{ inv.reference_no }}
+                                    <div class="text-caption text-medium-emphasis">{{ inv.vendor_name }}</div>
+                                </td>
+                                <td class="text-right">{{ money(inv.total_amount, inv.currency) }}</td>
+                                <td class="text-right text-error">{{ money(-Number(inv.total_amount), inv.currency) }}</td>
+                            </tr>
+                        </tbody>
+                    </v-table>
+                    <p>
+                        This request will ask for
+                        <strong>{{ money(selectedTotal, selectedCurrency) }}</strong>, and that is the figure that
+                        goes for approval and payment. Check it before continuing — a deduction lowers the amount,
+                        and so lowers who has to approve it.
+                    </p>
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="confirmingCredits = false">Go back</v-btn>
+                    <v-btn color="primary" variant="flat" :loading="create.saving" @click="submitCreate">
+                        Confirm &amp; send
+                    </v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+    </div>
+</template>
