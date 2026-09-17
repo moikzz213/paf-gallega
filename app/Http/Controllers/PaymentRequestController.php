@@ -6,16 +6,20 @@ use App\Models\ApprovalLevel;
 use App\Models\Invoice;
 use App\Models\PaymentRequest;
 use App\Models\User;
-use App\Models\Vendor;
+use App\Services\PafDocumentService;
 use App\Services\PaymentRequestService;
-use App\Services\PdfMergeService;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
 class PaymentRequestController extends Controller
 {
+    /**
+     * The standing level the optional L2-A approver sits behind. L2-A is a second signature at the
+     * second tier, so it is only offered — and only accepted — when this level is in the chain.
+     */
+    private const L2A_AFTER_LEVEL = 2;
+
     public function __construct(private PaymentRequestService $service) {}
 
     /** Invoices eligible to be pulled into a new payment request (Finance only). */
@@ -117,7 +121,12 @@ class PaymentRequestController extends Controller
         // selection that pays nothing.
         PaymentRequestService::assertPayableTotal($invoices);
 
-        $stages = $this->buildStages($invoices, $data['approvers'] ?? [], $data['adhoc_approvers'] ?? []);
+        $stages = $this->buildStages(
+            $invoices,
+            $data['approvers'] ?? [],
+            $data['adhoc_approvers'] ?? [],
+            ! empty($data['l2a_approver_id']) ? (int) $data['l2a_approver_id'] : null,
+        );
 
         $pr = $this->service->create($data['invoice_ids'], $request->user(), $stages, $creditIds);
 
@@ -198,89 +207,20 @@ class PaymentRequestController extends Controller
         return response()->json($pr->load('payer:id,name'));
     }
 
-    public function downloadPdf(Request $request, PaymentRequest $paymentRequest)
+    public function downloadPdf(Request $request, PaymentRequest $paymentRequest, PafDocumentService $paf)
     {
         abort_unless(
             PaymentRequest::whereKey($paymentRequest->id)->visibleTo($request->user())->exists(),
             403, 'You do not have access to this payment request.'
         );
 
-        abort_unless(
-            in_array($paymentRequest->status, [PaymentRequest::STATUS_APPROVED, PaymentRequest::STATUS_PAID], true),
-            422, 'PDF is available only after the request is fully approved.'
-        );
-
-        $paymentRequest->load([
-            'creator:id,name', 'payer:id,name',
-            'invoices.submitter:id,name', 'invoices.poster:id,name', 'invoices.documents',
-            'invoices.vendor:id,name,vendor_code',
-            'invoices.items',
-            'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
-        ]);
-
-        // Supplier code comes from the vendor master, keyed by the invoice's vendor name.
-        $supplierCodes = Vendor::whereIn('name', $paymentRequest->invoices->pluck('vendor_name')->filter()->unique())
-            ->get(['name', 'vendor_code'])
-            ->groupBy('name')
-            ->map(fn ($vendors) => $vendors->count() === 1 ? $vendors->first()->vendor_code : null);
-
-        // Every active approval level, so the PDF can show reached (required) and
-        // not-reached (still displayed) approvers regardless of this PRF's amount.
-        $approvalLevels = ApprovalLevel::where('is_active', true)
-            // job_title feeds the "not reached" rows on the PDF, which show the level's default approver.
-            ->with('defaultApprover:id,name,job_title')
-            ->orderBy('level')
-            ->get();
-
-        $pdf = Pdf::loadView('pdf.payment-request', [
-            'paymentRequest' => $paymentRequest,
-            'supplierCodes' => $supplierCodes,
-            'approvalLevels' => $approvalLevels,
-        ])
-            ->setPaper('a4', 'landscape')
-            ->setOption('isRemoteEnabled', true)
-            ->setOption('isHtml5ParserEnabled', true);
-
-        $mainPdfContent = $pdf->output();
-
-        // PDFs and images are rendered into the document; everything else (Excel, Word, ...)
-        // can only be offered as a download link on a trailing page.
-        $attachments = [];
-        $links = [];
-        foreach ($paymentRequest->invoices as $invoice) {
-            foreach ($invoice->documents as $document) {
-                $path = storage_path('app/private/'.$document->file_path);
-                if (! is_file($path)) {
-                    continue;
-                }
-
-                $entry = [
-                    'name' => $document->original_name,
-                    'url' => url("/api/documents/{$document->id}/download"),
-                    'mime_type' => $document->mime_type,
-                    'size' => $document->size,
-                    'group' => "{$invoice->reference_no} - {$invoice->vendor_name}",
-                ];
-
-                if (in_array($document->mime_type, PdfMergeService::MERGEABLE_MIMES, true)) {
-                    // Carries the link fields too: a PDF that turns out to be encrypted or
-                    // damaged falls back to the download list instead of failing the export.
-                    $attachments[] = $entry + ['path' => $path];
-                } else {
-                    $links[] = $entry;
-                }
-            }
-        }
-
-        if ($attachments || $links) {
-            $merged = app(PdfMergeService::class)->mergePdfs($mainPdfContent, $attachments, $links);
-
-            return response($merged, 200)
-                ->header('Content-Type', 'application/pdf')
-                ->header('Content-Disposition', "attachment; filename=\"{$paymentRequest->reference_no}.pdf\"");
-        }
-
-        return $pdf->download("{$paymentRequest->reference_no}.pdf");
+        // Available from creation onwards, not only once the request is fully approved: the PAF is
+        // the document the approval chain is meant to be approving, so it has to exist while that
+        // chain is still running. A document produced before the last signature is watermarked as
+        // not yet approved by the view, so a draft cannot be mistaken for an authorisation.
+        return response($paf->render($paymentRequest), 200)
+            ->header('Content-Type', 'application/pdf')
+            ->header('Content-Disposition', 'attachment; filename="'.$paf->filename($paymentRequest).'"');
     }
 
     /**
@@ -297,13 +237,14 @@ class PaymentRequestController extends Controller
      * value: the thresholds are AED figures, so a USD 36,000 request has to be measured as the
      * ~AED 132,000 it is worth or it routes below the tier that should sign it.
      */
-    private function buildStages($invoices, array $assignments, array $adhoc): array
+    private function buildStages($invoices, array $assignments, array $adhoc, ?int $l2aApproverId = null): array
     {
         $levels = ApprovalLevel::requiredForInvoices($invoices);
 
         $approverIds = collect($levels)
             ->map(fn ($level) => $assignments[$level->level] ?? $level->default_approver_id)
             ->concat(collect($adhoc)->pluck('approver_id'))
+            ->push($l2aApproverId)
             ->filter()
             ->map(fn ($id) => (int) $id)
             ->unique();
@@ -325,6 +266,38 @@ class PaymentRequestController extends Controller
                 'level' => $level->level,
                 'is_adhoc' => false,
             ];
+
+            // L2-A: the optional second signature at level 2, routed straight after L2 rather than
+            // appended behind the whole chain the way a general ad-hoc stage is. It carries no
+            // `level` of its own — the PDF keys its required approvers by level, so a second stage
+            // claiming level 2 would displace the real one — and is marked ad-hoc like any other
+            // stage that is not one of the standing tiers.
+            if ($l2aApproverId && (int) $level->level === self::L2A_AFTER_LEVEL) {
+                $stages[] = [
+                    'approver_id' => $l2aApproverId,
+                    'label' => 'L2-A'.($jobTitle($l2aApproverId) ? ' — '.$jobTitle($l2aApproverId) : ' Additional Approver'),
+                    'level' => null,
+                    'is_adhoc' => true,
+                ];
+            }
+        }
+
+        // A silently dropped approver is worse than a refused request: whoever added L2-A believes
+        // that person will sign, and would never find out that the chain skipped them.
+        if ($l2aApproverId) {
+            $l2aStages = array_values(array_filter($stages, fn ($s) => $s['approver_id'] === $l2aApproverId));
+
+            if (! $l2aStages) {
+                throw ValidationException::withMessages([
+                    'l2a_approver_id' => 'The additional L2-A approver applies only when level 2 is part of the chain — this request does not reach that level.',
+                ]);
+            }
+
+            if (count($l2aStages) > 1) {
+                throw ValidationException::withMessages([
+                    'l2a_approver_id' => 'The L2-A approver is already on this chain — an approver cannot hold two stages on the same request.',
+                ]);
+            }
         }
 
         foreach ($adhoc as $stage) {
@@ -388,6 +361,9 @@ class PaymentRequestController extends Controller
             'adhoc_approvers' => ['nullable', 'array', 'max:10'],
             'adhoc_approvers.*.approver_id' => ['required', 'integer', $isApprover],
             'adhoc_approvers.*.label' => ['nullable', 'string', 'max:100'],
+            // The optional second signature at level 2 — see buildStages for where it lands in the
+            // chain and the two ways it can be refused.
+            'l2a_approver_id' => ['nullable', 'integer', $isApprover],
         ]);
     }
 }

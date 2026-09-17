@@ -105,13 +105,19 @@ deactivates that key immediately.
 | POST | `/api/payment-requests/{paymentRequest}/mark-paid` | `role:finance,admin`; PRF must be `approved` | `payment_reference` req ≤100 → `paid` |
 | POST | `/api/payment-requests/{paymentRequest}/payment-reference` | `role:finance,admin`; **payer or admin**; PRF must be `paid` | Correct a mistyped payment reference. `payment_reference` req ≤100. `403` unless `paid_by` is the actor or the actor is an admin — the message names the payer; the PRF **creator** has no special right here. `422` on any non-`paid` status, which also means this can never be a back door to marking something paid. No uniqueness rule: one transfer legitimately settles several PRFs. Does **not** touch `paid_by`/`paid_at`/`status`, nor the total, invoices or approvals — correcting is not re-paying. Audited as `payment_reference_corrected` against the PRF with the replaced value; the original `paid` entry survives |
 | POST | `/api/payment-requests/{paymentRequest}/withdraw` | `role:finance,admin` (never approvers — it reverses a completed approval); PRF must be `approved` | `reason` **required** ≤2000 → PRF `withdrawn`, invoices returned to `not_initiated` and unlinked. `422` while `in_approval` (reject instead) or once `paid`. Approvals are kept as history and are **not** reused: the corrected invoices need a new PRF and a fresh chain |
-| GET | `/api/payment-requests/{paymentRequest}/pdf` | scoped `visibleTo` | Downloads a landscape company PAF without PRF status; includes voucher/request/accounts fields, supplier lines, totals, payment-approval limits, separate requisition/dynamic-approval/accounts sign-off areas, and source files embedded/listed as attachments |
+| GET | `/api/payment-requests/{paymentRequest}/pdf` | scoped `visibleTo` | Downloads a landscape company PAF; includes voucher/request/accounts fields, supplier lines, totals, payment-approval limits, separate requisition/dynamic-approval/accounts sign-off areas, and source files embedded/listed as attachments. **Available from creation onwards** — the approval-only gate was removed with the PAF Enhancements change, because the PAF is the document the chain is approving and has to exist while that chain is running. Rendered on demand by `PafDocumentService` (never stored), so it always shows the progress reached so far; anything short of `approved`/`paid` is watermarked `PENDING APPROVAL` / `REJECTED` / `WITHDRAWN` with a matching banner, so a draft cannot read as an authorisation |
 
 **Create payload (JSON):**
 - `invoice_ids`: required array of eligible invoice ids.
 - `approvers`: object mapping approval **level → user id** (overrides that level's default).
 - `adhoc_approvers`: array of `{ approver_id, label? }` appended after the level stages. A blank
   label falls back to the approver's `job_title`, then to `"Additional approver"`.
+- `l2a_approver_id`: optional user id — the **L2-A** second signature at level 2. Unlike an ad-hoc
+  stage it is routed **immediately after the level-2 stage**, ahead of any higher level and ahead of
+  `adhoc_approvers`. Stored with `level = null` and `is_adhoc = true` (a second stage claiming level 2
+  would displace the real one in the PAF, which keys its required approvers by level) and a label of
+  `"L2-A — {job title}"`. Refused (`422` on `l2a_approver_id`) when the chain does not reach level 2,
+  or when that user already holds a stage on the request; left empty, the chain is exactly as before.
 - Each stage's stored `label` is the **approver's `job_title`**, not the approval level's name — the
   level names are generic positions and the signer often holds a different one. The level name is the
   fallback when a user has no job title, and `level` is still recorded on the stage either way.
@@ -167,4 +173,5 @@ A currency's `name` is its 3-letter upper-case code (`size:3`, `alpha:ascii`, `u
 | GET | `/prf/view/{id}/{token}` | Token-gated PRF view with invoice submitter and line details (job no., customer, description, currency). `{token}` can be the PRF `view_token` (view-only) or an approval stage `view_token` (can act if current stage). |
 | POST | `/prf/view/{id}/{token}/approve` | Approve the current stage. Token must match the current stage's `view_token`. Emails next approver with their token. |
 | POST | `/prf/view/{id}/{token}/reject` | Reject with required `comments`. Token must match the current stage's `view_token`. |
+| GET | `/prf/view/{id}/{token}/paf` | The PAF with its supporting documents merged in, served **inline** so the approval page embeds it above the Approve/Reject buttons. Same token rules as the page itself. |
 | GET | `/prf/view/{id}/{token}/document/{document}` | Download an invoice attachment. Token-gated; document must belong to the PRF. |

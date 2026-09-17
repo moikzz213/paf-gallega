@@ -174,7 +174,9 @@ function approvalColor(status) {
                 title="Correct a mistyped payment reference"
                 @click="openDialog('editPaymentRef')"
             >Edit Payment Ref</v-btn>
-            <v-btn v-if="pr.status === 'approved' || pr.status === 'paid'" variant="tonal" prepend-icon="mdi-file-pdf-box" :href="`/api/payment-requests/${id}/pdf`" target="_blank">Download PDF</v-btn>
+            <v-btn variant="tonal" prepend-icon="mdi-file-pdf-box" :href="`/api/payment-requests/${id}/pdf`" target="_blank">
+                {{ pr.status === 'approved' || pr.status === 'paid' ? 'Download PAF' : 'Download PAF (draft)' }}
+            </v-btn>
         </div>
 
         <v-alert v-if="pr.status === 'rejected'" type="error" variant="tonal" class="mb-4" icon="mdi-close-circle-outline">

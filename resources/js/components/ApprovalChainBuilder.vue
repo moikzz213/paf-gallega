@@ -54,6 +54,14 @@ const requiredLevels = computed(() =>
 const assignments = ref({}); // { [level]: approverId }
 const adhoc = ref([]); // [{ approver_id, label }]
 
+// L2-A — the optional second signature at level 2, which routes straight after L2 rather than
+// behind the whole chain the way an additional approver does. Mirrors
+// PaymentRequestController::L2A_AFTER_LEVEL; only offered when that level is actually in the chain.
+const L2A_AFTER_LEVEL = 2;
+const l2aApproverId = ref(null);
+
+const l2aApplies = computed(() => requiredLevels.value.some((l) => Number(l.level) === L2A_AFTER_LEVEL));
+
 const ROLE_LABELS = { admin: 'Admin', finance: 'Finance', approver: 'Approver' };
 
 function approverOption(a) {
@@ -114,12 +122,32 @@ watch(
     { immediate: true, deep: true }
 );
 
+// A chain that drops below level 2 (invoices removed, or a credit note netted off) must not keep a
+// hidden L2-A on it — the server refuses that request, and the field is no longer on screen to clear.
+watch(l2aApplies, (applies) => {
+    if (!applies) l2aApproverId.value = null;
+});
+
+// The same person cannot hold both L2 and L2-A: two signatures from one approver is not a second
+// pair of eyes. The server refuses it as well (buildStages).
 watch(
-    [assignments, adhoc],
+    () => assignments.value[L2A_AFTER_LEVEL],
+    (l2) => {
+        if (l2 && l2 === l2aApproverId.value) l2aApproverId.value = null;
+    }
+);
+
+const l2aItems = computed(() =>
+    approverItems.value.filter((i) => i.value !== assignments.value[L2A_AFTER_LEVEL])
+);
+
+watch(
+    [assignments, adhoc, l2aApproverId],
     () => {
         emit('change', {
             assignments: { ...assignments.value },
             adhoc: adhoc.value.filter((s) => s.approver_id).map((s) => ({ ...s })),
+            l2a_approver_id: l2aApplies.value ? l2aApproverId.value || null : null,
             valid: allAssigned.value,
         });
     },
@@ -134,7 +162,7 @@ function removeAdhoc(index) {
     adhoc.value.splice(index, 1);
 }
 
-defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
+defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; l2aApproverId.value = null; } });
 </script>
 
 <template>
@@ -195,6 +223,26 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; } });
                     :no-data-text="`No user is assigned to level ${lvl.level}`"
                     density="compact"
                     hide-details
+                    clearable
+                    :disabled="disabled"
+                />
+            </div>
+
+            <div v-if="l2aApplies" class="d-flex align-center ga-3 mb-2">
+                <v-chip size="small" color="primary" variant="outlined" class="flex-shrink-0" style="min-width: 44px; justify-content: center">
+                    L2-A
+                </v-chip>
+                <div class="text-body-2 font-weight-medium flex-shrink-0" style="width: 150px">Second signature</div>
+                <v-select
+                    v-model="l2aApproverId"
+                    :items="l2aItems"
+                    item-title="title"
+                    item-value="value"
+                    :item-props="approverItemProps"
+                    label="Approver (optional)"
+                    hint="Signs straight after L2. Leave empty to route as usual."
+                    persistent-hint
+                    density="compact"
                     clearable
                     :disabled="disabled"
                 />

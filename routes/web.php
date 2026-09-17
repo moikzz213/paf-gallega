@@ -142,6 +142,12 @@ Route::post('/prf/view/{id}/{token}/reject', [PublicPaymentRequestController::cl
     ->name('payment-request.public.reject')
     ->where('id', '[0-9]+')
     ->where('token', '[a-zA-Z0-9]+');
+// The PAF sheet with its supporting documents merged in, served inline so the approval page can
+// embed it. Same token rules as the page itself.
+Route::get('/prf/view/{id}/{token}/paf', [PublicPaymentRequestController::class, 'paf'])
+    ->name('payment-request.public.paf')
+    ->where('id', '[0-9]+')
+    ->where('token', '[a-zA-Z0-9]+');
 Route::get('/prf/view/{id}/{token}/document/{document}', [PublicPaymentRequestController::class, 'downloadDocument'])
     ->name('payment-request.public.document')
     ->where('id', '[0-9]+')

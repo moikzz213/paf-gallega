@@ -18,7 +18,7 @@ Browser
 Laravel 13 (routes/web.php, prefix "api")
   ├─ auth middleware (session)  ──  role:… middleware (EnsureRole)
   ├─ Controllers (thin: validate → delegate → return model/paginator)
-  ├─ Services (PaymentRequestService = PRF workflow engine; AuditLogger)
+  ├─ Services (PaymentRequestService = PRF workflow engine; PafDocumentService; AuditLogger)
   ├─ Eloquent Models (Invoice, PaymentRequest, PaymentRequestApproval, InvoiceDocument,
   │                    ApprovalLevel, AuditLog, User)
   └─ SQL DB (SQLite default; MySQL on this dev box) + local disk (invoice documents)
@@ -40,6 +40,10 @@ Laravel 13 (routes/web.php, prefix "api")
     (from level defaults + ad-hoc stages) and reserves the invoices; `approve()` advances
     `current_stage` or finalizes; `reject()` frees the invoices; `markPaid()`. All in DB
     transactions. Invoice posting/query lives in `InvoiceController`.
+  - `PafDocumentService` — renders the PAF sheet and merges the supporting documents into it,
+    shared by the in-app download and the token-gated approval page so the two cannot drift. On
+    demand rather than stored: the document exists from creation onwards and must show the approval
+    progress reached at the time it is produced, which a snapshot taken at creation could not.
   - `MasterDataImportService` — parses and validates admin-uploaded Excel rows, then creates and
     audits the complete batch in one transaction.
   - `AuditLogger` — static `log(action, description, ?invoice, ?old, ?new, ?paymentRequest)`

@@ -27,7 +27,7 @@ class PaymentRequestReminder extends Mailable implements ShouldQueue
     public function envelope(): Envelope
     {
         return new Envelope(
-            subject: "Reminder: Payment Request {$this->paymentRequest->reference_no} Still Awaiting Your Approval",
+            subject: "Reminder - Approval Required: {$this->paymentRequest->subjectSummary()}",
         );
     }
 
