@@ -100,6 +100,8 @@ Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `INV-{year
 (sum of items), `tax_amount` (sum of items), `total_amount` (sum of items),
 `business_unit`, `department` (idx), `location`, `payment_method`, `priority`, `description`.
 
+| `is_advance_payment` | boolean, default false, idx | Money paid before the business has what it paid for — a deposit or part-payment against an order. Set on create and while the invoice is editable; **frozen once a payment request holds it**, because it is part of what the approvers were shown and it is what opens the late-upload route (`Invoice::acceptsLateDocuments`). Existing rows default to false and are **not** backfilled: nothing on record reliably identifies which were advances, and a guessed flag is worse than none. Shown on the invoice, the log, the approval page and the PAF |
+
 Lifecycle & posting columns:
 
 | Column | Type | Notes |
@@ -199,7 +201,10 @@ Credentials for machine callers of `GET /api/export-report` (spreadsheets, BI to
 
 ### invoice_documents
 
-`invoice_id` (cascade delete), `uploaded_by`, `original_name`, `file_path`, `mime_type`, `size`.
+`invoice_id` (cascade delete), `uploaded_by`, `original_name`, `file_path`, `mime_type`, `size`,
+`uploaded_after_approval` (boolean, default false — the file was attached after the payment
+request had been approved, so it was **not** in front of the approvers; recorded at upload
+rather than inferred from timestamps, so the record itself answers "what did the approver see?").
 Limits (config `paf.php`): 10 files, 10 MB, `pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`.
 
 ### audit_logs

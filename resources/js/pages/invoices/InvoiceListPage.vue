@@ -20,6 +20,7 @@ const filters = reactive({
     status: [],
     department: null,
     priority: null,
+    advance_payment: null,
     date_from: null,
     date_to: null,
 });
@@ -63,6 +64,8 @@ async function load() {
                 status: filters.status.length ? filters.status.join(',') : undefined,
                 department: filters.department || undefined,
                 priority: filters.priority || undefined,
+                // null is "no filter"; false is a deliberate "ordinary payments only".
+                advance_payment: filters.advance_payment ?? undefined,
                 date_from: filters.date_from || undefined,
                 date_to: filters.date_to || undefined,
                 sort: sort?.key || 'submitted_at',
@@ -167,6 +170,15 @@ async function confirmDialog() {
                             hide-details
                         />
                     </v-col>
+                    <v-col cols="12" sm="6" md="2">
+                        <v-select
+                            v-model="filters.advance_payment"
+                            :items="[{ value: true, title: 'Advance payments' }, { value: false, title: 'Ordinary payments' }]"
+                            label="Payment type"
+                            clearable
+                            hide-details
+                        />
+                    </v-col>
                     <v-col cols="6" md="1.5">
                         <v-text-field v-model="filters.date_from" label="From" type="date" hide-details />
                     </v-col>
@@ -197,6 +209,9 @@ async function confirmDialog() {
                         {{ item.vendor_name }}{{ item.vendor?.vendor_code ? ` (${item.vendor.vendor_code})` : '' }}
                     </router-link>
                     <div class="text-caption text-medium-emphasis">{{ item.invoice_no }} · {{ item.reference_no }}</div>
+                    <v-chip v-if="item.is_advance_payment" size="x-small" color="warning" variant="tonal" class="mt-1">
+                        Advance payment
+                    </v-chip>
                 </template>
                 <template #item.total_amount="{ item }">
                     <span style="font-variant-numeric: tabular-nums">{{ money(item.total_amount, item.currency) }}</span>

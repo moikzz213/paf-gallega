@@ -46,6 +46,7 @@ const form = ref({
     location: null,
     payment_method: 'bank_transfer',
     priority: 'normal',
+    is_advance_payment: false,
     description: '',
 });
 
@@ -300,7 +301,11 @@ async function save() {
     try {
         const payload = new FormData();
         Object.entries(form.value).forEach(([key, value]) => {
-            if (value !== null && value !== '' && value !== undefined) payload.append(key, value);
+            if (value === null || value === '' || value === undefined) return;
+            // FormData stringifies whatever it is given, and Laravel's `boolean` rule does not
+            // accept "true"/"false" — only 1/0 and their string forms. Sent as '1'/'0' so a
+            // switch on this form survives the trip.
+            payload.append(key, typeof value === 'boolean' ? (value ? '1' : '0') : value);
         });
 
         items.value.forEach((item, idx) => {
@@ -542,6 +547,28 @@ async function save() {
                         </v-col>
                         <v-col cols="12" sm="6" md="4">
                             <v-select v-model="form.priority" :items="priorityItems" label="Priority *" />
+                        </v-col>
+                        <v-col cols="12">
+                            <v-switch
+                                v-model="form.is_advance_payment"
+                                color="warning"
+                                density="compact"
+                                hide-details
+                                :disabled="!!correction"
+                                label="This is an advance payment"
+                            />
+                            <div class="text-caption text-medium-emphasis">
+                                <template v-if="correction">
+                                    The advance payment marker is part of what was approved and cannot be changed
+                                    here. Release the invoice from its payment request to change it.
+                                </template>
+                                <template v-else>
+                                    Tick this when the money is paid before the goods or services are delivered —
+                                    a deposit or part-payment against an order. Approvers see it on the payment
+                                    request and on the PAF, and the vendor's final tax invoice can be attached
+                                    to this record later, once the advance has been paid.
+                                </template>
+                            </div>
                         </v-col>
                         <v-col cols="12">
                             <v-textarea v-model="form.description" label="Description of supply / service" rows="3" auto-grow counter="5000" />

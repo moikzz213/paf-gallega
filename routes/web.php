@@ -61,6 +61,10 @@ Route::prefix('api')->group(function () {
         Route::post('/invoices/{invoice}', [InvoiceController::class, 'update']); // POST for multipart updates
         Route::delete('/invoices/{invoice}', [InvoiceController::class, 'destroy']);
         Route::post('/invoices/{invoice}/cancel', [InvoiceController::class, 'cancel']);
+        // Documents only — never the invoice's fields. This is the route that stays open on an
+        // advance payment after its request is approved or paid, so the vendor's final tax invoice
+        // has somewhere to go. Authorization and the advance-only rule live in the controller.
+        Route::post('/invoices/{invoice}/documents', [InvoiceController::class, 'uploadDocuments']);
 
         Route::middleware('role:finance,admin')->group(function () {
             Route::post('/invoices/{invoice}/post', [InvoiceController::class, 'post']);

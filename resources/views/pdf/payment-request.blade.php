@@ -73,6 +73,12 @@
         .draft-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #d32f2f;
                         background: #fdecea; color: #b71c1c; font-size: 7px; font-weight: bold;
                         text-align: center; }
+        /* An advance pays before the business has what it paid for. That is a different decision
+           from settling a delivered service, so it is stated on the form, not left to the wording. */
+        .advance-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #b26a00;
+                          background: #fff4e0; color: #8a5200; font-size: 7px; font-weight: bold;
+                          text-align: center; }
+        .advance-tag { color: #8a5200; font-weight: bold; }
     </style>
 </head>
 <body>
@@ -185,6 +191,13 @@
         @unless($isAuthorised)
         <div class="draft-banner">{{ $draftNotice }}</div>
         @endunless
+
+        @if($invoices->contains('is_advance_payment', true))
+        <div class="advance-banner">
+            ADVANCE PAYMENT — {{ $invoices->where('is_advance_payment', true)->count() }} of
+            {{ $invoices->count() }} invoice(s) on this request are paid in advance of delivery.
+        </div>
+        @endif
         <table class="heading top-line">
             <tr>
                 <td class="logo-cell"><img class="company-logo" src="data:image/png;base64,{{ $companyLogo }}" alt="Gallega Global Logistics"></td>
@@ -262,7 +275,7 @@
                             <td>{{ $invoice->vendor_name }}</td>
                             <td class="center">{{ $invoice->vendor?->vendor_code ?: (($supplierCodes[$invoice->vendor_name] ?? null) ?: '-') }}</td>
                             <td class="center">{{ $invoice->invoice_no }}</td>
-                            <td>{{ $item->description ?: ($invoice->description ?: '-') }}</td>
+                            <td>{{ $item->description ?: ($invoice->description ?: '-') }}@if($invoice->is_advance_payment)<br><span class="advance-tag">[ADVANCE PAYMENT]</span>@endif</td>
                             <td class="center">{{ $item->job_no ?: '-' }}</td>
                             <td class="center">{{ $invoice->invoice_date?->format('d/m/Y') ?? '-' }}</td>
                             <td class="number">{{ \App\Support\Money::format((float) $item->amount, $cur) }}</td>
@@ -276,7 +289,7 @@
                             <td>{{ $invoice->vendor_name }}</td>
                             <td class="center">{{ $invoice->vendor?->vendor_code ?: (($supplierCodes[$invoice->vendor_name] ?? null) ?: '-') }}</td>
                             <td class="center">{{ $invoice->invoice_no }}</td>
-                            <td>{{ $invoice->description ?: '-' }}</td>
+                            <td>{{ $invoice->description ?: '-' }}@if($invoice->is_advance_payment)<br><span class="advance-tag">[ADVANCE PAYMENT]</span>@endif</td>
                             <td class="center">-</td>
                             <td class="center">{{ $invoice->invoice_date?->format('d/m/Y') ?? '-' }}</td>
                             <td class="number">{{ \App\Support\Money::format((float) $invoice->amount, $invoice->currency) }}</td>
