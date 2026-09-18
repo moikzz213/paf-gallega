@@ -9,6 +9,8 @@ use setasign\Fpdi\PdfParser\StreamReader;
 
 class PdfMergeService
 {
+    public function __construct(private PdfRepairService $repairer) {}
+
     /** Mime types this service can render into the merged document. */
     public const MERGEABLE_MIMES = [
         'application/pdf',
@@ -22,11 +24,11 @@ class PdfMergeService
      * @param  array  $attachments  Array of file paths to merge
      * @param  array  $links  Non-mergeable documents to list as clickable links
      *                        (['name', 'url', 'mime_type', 'size', 'group'])
-     * @return string  The merged PDF content
+     * @return string The merged PDF content
      */
     public function mergePdfs(string $mainPdfContent, array $attachments, array $links = []): string
     {
-        $pdf = new Fpdi();
+        $pdf = new Fpdi;
 
         try {
             $this->addPdfToPdf($pdf, $mainPdfContent);
@@ -52,6 +54,28 @@ class PdfMergeService
                     $this->addImagePage($pdf, $attachment['path']);
                 }
             } catch (\Throwable $e) {
+                // The free FPDI parser refuses permissions-only encryption and the object streams
+                // PDF 1.5+ writes — between them, most of what vendor accounting systems produce.
+                // qpdf rewrites either into a form it can read, so the second attempt succeeds where
+                // the first could not. A document that merged first time never reaches here.
+                if ($attachment['mime_type'] === 'application/pdf' && $repaired = $this->repairer->repair($attachment['path'])) {
+                    try {
+                        $this->addPdfToPdf($pdf, file_get_contents($repaired));
+
+                        Log::info("Repaired attachment '{$attachment['name']}' and merged it into the PRF PDF", [
+                            'reason_first_attempt_failed' => $e->getMessage(),
+                        ]);
+
+                        continue;
+                    } catch (\Throwable $second) {
+                        // Rewritten and still unreadable. Reported against the original failure,
+                        // which is the one that explains the document.
+                        Log::warning("Repair did not make '{$attachment['name']}' mergeable", [
+                            'reason' => $second->getMessage(),
+                        ]);
+                    }
+                }
+
                 Log::warning("Could not render attachment '{$attachment['name']}' into the PRF PDF", [
                     'mime_type' => $attachment['mime_type'],
                     'reason' => $e->getMessage(),
@@ -70,7 +94,14 @@ class PdfMergeService
             $this->addLinksPage($pdf, $listed);
         }
 
-        return $pdf->Output('S');
+        $output = $pdf->Output('S');
+
+        // The repaired copies exist only to be read into the document above; nothing survives the
+        // request. Done here rather than left to the destructor so a long-lived container does not
+        // hold them, and so a failure below cannot strand them.
+        $this->repairer->cleanUp();
+
+        return $output;
     }
 
     /** Short, approver-readable explanation of why a file could not be rendered inline. */
@@ -112,7 +143,7 @@ class PdfMergeService
     {
         $pdf->AddPage();
 
-        list($width, $height) = getimagesize($imagePath);
+        [$width, $height] = getimagesize($imagePath);
         $pageWidth = $pdf->GetPageWidth() - 20;
         $pageHeight = $pdf->GetPageHeight() - 10;
 
@@ -191,5 +222,4 @@ class PdfMergeService
     {
         return @iconv('UTF-8', 'windows-1252//TRANSLIT//IGNORE', $value) ?: $value;
     }
-
 }
