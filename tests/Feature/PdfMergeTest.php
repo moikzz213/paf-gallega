@@ -27,7 +27,7 @@ class PdfMergeTest extends TestCase
             ],
         ];
 
-        $mergeService = new PdfMergeService();
+        $mergeService = app(PdfMergeService::class);
         $mergedPdf = $mergeService->mergePdfs($mainPdf, $attachments);
 
         $this->assertNotEmpty($mergedPdf);
@@ -43,7 +43,7 @@ class PdfMergeTest extends TestCase
      */
     public function test_non_mergeable_documents_produce_real_link_annotations(): void
     {
-        $merged = (new PdfMergeService())->mergePdfs($this->createMinimalPdf('Main Document'), [], [
+        $merged = (app(PdfMergeService::class))->mergePdfs($this->createMinimalPdf('Main Document'), [], [
             [
                 'name' => 'ledger.xlsx',
                 'url' => 'https://paf.test/api/documents/9/download',
@@ -76,7 +76,7 @@ class PdfMergeTest extends TestCase
         $path = tempnam(sys_get_temp_dir(), 'enc_');
         file_put_contents($path, $this->createEncryptedPdf());
 
-        $merged = (new PdfMergeService())->mergePdfs($this->createMinimalPdf('Main Document'), [[
+        $merged = (app(PdfMergeService::class))->mergePdfs($this->createMinimalPdf('Main Document'), [[
             'path' => $path,
             'name' => 'LPO - IT Assets - PRF 20266_encrypted_.pdf',
             'url' => 'https://paf.test/api/documents/42/download',
@@ -107,7 +107,7 @@ class PdfMergeTest extends TestCase
             ],
         ];
 
-        $mergeService = new PdfMergeService();
+        $mergeService = app(PdfMergeService::class);
         $mergedPdf = $mergeService->mergePdfs($mainPdf, $attachments);
 
         $this->assertNotEmpty($mergedPdf);

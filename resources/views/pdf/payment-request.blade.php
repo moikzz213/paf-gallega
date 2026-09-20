@@ -24,8 +24,8 @@
         .details .label { width: 17%; background: #d9d9d9; padding: 2px 4px; font-weight: bold; text-align: center; }
         .details .value { width: 33%; padding: 2px 5px; font-weight: bold; text-align: center; }
         .lines { margin-top: 4px; table-layout: fixed; }
-        .lines th { height: 29px; padding: 2px; border: 1px solid #666; background: #d9d9d9; font-size: 6px; text-align: center; }
-        .lines td { height: 18px; padding: 2px 3px; border: 1px solid #777; font-weight: bold; overflow-wrap: break-word; }
+        .lines th { height: 24px; padding: 1px; border: 1px solid #666; background: #d9d9d9; font-size: 5.5px; text-align: center; }
+        .lines td { height: 14px; padding: 1px 2px; border: 1px solid #777; font-size: 6px; font-weight: bold; line-height: 1.15; overflow-wrap: break-word; }
         .center { text-align: center; }
         .number { text-align: right; white-space: nowrap; }
         .total-row td { height: 19px; font-weight: bold; }
@@ -44,15 +44,15 @@
         .option-box { display: inline-block; width: 24px; height: 14px; margin: 0 3px 0 8px; border: 1px solid #555; vertical-align: middle; }
         .flow { width: 100%; table-layout: auto; }
         .flow td { padding: 0; text-align: center; vertical-align: top; }
-        .card-cell { padding: 5px 0 0 !important; }
+        .card-cell { padding: 3px 0 0 !important; }
         .arrow-cell { width: 15px; padding: 0 !important; vertical-align: top !important; }
         .arrow-link { height: 1px; margin-top: 24px; border-top: 1.5px solid #315d93; line-height: 0; }
         .arrow-link span { float: right; width: 0; height: 0; margin-top: -4px; margin-right: -1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid #315d93; font-size: 0; line-height: 0; }
         .signature-box { height: 38px; padding: 3px 2px; border: 1px solid #555; font-size: 6px; font-weight: bold; text-align: center; }
         .signature-box.not-required { border-style: dashed; border-color: #aaa; background: #f4f4f4; color: #999; font-weight: normal; }
         .signature-date { margin-top: 2px; font-size: 5px; font-weight: normal; }
-        .signature-action { min-height: 25px; padding: 5px 1px 1px; font-size: 6px; font-weight: bold; }
-        .signature-role { min-height: 35px; padding: 5px 1px 2px; font-size: 5.5px; font-weight: bold; }
+        .signature-action { min-height: 13px; padding: 2px 1px 0; font-size: 6px; font-weight: bold; line-height: 1.2; }
+        .signature-role { min-height: 17px; padding: 2px 1px 2px; font-size: 5.5px; font-weight: bold; line-height: 1.2; }
         .zone-bottom { border-bottom: 1.5px solid #333; }
         .footer-space { height: 7px; }
         .page-break { page-break-before: always; }
@@ -248,8 +248,11 @@
 
         <table class="lines">
             <colgroup>
-                <col style="width:3%"><col style="width:14%"><col style="width:8%"><col style="width:10%"><col style="width:20%">
-                <col style="width:15%"><col style="width:8%"><col style="width:9%"><col style="width:6%"><col style="width:7%">
+                {{-- Description is the only cell whose content wraps, and wrapped rows are what push
+                     the approval block onto a second page. Job numbers are short and fixed-length,
+                     so the width they were holding is better spent here. --}}
+                <col style="width:3%"><col style="width:13%"><col style="width:6%"><col style="width:9%"><col style="width:31%">
+                <col style="width:9%"><col style="width:7%"><col style="width:9%"><col style="width:6%"><col style="width:7%">
             </colgroup>
             <thead>
                 <tr>
@@ -298,7 +301,11 @@
                         </tr>
                     @endforelse
                 @endforeach
-                @for($row = $sr; $row < 6; $row++)
+                {{-- Blank rows pad a short table so the sheet keeps the shape of the paper form.
+                     Four rather than six: the approval block below carries `page-break-inside:
+                     avoid`, so two rows of padding were enough to push the whole block onto a
+                     second page on a request that would otherwise have fitted. --}}
+                @for($row = $sr; $row < 4; $row++)
                     <tr><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>
                 @endfor
                 <tr class="total-row">

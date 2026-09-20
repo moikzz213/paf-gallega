@@ -44,6 +44,19 @@ return [
 
     'payment_methods' => $paymentMethods,
 
+    // Repairing a vendor PDF that FPDI's free parser will not read — permissions-only encryption,
+    // or the object/cross-reference streams PDF 1.5+ uses. Runs only where the ordinary merge has
+    // already failed, and every failure falls back to listing the document as a link, so switching
+    // this off (or leaving qpdf uninstalled) restores the behaviour that predates it.
+    // See ai/change-requests/repair-unmergeable-pdf-attachments-with-qpdf.md
+    'pdf_repair' => [
+        'enabled' => (bool) env('PAF_PDF_REPAIR', true),
+        'binary' => env('PAF_QPDF_PATH', 'qpdf'),
+        // Seconds. A conversion that runs longer than this is abandoned: somebody is waiting on a
+        // download, and the link-list fallback is a better answer than a hung request.
+        'timeout' => (float) env('PAF_PDF_REPAIR_TIMEOUT', 20),
+    ],
+
     // upload constraints
     'max_documents' => (int) env('PAF_MAX_DOCUMENTS', 10),
     'max_document_kb' => (int) env('PAF_MAX_DOCUMENT_KB', 10240),

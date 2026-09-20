@@ -40,6 +40,12 @@ Laravel 13 (routes/web.php, prefix "api")
     (from level defaults + ad-hoc stages) and reserves the invoices; `approve()` advances
     `current_stage` or finalizes; `reject()` frees the invoices; `markPaid()`. All in DB
     transactions. Invoice posting/query lives in `InvoiceController`.
+  - `PdfRepairService` — rewrites a vendor PDF that FPDI's free parser refuses (permissions-only
+    encryption, or PDF 1.5+ object/cross-reference streams) into one it can read, by shelling out to
+    `qpdf`. Called **only** from `PdfMergeService`'s existing failure handler, so a document that
+    merges today never touches it, and every failure returns null so the caller falls back to the
+    link page exactly as before. Requires `qpdf` on the server — see
+    [deployment.md](deployment.md).
   - `PafDocumentService` — renders the PAF sheet and merges the supporting documents into it,
     shared by the in-app download and the token-gated approval page so the two cannot drift. On
     demand rather than stored: the document exists from creation onwards and must show the approval

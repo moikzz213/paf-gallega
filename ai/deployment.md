@@ -89,9 +89,88 @@ Driven by `.env` (see `.env.example`). Key settings for this project:
 
 > `config/app.php` sets timezone `Asia/Dubai` (note: this is a committed edit, not env-driven).
 
+## System dependency — `qpdf` (PDF attachment repair)
+
+The Payment Approval Form merges each invoice's attachments into one document. FPDI's free parser
+refuses two things vendor invoices carry constantly — permissions-only encryption, and the
+object/cross-reference streams PDF 1.5+ writes — so those attachments used to drop to a list of
+links on a final page. **`qpdf` rewrites them into a form FPDI can read**, and the merge is retried.
+
+**Install it on every environment that generates PAFs**, including the test environment: without it,
+forms still generate but affected attachments go back to being links, and a tester will not see what
+an approver sees.
+
+```bash
+# Debian / Ubuntu
+apt-get install -y qpdf
+# RHEL / Alma / Rocky
+dnf install -y qpdf
+# Windows
+winget install qpdf.qpdf
+```
+
+**Check the server before planning any of this:**
+
+```bash
+php artisan paf:check-pdf-repair
+```
+
+It reports, in order, whether the feature is switched on, whether **`proc_open`** is available,
+whether qpdf can be reached, and whether a live conversion actually works — and says which of those
+failed. On **shared hosting this is not a formality**: `proc_open` is routinely in
+`disable_functions`, and without it no external program can run at all, so qpdf cannot be used on
+that server by any configuration. Ask the host; if the answer is no, leave `PAF_PDF_REPAIR=false`
+and the platform behaves exactly as it did before this change.
+
+Where there is no root but `proc_open` works — **shared cPanel, which is what production is** —
+qpdf does not need installing. The project publishes a self-contained Linux build whose binary
+locates its own libraries through `RUNPATH=$ORIGIN/../lib`, so it runs from a home directory with no
+root, no `LD_LIBRARY_PATH` and no FUSE:
+
+```bash
+cd ~
+curl -LO https://github.com/qpdf/qpdf/releases/download/v12.4.1/qpdf-12.4.1-bin-linux-x86_64.zip
+unzip qpdf-12.4.1-bin-linux-x86_64.zip -d qpdf   # keep the bin/ and lib/ layout — the binary
+chmod +x ~/qpdf/bin/qpdf                          # resolves lib/ relative to itself
+~/qpdf/bin/qpdf --version                         # expect: qpdf version 12.4.1
+```
+
+Then, in `.env`:
+
+```
+PAF_QPDF_PATH="/home/<account>/qpdf/bin/qpdf"
+```
+
+Keep `bin/` and `lib/` together; moving the binary out on its own breaks it. On Windows the same
+applies to the DLLs shipped beside `qpdf.exe`, and dotenv rejects backslashes in a quoted value —
+write the path with forward slashes.
+
+Verify after deploying, by regenerating a PAF for a request with an encrypted attachment. If the
+binary is missing, the application logs
+`PDF repair is unavailable; attachments that cannot be merged will be listed as links` **once** —
+grep for it rather than judging from the screen, because the failure is silent by design.
+
+| Var | Default | Notes |
+|-----|---------|-------|
+| `PAF_PDF_REPAIR` | `true` | Set `false` to switch the repair off without redeploying — the backout lever |
+| `PAF_QPDF_PATH` | `qpdf` | Full path if the binary is not on `PATH` |
+| `PAF_PDF_REPAIR_TIMEOUT` | `20` | Seconds per document; exceeded means fall back, not hang |
+
+Notes on behaviour, because they bound the risk:
+
+- Repair runs **only** where the ordinary merge already failed, so a document that merges today is
+  never rewritten.
+- The stored document is **never modified**. The converted copy lives in the system temp directory
+  for the duration of the merge and is deleted afterwards.
+- `--decrypt` strips **permissions-only** encryption. A genuinely password-protected file fails the
+  repair and falls back; no password is ever supplied, guessed or stored.
+- Every failure mode — binary missing, non-zero exit, timeout, still-unreadable output — falls back
+  to the link page. The worst case is the behaviour that predates this.
+
 **Domain lists** are env-driven via `config/paf.php`: `PAF_BUSINESS_UNITS`, `PAF_DEPARTMENTS`,
 `PAF_LOCATIONS`, `PAF_CURRENCIES`, `PAF_PRIORITIES`, `PAF_PAYMENT_METHODS` (key:label pairs),
-`PAF_MAX_DOCUMENTS`, `PAF_MAX_DOCUMENT_KB`, `PAF_DOCUMENT_MIMES` — all comma-separated with
+`PAF_MAX_DOCUMENTS`, `PAF_MAX_DOCUMENT_KB`, `PAF_DOCUMENT_MIMES`, `PAF_PDF_REPAIR`,
+`PAF_QPDF_PATH`, `PAF_PDF_REPAIR_TIMEOUT` — all comma-separated with
 sensible defaults, so the app runs without them. If you run `php artisan config:cache`, re-cache
 after changing any `PAF_*` value.
 
@@ -119,6 +198,7 @@ after changing any `PAF_*` value.
 - `php artisan config:cache route:cache view:cache`, `composer install --no-dev -o`,
   `npm run build`.
 - Add ERP/payment integration (planned, not present).
+- **Install `qpdf`** (see *System dependency* above) and verify a PAF assembles its attachments.
 
 ## CI/CD
 
