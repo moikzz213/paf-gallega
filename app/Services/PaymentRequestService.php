@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Mail\PaymentRequestApproved;
+use App\Mail\PaymentRequestRejected;
 use App\Mail\PaymentRequestSubmitted;
 use App\Models\Invoice;
 use App\Models\PaymentRequest;
@@ -329,11 +330,70 @@ class PaymentRequestService
         }
     }
 
+    /**
+     * Everything the rejection notice needs that rejection itself destroys.
+     *
+     * Rejection clears `payment_request_id` on the invoices, and the recipients, the subject
+     * summary and the invoice list are all read from that relation — so they have to be captured
+     * while it still holds, before the detach. Public because the public-link path performs its own
+     * rejection and has the same ordering problem.
+     *
+     * @return array{recipients: array<int, string>, summary: string, invoiceLines: array<int, array<string, mixed>>}
+     */
+    public function rejectionSnapshot(PaymentRequest $pr): array
+    {
+        // A deliberate `load`, not `loadMissing`: the public-link path arrives with `submitter`
+        // already eager-loaded as `id,name` only, and reusing that silently drops every invoice
+        // submitter from the recipient list. Re-reading costs one query and cannot be short-changed.
+        $pr->load('creator', 'invoices.submitter', 'invoices.items');
+
+        return [
+            'recipients' => collect([$pr->creator?->email])
+                ->merge($pr->invoices->map(fn ($inv) => $inv->submitter?->email))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all(),
+            'summary' => $pr->subjectSummary(),
+            'invoiceLines' => $pr->invoices->map(fn ($inv) => [
+                'reference_no' => (string) $inv->reference_no,
+                'vendor_name' => (string) $inv->vendor_name,
+                'invoice_no' => (string) $inv->invoice_no,
+                'total_amount' => $inv->total_amount,
+                'currency' => (string) $inv->currency,
+            ])->all(),
+        ];
+    }
+
+    /**
+     * Tell the requestor(s) that a request was rejected and why — the PRF creator plus everyone who
+     * submitted one of its invoices, the same audience as `notifyApproved`.
+     *
+     * Rejection used to be silent: the invoices dropped back to "not initiated" with no signal, so
+     * the people who had to act on the rejection reason only found it by reopening the request.
+     *
+     * @param  array{recipients: array<int, string>, summary: string, invoiceLines: array<int, array<string, mixed>>}  $snapshot  from `rejectionSnapshot`, taken before the invoices were detached
+     */
+    public function notifyRejected(PaymentRequest $pr, array $snapshot, ?string $rejectedBy = null, ?string $stageLabel = null): void
+    {
+        foreach ($snapshot['recipients'] as $email) {
+            Notifier::send(
+                $email,
+                new PaymentRequestRejected($pr, $snapshot['summary'], $snapshot['invoiceLines'], $rejectedBy, $stageLabel),
+                "{$pr->reference_no} rejected",
+            );
+        }
+    }
+
     public function reject(PaymentRequest $pr, User $actor, string $comments): PaymentRequest
     {
         $this->assertActionable($pr, $actor);
 
-        return DB::transaction(function () use ($pr, $actor, $comments) {
+        // The notification is sent by this method rather than by the callers (as approval's is),
+        // because it depends on state only this method can capture in time — see rejectionSnapshot.
+        [$pr, $snapshot, $stageLabel] = DB::transaction(function () use ($pr, $actor, $comments) {
+            $stageRow = $pr->approvals()->where('sequence', $pr->current_stage)->first();
+
             $pr->approvals()->where('sequence', $pr->current_stage)->update([
                 'status' => PaymentRequestApproval::STATUS_REJECTED,
                 'approver_id' => $actor->id,
@@ -350,6 +410,8 @@ class PaymentRequestService
                 'rejection_reason' => $comments,
             ]);
 
+            $snapshot = $this->rejectionSnapshot($pr);
+
             // Return the invoices to the pool so Finance can re-initiate after correction.
             $pr->invoices()->update([
                 'payment_status' => Invoice::PAY_NOT_INITIATED,
@@ -358,8 +420,12 @@ class PaymentRequestService
 
             AuditLogger::log('rejected', "Payment request {$pr->reference_no} rejected at stage {$stage}. Invoices returned to Finance.", null, null, null, $pr);
 
-            return $pr->refresh();
+            return [$pr->refresh(), $snapshot, $stageRow?->label];
         });
+
+        $this->notifyRejected($pr, $snapshot, $actor->name, $stageLabel);
+
+        return $pr;
     }
 
     /**
