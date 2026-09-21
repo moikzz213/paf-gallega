@@ -110,7 +110,9 @@ class PublicPaymentRequestController extends Controller
             'comments' => 'required|string|max:2000',
         ]);
 
-        DB::transaction(function () use ($pr, $approval, $approver, $request) {
+        $snapshot = null;
+
+        DB::transaction(function () use ($pr, $approval, $approver, $request, &$snapshot) {
             $approval->update([
                 'status' => PaymentRequestApproval::STATUS_REJECTED,
                 'comments' => $request->input('comments'),
@@ -126,6 +128,9 @@ class PublicPaymentRequestController extends Controller
                 'rejection_reason' => $request->input('comments'),
             ]);
 
+            // Captured before the detach below empties the invoice relation the notice reads from.
+            $snapshot = $this->service->rejectionSnapshot($pr);
+
             $pr->invoices()->update([
                 'payment_status' => Invoice::PAY_NOT_INITIATED,
                 'payment_request_id' => null,
@@ -135,6 +140,9 @@ class PublicPaymentRequestController extends Controller
         });
 
         $pr->refresh();
+
+        // Same notice as the in-app path, sent after the commit, so the two cannot drift.
+        $this->service->notifyRejected($pr, $snapshot, $approver->name, $approval->label);
 
         return redirect()->route('payment-request.public', ['id' => $pr->id, 'token' => $token])
             ->with('success', 'Payment request has been rejected.');
