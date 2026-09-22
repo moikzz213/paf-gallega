@@ -34,6 +34,7 @@ const headers = [
     { title: 'Department', key: 'department', sortable: false },
     { title: 'Total', key: 'total_amount', align: 'end', sortable: false },
     { title: 'Status', key: 'status', sortable: false },
+    { title: 'Rejected PAFs', key: 'rejected_payment_requests', sortable: false },
     { title: 'Query Raised', key: 'query_raised', sortable: false },
     { title: 'Remarks', key: 'remarks', sortable: false },
 ];
@@ -55,10 +56,22 @@ function queriesRaised(invoice) {
     return texts.length ? texts.join(', ') : '—';
 }
 
-// Everything written on the invoice's payment request: the approvers' comments in approval order,
-// then the request-level rejection and withdrawal reasons, labelled so they read as what they are.
-function approverRemarks(invoice) {
-    const pr = invoice.payment_request;
+// Every payment request this invoice was on that got rejected, oldest first. Rejection returns the
+// invoice to Finance and the next request takes its place, so these come from the rejection history
+// rather than from `payment_request` — mirrors InvoiceReport::rejectedPaymentRequests.
+function rejectedPaymentRequests(invoice) {
+    const entries = (invoice.rejections ?? [])
+        .map((rejection) => {
+            const reference = String(rejection?.payment_request?.reference_no ?? '');
+            return reference ? `${reference} (rejected ${shortDate(rejection.rejected_at)})` : '';
+        })
+        .filter((entry) => entry !== '');
+    return entries.length ? entries.join(', ') : '—';
+}
+
+// One request's remarks in the order they were written: approvers' comments by stage, then the
+// reason it was rejected or withdrawn, labelled so they read as what they are.
+function requestRemarks(pr) {
     const remarks = [...(pr?.approvals ?? [])]
         .sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0))
         .map((approval) => String(approval?.comments ?? '').trim());
@@ -69,7 +82,20 @@ function approverRemarks(invoice) {
     const withdrawal = String(pr?.withdrawal_reason ?? '').trim();
     if (withdrawal) remarks.push(`Withdrawn: ${withdrawal}`);
 
-    const written = remarks.filter((text) => text !== '');
+    return remarks.filter((text) => text !== '');
+}
+
+// Everything written on the invoice's payment requests — the rejected ones first, each remark
+// carrying its reference so a twice-rejected invoice stays readable, then the request it is on now.
+// Mirrors InvoiceReport::approverRemarks.
+function approverRemarks(invoice) {
+    const written = (invoice.rejections ?? [])
+        .flatMap((rejection) => {
+            const pr = rejection?.payment_request;
+            return pr ? requestRemarks(pr).map((remark) => `[${pr.reference_no}] ${remark}`) : [];
+        })
+        .concat(requestRemarks(invoice.payment_request));
+
     return written.length ? written.join(', ') : '—';
 }
 
@@ -211,6 +237,9 @@ onMounted(() => meta.load());
                 </template>
                 <template #item.status="{ item }">
                     <StatusChip :status="item.status" />
+                </template>
+                <template #item.rejected_payment_requests="{ item }">
+                    <div class="text-body-2" style="min-width: 160px; white-space: pre-wrap">{{ rejectedPaymentRequests(item) }}</div>
                 </template>
                 <template #item.query_raised="{ item }">
                     <div class="text-body-2" style="min-width: 180px; white-space: pre-wrap">{{ queriesRaised(item) }}</div>

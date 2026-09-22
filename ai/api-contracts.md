@@ -157,7 +157,21 @@ approver go out via the `SendPendingApprovalReminders` console command (`Payment
 |--------|------|-------|
 | GET | `/api/documents/{document}/download` | view rule as invoice show; streams file |
 | DELETE | `/api/documents/{document}` | uploader or admin; invoice must be editable |
-| GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; rows eager-load `items[{id,invoice_id,job_no,sort_order}]` for the Job No column; export = 25-col XLSX (Job No after Invoice No, distinct line job numbers joined with `, `), audit-logged |
+| GET | `/api/reports` · `/api/reports/export` | filters `status[], department, business_unit, vendor, date_from/to`; rows eager-load `items[{id,invoice_id,job_no,sort_order}]` for the Job No column; export = 26-col XLSX (Job No after Invoice No, distinct line job numbers joined with `, `; **Rejected Payment Requests** after Payment Request), audit-logged |
+
+The `status` filter accepts values from **three** vocabularies and routes each to the field that
+holds it: `Invoice::STATUSES` → `invoices.status`, `Invoice::PAYMENT_STATUSES` →
+`invoices.payment_status`, and `PaymentRequest::STATUSES` → the invoice's request. Selections are
+OR'd. `rejected` is special: rejection detaches the invoice, so it matches **rejection history**
+(`invoice_rejections`), i.e. "was on a request that was rejected", not the request it is on now.
+A value in two vocabularies (`paid`, `in_approval`) matches in each.
+
+The report carries an invoice's **rejection history**, not just its current request: rows eager-load
+`rejections[].payment_request` (see `InvoiceReport::RELATIONS`), the `rejected_payment_requests`
+column lists every PAF the invoice was on that was rejected (`PAF-… (rejected Y-m-d)`, oldest
+first), and `remarks` prefixes each rejected request's approver comments and reason with
+`[<reference>]` before the current request's own remarks. Blank for an invoice never rejected.
+Adding a column is additive for API consumers; existing column keys are unchanged.
 | GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. User `department` must match an active Departments master-data row. `approval_level` (1–10) is **required for role approver and optional for role finance** — setting it on a finance user is what nominates them as an approver; it is nulled for requesters/admins. Approval-level create/update accepts `default_approver_id` (nullable; must satisfy `canApprove()` **and** be assigned to the level being saved — `422` naming the user otherwise. The level's *current* default is always accepted so a legacy mismatch doesn't block renaming or deactivating it) |
 | GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations, currencies`.
 A currency's `name` is its 3-letter upper-case code (`size:3`, `alpha:ascii`, `uppercase`). GET is paginated (`page`, `per_page` 1–100) and accepts `q` (name for all entities, plus code for vendors/customers); results are ordered by name then id. POST creates vendors/customers with repeatable names and unique entered codes; other entities retain unique names. |

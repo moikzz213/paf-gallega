@@ -6,6 +6,7 @@ use App\Mail\PaymentRequestApproved;
 use App\Mail\PaymentRequestRejected;
 use App\Mail\PaymentRequestSubmitted;
 use App\Models\Invoice;
+use App\Models\InvoiceRejection;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
 use App\Models\User;
@@ -345,11 +346,13 @@ class PaymentRequestService
         // A deliberate `load`, not `loadMissing`: the public-link path arrives with `submitter`
         // already eager-loaded as `id,name` only, and reusing that silently drops every invoice
         // submitter from the recipient list. Re-reading costs one query and cannot be short-changed.
-        $pr->load('creator', 'invoices.submitter', 'invoices.items');
+        $pr->load('creator', 'invoices.submitter', 'invoices.items', 'approvals.approver');
 
         return [
             'recipients' => collect([$pr->creator?->email])
                 ->merge($pr->invoices->map(fn ($inv) => $inv->submitter?->email))
+                ->merge($pr->approvals->map(fn ($approval) => $approval->approver?->email))
+                ->merge(self::financeEmails())
                 ->filter()
                 ->unique()
                 ->values()
@@ -366,11 +369,60 @@ class PaymentRequestService
     }
 
     /**
-     * Tell the requestor(s) that a request was rejected and why — the PRF creator plus everyone who
-     * submitted one of its invoices, the same audience as `notifyApproved`.
+     * The active Finance team, who have to correct and re-initiate whatever was rejected.
+     *
+     * The whole role, not the nominated approvers among them: re-initiation is ordinary Finance
+     * work, not an approval duty, so `scopeEligibleApprovers` is the wrong rule here.
+     *
+     * @return array<int, string>
+     */
+    private static function financeEmails(): array
+    {
+        return User::query()
+            ->where('is_active', true)
+            ->where('role', User::ROLE_FINANCE)
+            ->pluck('email')
+            ->all();
+    }
+
+    /**
+     * Return a rejected request's invoices to Finance, remembering first that they were on it.
+     *
+     * The order matters and is the whole point: `payment_request_id` is the report's only link to
+     * the request, so it has to be copied into `invoice_rejections` before it is cleared — and a
+     * row there survives the re-submission that overwrites the column again. Shared by the in-app
+     * and public-link rejection paths so the two cannot record different history.
+     */
+    public function returnInvoicesToFinance(PaymentRequest $pr): void
+    {
+        $now = now();
+
+        $rows = $pr->invoices()->pluck('id')->map(fn ($invoiceId) => [
+            'invoice_id' => $invoiceId,
+            'payment_request_id' => $pr->id,
+            'rejected_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ])->all();
+
+        if ($rows) {
+            InvoiceRejection::insert($rows);
+        }
+
+        $pr->invoices()->update([
+            'payment_status' => Invoice::PAY_NOT_INITIATED,
+            'payment_request_id' => null,
+        ]);
+    }
+
+    /**
+     * Tell everyone involved that a request was rejected and why — the PRF creator, everyone who
+     * submitted one of its invoices, every approver on its chain, and the Finance team.
      *
      * Rejection used to be silent: the invoices dropped back to "not initiated" with no signal, so
      * the people who had to act on the rejection reason only found it by reopening the request.
+     * Finance were then still missing from the notice even though re-initiation is their job, as
+     * were the approvers who had already passed the request at an earlier stage.
      *
      * @param  array{recipients: array<int, string>, summary: string, invoiceLines: array<int, array<string, mixed>>}  $snapshot  from `rejectionSnapshot`, taken before the invoices were detached
      */
@@ -412,11 +464,9 @@ class PaymentRequestService
 
             $snapshot = $this->rejectionSnapshot($pr);
 
-            // Return the invoices to the pool so Finance can re-initiate after correction.
-            $pr->invoices()->update([
-                'payment_status' => Invoice::PAY_NOT_INITIATED,
-                'payment_request_id' => null,
-            ]);
+            // Return the invoices to the pool so Finance can re-initiate after correction, keeping
+            // a record that they were on this request so the report can still show the rejection.
+            $this->returnInvoicesToFinance($pr);
 
             AuditLogger::log('rejected', "Payment request {$pr->reference_no} rejected at stage {$stage}. Invoices returned to Finance.", null, null, null, $pr);
 

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Invoice;
+use App\Models\PaymentRequest;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -41,6 +42,7 @@ final class InvoiceReport
         'submitted_at' => 'Submitted At',
         'posted_by' => 'Posted By',
         'payment_request' => 'Payment Request',
+        'rejected_payment_requests' => 'Rejected Payment Requests',
         'paid_at' => 'Paid At',
         'payment_reference' => 'Payment Reference',
         'query_raised' => 'Query Raised',
@@ -55,6 +57,11 @@ final class InvoiceReport
         'items:id,invoice_id,job_no,sort_order',
         'queryLogs:id,invoice_id,action,description,created_at',
         'paymentRequest.approvals:id,payment_request_id,sequence,comments',
+        // Requests this invoice was on that were rejected. Loaded separately from `paymentRequest`
+        // because rejection detaches the invoice — see Invoice::rejections.
+        'rejections:id,invoice_id,payment_request_id,rejected_at',
+        'rejections.paymentRequest:id,reference_no,rejected_at,rejection_reason',
+        'rejections.paymentRequest.approvals:id,payment_request_id,sequence,comments',
     ];
 
     /** @return array<string, string> */
@@ -81,7 +88,8 @@ final class InvoiceReport
         $query = Invoice::query()->visibleTo($user);
 
         if ($status = $filters['status'] ?? null) {
-            $query->whereIn('status', is_array($status) ? $status : explode(',', (string) $status));
+            $selected = is_array($status) ? $status : explode(',', (string) $status);
+            self::filterByStatus($query, array_filter(array_map('trim', $selected)));
         }
 
         if ($department = $filters['department'] ?? null) {
@@ -105,6 +113,56 @@ final class InvoiceReport
         }
 
         return $query;
+    }
+
+    /**
+     * Apply the report's status filter, sending each selected value to the field that actually
+     * holds it.
+     *
+     * The filter offers everything in the client's `STATUS_META` — the invoice's own status, its
+     * payment status, and the payment request's status — but only ever compared the selection
+     * against `invoices.status`. That column holds four values, so selecting "Rejected", "Paid",
+     * "Approved" or any other payment/PRF status silently returned nothing at all: the row set was
+     * empty, not wrong, which is why it read as missing data rather than a broken filter.
+     *
+     * Selections are OR'd, as they were when they all hit one column. A value that belongs to more
+     * than one vocabulary (`paid`, `in_approval`) is matched in each, which is harmless — an
+     * invoice sitting at that payment status is on a request at that status anyway.
+     *
+     * @param  array<int, string>  $statuses
+     */
+    private static function filterByStatus(Builder $query, array $statuses): void
+    {
+        if (! $statuses) {
+            return;
+        }
+
+        $invoiceStatuses = array_intersect($statuses, Invoice::STATUSES);
+        $paymentStatuses = array_intersect($statuses, Invoice::PAYMENT_STATUSES);
+        $requestStatuses = array_intersect($statuses, PaymentRequest::STATUSES);
+
+        $query->where(function (Builder $scoped) use ($invoiceStatuses, $paymentStatuses, $requestStatuses) {
+            if ($invoiceStatuses) {
+                $scoped->orWhereIn('status', $invoiceStatuses);
+            }
+
+            if ($paymentStatuses) {
+                $scoped->orWhereIn('payment_status', $paymentStatuses);
+            }
+
+            // "Rejected" cannot be read from the request the invoice is on: rejection detaches it,
+            // and re-initiation gives it a different one. It means "was on a request that was
+            // rejected", which is what `invoice_rejections` records.
+            if (in_array(PaymentRequest::STATUS_REJECTED, $requestStatuses, true)) {
+                $scoped->orWhereHas('rejections');
+            }
+
+            $onRequest = array_diff($requestStatuses, [PaymentRequest::STATUS_REJECTED]);
+
+            if ($onRequest) {
+                $scoped->orWhereHas('paymentRequest', fn (Builder $pr) => $pr->whereIn('status', $onRequest));
+            }
+        });
     }
 
     /**
@@ -139,6 +197,7 @@ final class InvoiceReport
             'submitted_at' => $invoice->submitted_at?->format('Y-m-d H:i'),
             'posted_by' => $invoice->poster?->name,
             'payment_request' => $invoice->paymentRequest?->reference_no,
+            'rejected_payment_requests' => self::rejectedPaymentRequests($invoice),
             'paid_at' => $invoice->paymentRequest?->paid_at?->format('Y-m-d H:i'),
             'payment_reference' => $invoice->paymentRequest?->payment_reference,
             'query_raised' => self::queriesRaised($invoice),
@@ -166,14 +225,58 @@ final class InvoiceReport
     }
 
     /**
-     * Everything anyone wrote on the invoice's payment request: the approvers' comments in approval
-     * order, then the request-level rejection and withdrawal reasons. Those two are labelled, since
-     * on their own they read like just another approver comment.
+     * Every payment request this invoice was on that got rejected, oldest first, each with the date
+     * it was rejected — e.g. "PAF-2026-0012 (rejected 2026-09-01)".
+     *
+     * Blank for the overwhelming majority of invoices, which have never been rejected.
+     */
+    private static function rejectedPaymentRequests(Invoice $invoice): string
+    {
+        return $invoice->rejections
+            ->map(function ($rejection) {
+                $reference = (string) $rejection->paymentRequest?->reference_no;
+
+                return $reference === ''
+                    ? ''
+                    : "{$reference} (rejected {$rejection->rejected_at?->format('Y-m-d')})";
+            })
+            ->filter(fn (string $entry) => $entry !== '')
+            ->implode(', ');
+    }
+
+    /**
+     * Everything anyone wrote on the invoice's payment requests — the rejected ones first, then the
+     * request it is on now: approvers' comments in approval order, then the request-level rejection
+     * and withdrawal reasons. Those two are labelled, since on their own they read like just another
+     * approver comment; a rejected request's remarks additionally carry its reference, so a reader
+     * of a twice-rejected invoice can tell which round each remark came from.
      */
     private static function approverRemarks(Invoice $invoice): string
     {
-        $paymentRequest = $invoice->paymentRequest;
+        $remarks = $invoice->rejections->flatMap(function ($rejection) {
+            $rejected = $rejection->paymentRequest;
 
+            if (! $rejected) {
+                return [];
+            }
+
+            return collect(self::requestRemarks($rejected))
+                ->map(fn (string $remark) => "[{$rejected->reference_no}] {$remark}");
+        })->values();
+
+        return $remarks
+            ->merge(self::requestRemarks($invoice->paymentRequest))
+            ->implode(', ');
+    }
+
+    /**
+     * One request's remarks in the order they were written: the approvers' comments by stage, then
+     * the reason it was rejected or withdrawn.
+     *
+     * @return array<int, string>
+     */
+    private static function requestRemarks(?object $paymentRequest): array
+    {
         $remarks = ($paymentRequest?->approvals ?? collect())
             ->sortBy('sequence')
             ->map(fn ($approval) => trim((string) $approval->comments))
@@ -187,7 +290,7 @@ final class InvoiceReport
             $remarks->push("Withdrawn: {$reason}");
         }
 
-        return $remarks->filter(fn (string $remark) => $remark !== '')->implode(', ');
+        return $remarks->filter(fn (string $remark) => $remark !== '')->values()->all();
     }
 
     /** An invoice's job numbers live on its lines, and a line may carry none. */

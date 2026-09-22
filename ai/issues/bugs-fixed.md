@@ -5,6 +5,66 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-09-22] Filtering the report by a payment or PRF status returned nothing
+
+- **Symptom:** Reported straight after the fix below: with rejected PAFs now present in the report,
+  filtering the Reports page by status **Rejected** still showed no rows. The same was true of
+  Paid, Approved, In Approval, Draft, Withdrawn, Not Initiated and Approved for Payment — 8 of the
+  12 options in the dropdown. The report came back empty rather than wrong, which reads as missing
+  data rather than a broken filter, so it masked itself.
+- **Cause:** `ReportsPage` builds its status dropdown from **every** `STATUS_META` key — which
+  deliberately covers invoice statuses, payment statuses and PRF statuses — but
+  `InvoiceReport::query` only ever compared the selection against `invoices.status`. That column
+  holds four values (`submitted`, `posted`, `query_raised`, `cancelled`), so anything else matched
+  no row by construction. Pre-existing; it was known issue #9, filed as a cosmetic oddity rather
+  than recognised as a filter that silently returns nothing.
+- **Fix:** `InvoiceReport::filterByStatus` sorts the selection into the three vocabularies and sends
+  each to the field that holds it — `status`, `payment_status`, or the PRF's status through
+  `paymentRequest`. Selections stay OR'd, as they were when they all hit one column. `rejected`
+  cannot be read from the current request (rejection detaches the invoice and re-initiation gives it
+  a different one), so it matches **rejection history** via `invoice_rejections` — "was on a request
+  that was rejected" — which the fix below made possible.
+- **Verified:** `tests/Feature/RejectedPaymentRequestReportingTest.php` — filtering by `rejected`
+  finds the invoice and still finds it after re-submission; a payment status matches
+  `payment_status`; an invoice status is unchanged; several statuses OR together; an empty filter
+  returns everything.
+- **Note:** visibility is unchanged and deliberately not widened. An **approver** filtering by
+  Rejected will not see the invoice — rejection detaches it, which takes it out of
+  `scopeVisibleTo`'s approver branch. Finance and admin, who report on rejections, see it.
+
+## [2026-09-22] A rejected PAF disappeared from the report
+
+- **Symptom:** Rejecting a payment request left no trace in the invoice report. The Payment Request
+  column went blank, the rejection reason was absent, and the approver comments recorded on the way
+  to the rejection were gone — on the Reports page, in the Excel download and through the export
+  API alike. Management could not count rejections, see why they happened, or evidence them to an
+  auditor from reporting; Finance lost the written reason at the moment they needed it to correct
+  the invoices.
+- **Cause:** `PaymentRequestService::reject` returns the invoices to Finance by clearing
+  `invoices.payment_request_id`, and that column is the report's **only** link to the request —
+  `InvoiceReport` reads the reference, `rejection_reason` and the approvals through it. So the data
+  vanished at the instant of rejection. Simply keeping the column would not have helped either:
+  re-initiating the corrected invoices overwrites it with the new PRF, which is the expected next
+  step after *every* rejection, so the history had to live somewhere the current request cannot
+  reach. The `Rejected: {reason}` branch in `InvoiceReport::approverRemarks` was, in practice,
+  unreachable.
+- **Fix:** New `invoice_rejections` table (one row per invoice per rejected PRF) written by
+  `PaymentRequestService::returnInvoicesToFinance`, which now owns the record-then-detach ordering
+  for **both** rejection paths — the in-app one and `PublicPaymentRequestController::reject`, which
+  previously duplicated the detach. `Invoice::rejections` exposes the history; `InvoiceReport` adds
+  a `rejected_payment_requests` column and prefixes each rejected request's remarks with its
+  reference, so a twice-rejected invoice stays readable. `ReportsPage.vue`'s client-side mirror of
+  the remarks logic was updated in step.
+- **Verified:** `tests/Feature/RejectedPaymentRequestReportingTest.php` — the rejection shows in the
+  report, survives re-submission on a new PRF, accumulates across two rejections with each remark
+  attributed, and is recorded identically via the public link. The blocking regression (a rejected
+  invoice is still payable and still appears in `/api/payment-requests/eligible`) is covered
+  explicitly, as is an invoice never rejected reporting nothing extra.
+- **Same change:** the rejection notice, previously sent only to the PRF creator and the invoice
+  submitters, now also reaches **every approver on the chain** and the **active Finance team**,
+  de-duplicated so nobody is mailed twice; the email wording no longer addresses the reader as the
+  requestor. See `ai/change-requests/report-and-notify-rejected-payment-requests.md`.
+
 ## [2026-09-10] A mistyped payment reference was permanent once a PRF was marked paid
 
 - **Symptom:** `payment_reference` — the transfer/cheque number — is keyed by hand in the Mark Paid

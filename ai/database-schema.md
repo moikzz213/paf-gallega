@@ -207,6 +207,19 @@ request had been approved, so it was **not** in front of the approvers; recorded
 rather than inferred from timestamps, so the record itself answers "what did the approver see?").
 Limits (config `paf.php`): 10 files, 10 MB, `pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`.
 
+### invoice_rejections
+
+`invoice_id` (cascade delete), `payment_request_id` (cascade delete), `rejected_at`, timestamps.
+**Unique** `(invoice_id, payment_request_id)`; **index** `rejected_at`.
+
+One row per invoice per payment request that was **rejected**, written by
+`PaymentRequestService::returnInvoicesToFinance` immediately before the invoices are detached.
+`invoices.payment_request_id` only ever names the request an invoice is on *now* — rejection clears
+it and the next request overwrites it — so without this table a rejected PAF, its reason and its
+approver comments left no trace in the report. `InvoiceReport` reads the rejected request's
+`reference_no`, `rejection_reason` and approvals back through it. Withdrawal and cancellation detach
+the same way but are **not** recorded here (see known-issues).
+
 ### audit_logs
 
 Append-only (`created_at` only). `user_id` (actor), `invoice_id` (nullOnDelete),
@@ -215,7 +228,8 @@ Append-only (`created_at` only). `user_id` (actor), `invoice_id` (nullOnDelete),
 
 ## Referential integrity
 
-- `invoice_documents` and `payment_request_approvals` **cascade delete** with their parent.
+- `invoice_documents`, `payment_request_approvals` and `invoice_rejections` **cascade delete** with
+  their parent.
 - `audit_logs.invoice_id` / `payment_request_id` are **null on delete** — history survives.
 - `invoices.payment_request_id` is null on delete — clearing a PRF frees its invoices.
 - **Retired** by ADR-002: the `invoice_approvals` table and the per-invoice approval/payment

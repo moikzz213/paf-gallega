@@ -131,10 +131,7 @@ class PublicPaymentRequestController extends Controller
             // Captured before the detach below empties the invoice relation the notice reads from.
             $snapshot = $this->service->rejectionSnapshot($pr);
 
-            $pr->invoices()->update([
-                'payment_status' => Invoice::PAY_NOT_INITIATED,
-                'payment_request_id' => null,
-            ]);
+            $this->service->returnInvoicesToFinance($pr);
 
             AuditLogger::log('rejected', "Payment request {$pr->reference_no} rejected at stage {$stage} via public link by {$approver->name}. Invoices returned to Finance.", null, null, null, $pr);
         });
