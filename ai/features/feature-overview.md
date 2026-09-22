@@ -179,7 +179,14 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   `approved_for_payment`). On **final approval**, the requestors are emailed
   (`PaymentRequestApproved` → the PRF creator + every invoice submitter), from both the in-app and
   public-link approval paths.
-- **Reject** → PRF `rejected`; its invoices are returned to the eligible pool for re-initiation.
+- **Reject** → PRF `rejected`; its invoices are returned to the eligible pool for re-initiation,
+  and an `invoice_rejections` row records that each one was on this PRF — the report reads the
+  rejected PAF back through it, since the invoice's own `payment_request_id` is cleared here and
+  reused by whatever PRF the corrected invoice goes onto next. Everyone involved is emailed
+  (`PaymentRequestRejected` → the PRF creator, every invoice submitter, **every approver on the
+  chain**, and the **active Finance team**, de-duplicated), from both the in-app and public-link
+  rejection paths. Finance are told because re-initiation is their job; the earlier-stage approvers
+  because a later stage overturned what they passed.
 - **Approvals queue** lists the PRFs awaiting the current user's stage.
 - The approval decision dialog, authenticated PRF detail, and token-gated approval page show each
   invoice submitter and the invoice-line job no., customer, description, and currency-prefixed

@@ -28,11 +28,17 @@
         <div class="body">
             <p>Hello,</p>
 
-            <p>Your payment request has been <strong>rejected</strong>
+            {{-- Goes to the requestor, the invoice submitters, the approval chain and Finance, so
+                 it is worded for anyone involved rather than for the requestor alone. --}}
+            <p>Payment request <strong>{{ $paymentRequest->reference_no }}</strong> has been
+               <strong>rejected</strong>
                @if($stageLabel) at the <strong>{{ $stageLabel }}</strong> stage @endif
                @if($rejectedBy) by <strong>{{ $rejectedBy }}</strong> @endif.
                Its invoices have been returned to the Invoice Log so they can be corrected and
                re-submitted for payment.</p>
+
+            <p>You are receiving this because you raised the request, submitted one of its invoices,
+               are on its approval chain, or are part of the Finance team.</p>
 
             <div class="reason">
                 <h3>Reason for rejection</h3>

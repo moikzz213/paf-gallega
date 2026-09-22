@@ -84,6 +84,17 @@ class Invoice extends Model
         return $this->belongsTo(PaymentRequest::class);
     }
 
+    /**
+     * The payment requests this invoice was on that were rejected, oldest first.
+     *
+     * Separate from `paymentRequest`, which only ever holds the request the invoice is on *now* —
+     * rejection clears it, and re-submission overwrites it. See InvoiceRejection.
+     */
+    public function rejections()
+    {
+        return $this->hasMany(InvoiceRejection::class)->oldest('rejected_at');
+    }
+
     public function documents()
     {
         return $this->hasMany(InvoiceDocument::class);
