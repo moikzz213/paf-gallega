@@ -5,6 +5,28 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-09-23] Rejection notice went to the approval chain and the whole Finance team
+
+- **Symptom:** Known issue #17. One rejection generated mail to the PRF creator, every invoice
+  submitter, every approver on the chain and every active Finance user. On a long chain that is a
+  lot of mail for a single event, and the recipient list is fixed in code with no opt-out.
+- **Cause:** Not a defect — the audience was widened deliberately in b8fe675 (INC-175701) so that
+  Finance, who re-initiate, and earlier-stage approvers, who were overturned, would hear about it.
+  The volume cost was recognised at the time and filed as #17, with the CR reserving "suspend the
+  widened notification, returning to the previous recipient list" as its rollback.
+- **Fix:** Requested narrowing to the people the rejection is addressed to: the PRF creator and
+  whoever submitted each invoice. `rejectionSnapshot` no longer merges the approval chain or
+  `financeEmails()`, which is removed; the email is worded for the requestor again
+  (`PaymentRequestService`, `emails/payment-request-rejected.blade.php`).
+- **Verified:** `RejectedPaymentRequestReportingTest` now asserts exactly two recipients and that
+  the rejecting approver and uninvolved Finance users get nothing; the de-duplication test was
+  rebuilt around a creator who also submitted the invoice, since the Finance-role overlap it
+  previously relied on no longer exists. Full suite re-run.
+- **Note:** Finance and the approvers now learn of a rejection from the app rather than by mail —
+  the returned invoices in the Invoice Log, the rejection in the report, and the outcome on the
+  request itself. If that proves too quiet for Finance in particular, the middle ground is to
+  notify the Finance role only and leave the chain out.
+
 ## [2026-09-22] Filtering the report by a payment or PRF status returned nothing
 
 - **Symptom:** Reported straight after the fix below: with rejected PAFs now present in the report,

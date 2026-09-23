@@ -346,13 +346,11 @@ class PaymentRequestService
         // A deliberate `load`, not `loadMissing`: the public-link path arrives with `submitter`
         // already eager-loaded as `id,name` only, and reusing that silently drops every invoice
         // submitter from the recipient list. Re-reading costs one query and cannot be short-changed.
-        $pr->load('creator', 'invoices.submitter', 'invoices.items', 'approvals.approver');
+        $pr->load('creator', 'invoices.submitter', 'invoices.items');
 
         return [
             'recipients' => collect([$pr->creator?->email])
                 ->merge($pr->invoices->map(fn ($inv) => $inv->submitter?->email))
-                ->merge($pr->approvals->map(fn ($approval) => $approval->approver?->email))
-                ->merge(self::financeEmails())
                 ->filter()
                 ->unique()
                 ->values()
@@ -366,23 +364,6 @@ class PaymentRequestService
                 'currency' => (string) $inv->currency,
             ])->all(),
         ];
-    }
-
-    /**
-     * The active Finance team, who have to correct and re-initiate whatever was rejected.
-     *
-     * The whole role, not the nominated approvers among them: re-initiation is ordinary Finance
-     * work, not an approval duty, so `scopeEligibleApprovers` is the wrong rule here.
-     *
-     * @return array<int, string>
-     */
-    private static function financeEmails(): array
-    {
-        return User::query()
-            ->where('is_active', true)
-            ->where('role', User::ROLE_FINANCE)
-            ->pluck('email')
-            ->all();
     }
 
     /**
@@ -416,13 +397,15 @@ class PaymentRequestService
     }
 
     /**
-     * Tell everyone involved that a request was rejected and why — the PRF creator, everyone who
-     * submitted one of its invoices, every approver on its chain, and the Finance team.
+     * Tell the requestor side that a request was rejected and why — the PRF creator and everyone
+     * who submitted one of its invoices, and nobody else.
      *
      * Rejection used to be silent: the invoices dropped back to "not initiated" with no signal, so
      * the people who had to act on the rejection reason only found it by reopening the request.
-     * Finance were then still missing from the notice even though re-initiation is their job, as
-     * were the approvers who had already passed the request at an earlier stage.
+     * The notice briefly went wider, to the approval chain and the whole Finance role, which is the
+     * volume concern raised as known issue #17; the audience is now the people the rejection is
+     * addressed to. Approvers see the outcome on the request itself, and Finance find the returned
+     * invoices in the Invoice Log and the rejection in the report, so neither depends on the mail.
      *
      * @param  array{recipients: array<int, string>, summary: string, invoiceLines: array<int, array<string, mixed>>}  $snapshot  from `rejectionSnapshot`, taken before the invoices were detached
      */

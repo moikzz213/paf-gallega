@@ -175,42 +175,64 @@ class RejectedPaymentRequestReportingTest extends TestCase
         $this->assertContains('Rejected Payment Requests', InvoiceReport::headings());
     }
 
-    public function test_the_rejection_notice_reaches_finance_and_the_approval_chain(): void
+    /**
+     * The notice goes to the requestor side and stops there: whoever raised the request and
+     * whoever submitted its invoices. It briefly also went to the approval chain and the whole
+     * Finance role, which is the volume this pins shut.
+     */
+    public function test_the_rejection_notice_reaches_only_the_requestor_and_the_invoice_submitter(): void
     {
         ['pr' => $pr, 'l1' => $l1, 'finance' => $finance, 'requester' => $requester] = $this->requestInApproval();
         $otherFinance = $this->user(User::ROLE_FINANCE);
-        $inactiveFinance = $this->user(User::ROLE_FINANCE, ['is_active' => false]);
 
         Mail::fake();
 
         app(PaymentRequestService::class)->reject($pr, $l1, 'Vendor bank details are wrong');
 
-        foreach ([$requester, $finance, $otherFinance, $l1] as $recipient) {
+        // $finance raised the request; $requester submitted its invoice.
+        foreach ([$finance, $requester] as $recipient) {
             Mail::assertQueued(
                 PaymentRequestRejected::class,
                 fn ($mail) => $mail->hasTo($recipient->email),
             );
         }
 
-        Mail::assertNotQueued(
-            PaymentRequestRejected::class,
-            fn ($mail) => $mail->hasTo($inactiveFinance->email),
-        );
+        // The rejecting approver and Finance users with no hand in this request are not mailed.
+        foreach ([$l1, $otherFinance] as $bystander) {
+            Mail::assertNotQueued(
+                PaymentRequestRejected::class,
+                fn ($mail) => $mail->hasTo($bystander->email),
+            );
+        }
+
+        $this->assertCount(2, Mail::queued(PaymentRequestRejected::class));
     }
 
-    public function test_each_recipient_is_notified_once(): void
+    /**
+     * The two roles the notice addresses are held by one person often enough to matter: Finance
+     * raising a request over an invoice they posted themselves is routine.
+     */
+    public function test_someone_who_both_raised_the_request_and_submitted_its_invoice_is_mailed_once(): void
     {
-        ['pr' => $pr, 'l1' => $l1, 'finance' => $finance] = $this->requestInApproval();
+        ApprovalLevel::create(['level' => 1, 'name' => 'Manager', 'min_amount' => 0, 'is_active' => true]);
+
+        $finance = $this->user(User::ROLE_FINANCE);
+        $l1 = $this->user(User::ROLE_APPROVER, ['approval_level' => 1]);
+        $invoice = $this->invoice($finance);
+
+        $pr = app(PaymentRequestService::class)->create([$invoice->id], $finance, [
+            ['approver_id' => $l1->id, 'label' => 'Manager', 'level' => 1, 'is_adhoc' => false],
+        ]);
 
         Mail::fake();
 
         app(PaymentRequestService::class)->reject($pr, $l1, 'Correct and resubmit');
 
-        // The Finance user created the request and is also on the Finance team.
         $this->assertCount(
             1,
             Mail::queued(PaymentRequestRejected::class, fn ($mail) => $mail->hasTo($finance->email)),
         );
+        $this->assertCount(1, Mail::queued(PaymentRequestRejected::class));
     }
 
     /**
