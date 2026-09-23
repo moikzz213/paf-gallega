@@ -182,11 +182,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - **Reject** → PRF `rejected`; its invoices are returned to the eligible pool for re-initiation,
   and an `invoice_rejections` row records that each one was on this PRF — the report reads the
   rejected PAF back through it, since the invoice's own `payment_request_id` is cleared here and
-  reused by whatever PRF the corrected invoice goes onto next. Everyone involved is emailed
-  (`PaymentRequestRejected` → the PRF creator, every invoice submitter, **every approver on the
-  chain**, and the **active Finance team**, de-duplicated), from both the in-app and public-link
-  rejection paths. Finance are told because re-initiation is their job; the earlier-stage approvers
-  because a later stage overturned what they passed.
+  reused by whatever PRF the corrected invoice goes onto next. The requestor side is emailed
+  (`PaymentRequestRejected` → the **PRF creator** and **every invoice submitter**, de-duplicated),
+  from both the in-app and public-link rejection paths. The notice briefly also went to the
+  approval chain and the whole Finance role; that was withdrawn over notification volume, the
+  rollback the change request had itself reserved. Approvers see the outcome on the request, and
+  Finance find the returned invoices in the Invoice Log and the rejection in the report.
 - **Approvals queue** lists the PRFs awaiting the current user's stage.
 - The approval decision dialog, authenticated PRF detail, and token-gated approval page show each
   invoice submitter and the invoice-line job no., customer, description, and currency-prefixed
