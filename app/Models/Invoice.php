@@ -41,7 +41,7 @@ class Invoice extends Model
 
     protected $fillable = [
         'reference_no', 'vendor_name', 'vendor_id',
-        'invoice_no', 'invoice_date', 'due_date', 'currency',
+        'invoice_no', 'invoice_no_exempt', 'invoice_date', 'due_date', 'currency',
         'amount', 'tax_amount', 'total_amount',
         'business_unit', 'department', 'location', 'payment_method',
         'priority', 'is_advance_payment', 'description', 'status', 'submitted_by', 'submitted_at',
@@ -53,6 +53,7 @@ class Invoice extends Model
     {
         return [
             'is_advance_payment' => 'boolean',
+            'invoice_no_exempt' => 'boolean',
             'invoice_date' => 'date:Y-m-d',
             'due_date' => 'date:Y-m-d',
             'posting_date' => 'date:Y-m-d',

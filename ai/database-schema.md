@@ -118,7 +118,23 @@ Lifecycle & posting columns:
 | `payment_request_id` | FK payment_requests, nullable (nullOnDelete) | current PRF |
 | timestamps | | |
 
-**Index:** `(status, payment_status)`, `department`, `vendor_name`.
+| `invoice_no_key` | string, nullable, **generated (virtual)** | `CASE WHEN status = 'cancelled' THEN NULL ELSE LOWER(TRIM(invoice_no)) END`. Exists only to carry the uniqueness rule below — never written to, never read by the application |
+
+**Index:** `(status, payment_status)`, `department`, `vendor_name`,
+**unique `(vendor_id, invoice_no_key)`** (`invoices_vendor_invoice_no_unique`).
+
+**A vendor's invoice number may appear once for that vendor.** The number was captured on every
+invoice and never checked, so the same vendor document could be recorded repeatedly and each copy
+posted, approved and paid on its own — the ordinary route to a duplicate payment. The constraint is
+expressed over the generated column rather than `invoice_no` because two of the rules it carries are
+invisible to a plain unique index: **cancelled invoices release their number** (the column is NULL
+for them, and both MySQL and SQLite exempt NULLs), and **case and surrounding spaces are ignored**,
+so `inv-1001` cannot sit beside `INV-1001`. Rows with a NULL `vendor_id` — invoices predating the
+vendor master list, which the 2026_08_05 backfill could not resolve — fall outside the rule by the
+same NULL exemption. `App\Rules\UniqueVendorInvoiceNumber` enforces the same rule at validation
+time and names the invoice already holding the number; it normalises both sides explicitly rather
+than leaning on the column's collation, which is case-insensitive in MySQL and case-sensitive in the
+SQLite test database.
 `isEditable()` = status ∈ {submitted, query_raised} **and** payment_status = not_initiated.
 `isPayable()` = payment_status = not_initiated **and** status ∈ {posted, submitted}.
 
