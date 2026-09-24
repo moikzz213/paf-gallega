@@ -6,6 +6,7 @@ use App\Mail\InvoiceQueryRaised;
 use App\Models\Department;
 use App\Models\Invoice;
 use App\Models\Vendor;
+use App\Rules\UniqueVendorInvoiceNumber;
 use App\Services\AuditLogger;
 use App\Services\Notifier;
 use App\Services\PaymentRequestService;
@@ -150,7 +151,7 @@ class InvoiceController extends Controller
             $inPlace = true;
         }
 
-        $data = $this->validated($request);
+        $data = $this->validated($request, $invoice);
         $itemsData = $this->validatedItems($request);
         $data['currency'] = $this->currencyOf($itemsData);
         $old = $invoice->only(array_keys($data));
@@ -548,11 +549,17 @@ class InvoiceController extends Controller
         return response()->json(['message' => 'Deleted']);
     }
 
-    private function validated(Request $request): array
+    /**
+     * @param  Invoice|null  $invoice  the invoice being corrected, so the number check can ignore it
+     */
+    private function validated(Request $request, ?Invoice $invoice = null): array
     {
         $data = $request->validate([
             'vendor_id' => ['required', 'integer', Rule::exists('vendors', 'id')->where('is_active', true)],
-            'invoice_no' => ['required', 'string', 'max:100'],
+            // Unique per vendor, which is the control against recording the same vendor document
+            // twice and paying it twice. The database carries the same rule; this half names the
+            // invoice already holding the number.
+            'invoice_no' => ['required', 'string', 'max:100', new UniqueVendorInvoiceNumber($request->integer('vendor_id') ?: null, $invoice?->id)],
             'invoice_date' => ['required', 'date'],
             'due_date' => ['nullable', 'date', 'after_or_equal:invoice_date'],
             'currency' => ['nullable', 'string', Rule::exists('currencies', 'name')->where('is_active', true)], // overwritten from the line items
@@ -577,7 +584,13 @@ class InvoiceController extends Controller
         // browser might send, and anything unrecognised is simply not an advance.
         $data['is_advance_payment'] = $request->boolean('is_advance_payment');
 
-        $data['vendor_name'] = Vendor::findOrFail($data['vendor_id'])->name;
+        $vendor = Vendor::findOrFail($data['vendor_id']);
+        $data['vendor_name'] = $vendor->name;
+
+        // Denormalised from the vendor because the unique index reads a generated column, and a
+        // generated column cannot look at another table. Re-stamped on every write, so moving an
+        // invoice to a different vendor carries the right exemption with it.
+        $data['invoice_no_exempt'] = (bool) $vendor->is_expense_account;
 
         return $data;
     }

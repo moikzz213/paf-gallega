@@ -54,7 +54,10 @@
 | POST | `/api/invoices/{invoice}/query` | `role:finance,admin`; status submitted/posted **and** `payment_status = not_initiated` | `finance_remarks` req → `query_raised`; **queues mail to the invoice submitter** (`InvoiceQueryRaised`). The response carries `notification_sent`: the query is recorded either way, so a mail problem is reported rather than failing the request — recover with `/resend-query`. `422` once the invoice is in a PRF: a query asks for a correction, and an invoice in a payment cycle cannot be edited — reject (or withdraw) the PRF first |
 
 **Create/update validation:** `vendor_id` must reference an active vendor; the server derives
-`vendor_name` from that record so same-named vendors remain distinct. invoice_no req ≤100;
+`vendor_name` from that record so same-named vendors remain distinct. invoice_no req ≤100 and
+**unique for that vendor** — case and surrounding spaces ignored, cancelled invoices excluded, the
+invoice being corrected ignoring itself; `422` on `invoice_no` naming the existing invoice's
+reference (a unique index carries the same rule, so a race cannot slip past it);
 invoice_date req; due_date `after_or_equal:invoice_date`; currency (header and every line) must be
 an active `currencies` master-data name;
 amount −1e12–1e12 but **never 0** (a negative line is a vendor credit note, netted off by the

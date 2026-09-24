@@ -26,6 +26,15 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   view and the emails),
   payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
 - System reference `INV-{year}-{00001}`; submitted immediately (status `submitted`).
+- The **vendor's invoice number is unique for that vendor**, which is the control against recording
+  the same vendor document twice and paying it twice. A repeat is declined at entry with a message
+  naming the invoice that already holds the number, so Finance can check it rather than guess.
+  Three qualifications: the check is **per vendor**, so two vendors may use the same numbering
+  freely; **case and surrounding spaces are ignored**, so the same document cannot slip through as
+  `inv-1001` beside `INV-1001`; and **cancelled invoices release their number**, so a cancelled
+  mis-entry never locks out the genuine invoice. A correction never blocks itself, and a unique
+  index carries the same rule so simultaneous submissions cannot race past it. Invoices predating
+  the vendor master list carry no vendor link and are outside the rule.
 - A **queried** invoice can be edited and it returns to `submitted`.
 
 ## 3. Invoice Log (Finance)

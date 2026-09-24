@@ -133,6 +133,9 @@ class MasterDataController extends Controller
             'vendors' => array_merge([
                 'name' => ['required', 'string', 'max:255'],
                 'vendor_code' => ['nullable', 'string', 'max:50', Rule::unique('vendors', 'vendor_code')->whereNotNull('vendor_code')->when($ignoreId, fn ($r) => $r->ignore($ignoreId))],
+                // Petty cash floats, reimbursements and fuel claims issue no vendor invoice
+                // number, so per-vendor uniqueness does not apply to them.
+                'is_expense_account' => ['boolean'],
             ], $creditRules, $common),
 
             'customers' => array_merge([
