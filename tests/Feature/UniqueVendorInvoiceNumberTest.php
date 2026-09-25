@@ -421,6 +421,40 @@ class UniqueVendorInvoiceNumberTest extends TestCase
     }
 
     /**
+     * Waiving the safeguard is a deliberate decision — take the existing records as they stand and
+     * enforce only from here — so it is a flag rather than the default, and it must still leave the
+     * number closed to anything new.
+     */
+    public function test_identical_amounts_are_grandfathered_when_explicitly_asked(): void
+    {
+        $this->seedMasterData();
+        $vendor = $this->vendor('Al Noor', 'ALN-1');
+        $invoices = $this->forceDuplicates($vendor, 'INV-9001');
+
+        $this->artisan('paf:prepare-invoice-no-uniqueness --apply --grandfather-identical-amounts')
+            ->expectsOutputToContain('grandfathered by request')
+            ->assertSuccessful();
+
+        $this->assertFalse($invoices[0]->refresh()->invoice_no_exempt, 'the earliest keeps the number');
+        $this->assertTrue($invoices[1]->refresh()->invoice_no_exempt, 'the later copy is accepted as-is');
+    }
+
+    /** Leaving the past alone must not leave the future open. */
+    public function test_a_grandfathered_number_is_still_closed_to_new_invoices(): void
+    {
+        $this->seedMasterData();
+        $vendor = $this->vendor('Al Noor', 'ALN-1');
+        $this->forceDuplicates($vendor, 'INV-9001');
+
+        $this->artisan('paf:prepare-invoice-no-uniqueness --apply --grandfather-identical-amounts')
+            ->assertSuccessful();
+
+        $this->submit($this->requester('new@t.local'), $vendor, 'INV-9001')
+            ->assertStatus(422)
+            ->assertJsonValidationErrors('invoice_no');
+    }
+
+    /**
      * The case that must never be waved through: identical amounts under one number is what a
      * double-billing looks like, and grandfathering it would leave an unpaid copy still payable.
      */
