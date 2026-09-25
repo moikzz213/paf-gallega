@@ -26,11 +26,16 @@ use Illuminate\Support\Facades\DB;
  * Reports what it would do and changes nothing unless `--apply` is given. Run it after
  * `paf:check-invoice-duplicates`, and before migrating.
  *
- * One group it will not touch: copies that all carry the identical amount. That is what a
- * double-billing looks like, and grandfathering it would bless the very thing the rule exists to
- * catch — while leaving any unpaid copy still payable. Production held three copies of one
- * AED 752,171.90 invoice, one paid and two waiting. Those are listed for Finance to cancel or
+ * By default it will not touch one kind of group: copies that all carry the identical amount. That
+ * is what a double-billing looks like, and grandfathering it would bless the very thing the rule
+ * exists to catch — while leaving any unpaid copy still payable. Production held three copies of
+ * one AED 752,171.90 invoice, one paid and two waiting. Those are listed for Finance to cancel or
  * correct, and the migration stays blocked until they do.
+ *
+ * `--grandfather-identical-amounts` waives that and accepts them as they stand, which is a
+ * deliberate decision to take the existing records as given and enforce only from here. It is a
+ * flag rather than the default so that the choice is visible in the command someone ran, and the
+ * copies remain payable and remain listed by `paf:check-invoice-duplicates` afterwards.
  *
  * Grandfathered groups stay visible to `paf:check-invoice-duplicates` afterwards: grandfathering
  * unblocks a deployment, it does not settle what the figures mean.
@@ -41,13 +46,16 @@ class PrepareInvoiceNoUniqueness extends Command
 {
     protected $signature = 'paf:prepare-invoice-no-uniqueness
         {--apply : write the changes; without this the command only reports}
-        {--pattern=* : vendor name fragments treated as expense accounts (default: "petty cash", "reimbursement")}';
+        {--pattern=* : vendor name fragments treated as expense accounts (default: "petty cash", "reimbursement")}
+        {--grandfather-identical-amounts : also grandfather groups whose copies share an amount, accepting them unreviewed}';
 
     protected $description = 'Mark expense accounts and grandfather historic duplicates so invoice numbers can be made unique per vendor';
 
     private const DEFAULT_PATTERNS = ['petty cash', 'reimbursement'];
 
     private int $unresolved = 0;
+
+    private int $acceptedIdentical = 0;
 
     public function handle(): int
     {
@@ -72,6 +80,12 @@ class PrepareInvoiceNoUniqueness extends Command
             $this->line("    Their invoices taken out of the rule: {$vendors['invoices']}");
             $this->line("    Historic duplicate copies grandfathered: {$grandfathered}");
             $this->newLine();
+
+            if ($this->acceptedIdentical > 0) {
+                $this->line("    <fg=yellow>Copies with an identical amount accepted unreviewed: {$this->acceptedIdentical}</>");
+                $this->line('    <fg=yellow>They stay payable, and `paf:check-invoice-duplicates` goes on listing them.</>');
+                $this->newLine();
+            }
 
             if ($this->unresolved > 0) {
                 $this->line("    <fg=red>Numbers needing a Finance decision first: {$this->unresolved}</>");
@@ -180,6 +194,25 @@ class PrepareInvoiceNoUniqueness extends Command
             // it would leave any unpaid copy still payable. Production had three copies of one
             // AED 752,171.90 invoice, one paid and two waiting. Finance decide these, not this
             // command: cancel a true duplicate, or correct the number if the documents differ.
+            if ($sameAmount && $this->option('grandfather-identical-amounts')) {
+                // Asked for explicitly: accept the existing records as they stand and enforce only
+                // from here. The copies stay payable and the question of whether anything was
+                // billed twice stays open — `paf:check-invoice-duplicates` goes on listing them.
+                $this->line("     <fg=yellow>{$keeper->vendor_name} — {$group->invoice_no_key} ×{$group->occurrences} — grandfathered by request</>");
+                $this->line("       <fg=yellow>every copy carries {$keeper->total_amount} {$keeper->currency}; accepted as-is, not reviewed.</>");
+                $this->line("       <fg=gray>keeps the number:</> {$keeper->reference_no}");
+
+                foreach ($rest as $invoice) {
+                    $this->line("       <fg=gray>grandfathered:</>    {$invoice->reference_no} ({$invoice->payment_status})");
+                }
+
+                Invoice::whereIn('id', $rest->pluck('id'))->update(['invoice_no_exempt' => true]);
+                $total += $rest->count();
+                $this->acceptedIdentical += $rest->count();
+
+                continue;
+            }
+
             if ($sameAmount) {
                 $this->line("     <fg=red>{$keeper->vendor_name} — {$group->invoice_no_key} ×{$group->occurrences} — NOT grandfathered</>");
                 $this->line("       <fg=gray>every copy carries {$keeper->total_amount} {$keeper->currency}, which is what a double-billing looks like.</>");
@@ -191,7 +224,8 @@ class PrepareInvoiceNoUniqueness extends Command
                     $this->line("       {$invoice->reference_no} ({$invoice->payment_status}) — {$action}");
                 }
 
-                $this->line('       <fg=yellow>Cancel the duplicate, or correct its number, then re-run.</>');
+                $this->line('       <fg=yellow>Cancel the duplicate, or correct its number, then re-run — or pass</>');
+                $this->line('       <fg=yellow>--grandfather-identical-amounts to accept it as it stands.</>');
                 $unresolved++;
 
                 continue;
