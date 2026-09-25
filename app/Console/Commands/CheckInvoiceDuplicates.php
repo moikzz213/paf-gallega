@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Invoice;
+use App\Support\InvoiceDuplicates;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -32,28 +33,16 @@ class CheckInvoiceDuplicates extends Command
 
     protected $description = 'Report vendor invoice numbers recorded more than once, and whether each blocks the uniqueness rule';
 
-    /**
-     * Cancellation only. The exemption is deliberately left out so grandfathered history stays
-     * visible here, even though the index itself ignores it.
-     */
-    private const EXPRESSION = "CASE WHEN status = 'cancelled' THEN NULL ELSE LOWER(TRIM(invoice_no)) END";
-
     public function handle(): int
     {
         $this->newLine();
         $this->line('<comment>Duplicate vendor invoice numbers</comment>');
         $this->newLine();
 
-        $groups = DB::table('invoices')
-            ->join('vendors', 'vendors.id', '=', 'invoices.vendor_id')
-            ->selectRaw('invoices.vendor_id, '.self::EXPRESSION.' AS invoice_no_key, COUNT(*) AS occurrences')
-            ->whereNotNull('invoices.vendor_id')
-            ->whereRaw(self::EXPRESSION.' IS NOT NULL')
-            // Grouped by the expression rather than the alias: after the migration that name also
-            // belongs to a generated column, and grouping by it trips `only_full_group_by`.
-            ->groupByRaw('invoices.vendor_id, '.self::EXPRESSION)
-            ->havingRaw('COUNT(*) > 1')
-            ->get();
+        // Exemption deliberately not honoured, so grandfathered history stays reported here even
+        // though the index ignores it. See App\Support\InvoiceDuplicates for why the grouping is
+        // shaped the way it is.
+        $groups = InvoiceDuplicates::groups(honourExemption: false)->get();
 
         $expenseGroups = (clone $groups)->filter(fn ($g) => $this->vendorIsExpenseAccount($g->vendor_id));
         $groups = $groups->reject(fn ($g) => $this->vendorIsExpenseAccount($g->vendor_id));
@@ -76,7 +65,7 @@ class CheckInvoiceDuplicates extends Command
         foreach ($groups as $group) {
             $invoices = Invoice::with('paymentRequest:id,reference_no,status')
                 ->where('vendor_id', $group->vendor_id)
-                ->whereRaw(self::EXPRESSION.' = ?', [$group->invoice_no_key])
+                ->whereRaw(InvoiceDuplicates::expression(false).' = ?', [$group->invoice_no_key])
                 ->orderBy('id')
                 ->get();
 

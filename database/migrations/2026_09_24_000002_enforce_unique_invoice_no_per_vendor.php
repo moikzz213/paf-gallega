@@ -41,11 +41,17 @@ return new class extends Migration
     {
         $this->assertNoExistingDuplicates();
 
-        Schema::table('invoices', function (Blueprint $table) {
-            $table->string('invoice_no_key')
-                ->nullable()
-                ->virtualAs(self::EXPRESSION)
-                ->after('invoice_no');
+        // STORED on MySQL/MariaDB, VIRTUAL on SQLite, and the difference is not cosmetic.
+        // MariaDB's InnoDB will not build a secondary index over a VIRTUAL generated column on the
+        // versions this is deployed to, so the index has to sit on a stored one; SQLite refuses the
+        // opposite, because ALTER TABLE ADD COLUMN there accepts VIRTUAL only. Both are indexable
+        // in their respective form, so each driver gets the one it can actually use.
+        $stored = Schema::getConnection()->getDriverName() !== 'sqlite';
+
+        Schema::table('invoices', function (Blueprint $table) use ($stored) {
+            $column = $table->string('invoice_no_key')->nullable()->after('invoice_no');
+
+            $stored ? $column->storedAs(self::EXPRESSION) : $column->virtualAs(self::EXPRESSION);
         });
 
         Schema::table('invoices', function (Blueprint $table) {
@@ -74,16 +80,23 @@ return new class extends Migration
      */
     private function assertNoExistingDuplicates(): void
     {
-        $duplicates = DB::table('invoices')
-            ->selectRaw('vendor_id, '.self::EXPRESSION.' AS invoice_no_key, COUNT(*) AS occurrences')
-            ->whereNotNull('vendor_id')
-            // Grouped by the expression, not by the `invoice_no_key` alias. Before this migration
-            // runs the alias is all there is; afterwards the name also belongs to a real generated
-            // column, and MySQL then resolves it to the column and rejects the whole query under
-            // `only_full_group_by`, because the selected expression reads `status`. Naming the
-            // expression works in both states.
-            ->whereRaw(self::EXPRESSION.' IS NOT NULL')
-            ->groupByRaw('vendor_id, '.self::EXPRESSION)
+        // The key is computed in a derived table so the grouping is done on a plain column.
+        // Grouping by the expression itself satisfies MySQL 8 but not MariaDB, which does not match
+        // a GROUP BY expression against the identical expression in the select list and rejects it
+        // under ONLY_FULL_GROUP_BY; grouping by the `invoice_no_key` alias breaks differently, once
+        // this migration's generated column owns that name. A plain column is unambiguous on every
+        // engine. Written out here rather than shared with App\Support\InvoiceDuplicates, because
+        // a migration has to keep meaning what it meant on the day it ran.
+        $keyed = DB::table('invoices')
+            ->selectRaw('vendor_id, '.self::EXPRESSION.' AS invoice_no_key')
+            ->whereNotNull('vendor_id');
+
+        $duplicates = DB::query()
+            ->fromSub($keyed, 'keyed')
+            ->select('vendor_id', 'invoice_no_key')
+            ->selectRaw('COUNT(*) AS occurrences')
+            ->whereNotNull('invoice_no_key')
+            ->groupBy('vendor_id', 'invoice_no_key')
             ->havingRaw('COUNT(*) > 1')
             ->get();
 
