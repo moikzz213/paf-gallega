@@ -4,6 +4,7 @@ namespace App\Console\Commands;
 
 use App\Models\Invoice;
 use App\Models\Vendor;
+use App\Support\InvoiceDuplicates;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
 
@@ -47,8 +48,6 @@ class PrepareInvoiceNoUniqueness extends Command
     private const DEFAULT_PATTERNS = ['petty cash', 'reimbursement'];
 
     private int $unresolved = 0;
-
-    private const EXPRESSION = "CASE WHEN status = 'cancelled' OR invoice_no_exempt = 1 THEN NULL ELSE LOWER(TRIM(invoice_no)) END";
 
     public function handle(): int
     {
@@ -153,13 +152,7 @@ class PrepareInvoiceNoUniqueness extends Command
     {
         $this->line('  <options=bold>2. Historic duplicates on real vendors</>');
 
-        $groups = DB::table('invoices')
-            ->selectRaw('vendor_id, '.self::EXPRESSION.' AS invoice_no_key, COUNT(*) AS occurrences')
-            ->whereNotNull('vendor_id')
-            ->whereRaw(self::EXPRESSION.' IS NOT NULL')
-            ->groupByRaw('vendor_id, '.self::EXPRESSION)
-            ->havingRaw('COUNT(*) > 1')
-            ->get();
+        $groups = InvoiceDuplicates::groups()->get();
 
         if ($groups->isEmpty()) {
             $this->line('     None left — nothing to grandfather.');
@@ -173,7 +166,7 @@ class PrepareInvoiceNoUniqueness extends Command
 
         foreach ($groups as $group) {
             $invoices = Invoice::where('vendor_id', $group->vendor_id)
-                ->whereRaw(self::EXPRESSION.' = ?', [$group->invoice_no_key])
+                ->whereRaw(InvoiceDuplicates::expression().' = ?', [$group->invoice_no_key])
                 ->orderBy('id')
                 ->get(['id', 'reference_no', 'vendor_name', 'invoice_no', 'payment_status', 'total_amount', 'currency']);
 
