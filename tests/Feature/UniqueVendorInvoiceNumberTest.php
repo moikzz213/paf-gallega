@@ -457,15 +457,24 @@ class UniqueVendorInvoiceNumberTest extends TestCase
 
         $migration = require database_path('migrations/2026_09_24_000002_enforce_unique_invoice_no_per_vendor.php');
 
+        // The detail is echoed rather than carried in the exception: an exception message that
+        // long renders under a stack trace, where the part telling you what to do is the part you
+        // cannot find. The exception stays short; the terminal gets the list.
+        ob_start();
+
         try {
             $migration->up();
+            ob_get_clean();
             $this->fail('The migration should refuse to build the index while duplicates exist.');
         } catch (\RuntimeException $e) {
-            $this->assertStringContainsString('Al Noor', $e->getMessage());
-            $this->assertStringContainsString('INV-9001', strtoupper($e->getMessage()));
+            $printed = ob_get_clean();
+
+            $this->assertStringContainsString('paf:prepare-invoice-no-uniqueness', $e->getMessage());
+            $this->assertStringContainsString('Al Noor', $printed);
+            $this->assertStringContainsString('INV-9001', strtoupper($printed));
 
             foreach ($duplicates as $invoice) {
-                $this->assertStringContainsString($invoice->reference_no, $e->getMessage());
+                $this->assertStringContainsString($invoice->reference_no, $printed);
             }
         }
     }

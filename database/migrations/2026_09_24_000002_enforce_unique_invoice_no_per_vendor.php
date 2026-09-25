@@ -118,11 +118,25 @@ return new class extends Migration
             return "  {$vendor} — invoice no. {$row->invoice_no_key} on {$row->occurrences} invoices: {$references}";
         })->implode(PHP_EOL);
 
+        // Echoed as well as thrown. An exception message this long is rendered under a stack
+        // trace, where the part that tells you what to do is the part you cannot find — and this
+        // stop is the expected path on a database that has not been prepared yet, not a crash.
+        // The detail goes to the terminal; the exception stays short enough to read in one line.
+        // `echo` rather than a write to STDOUT, so a test can capture it and assert on the detail.
+        echo PHP_EOL
+            .'  Invoice numbers cannot be made unique per vendor yet.'.PHP_EOL.PHP_EOL
+            .'  Nothing has been changed, and this is the expected result on a database that has'.PHP_EOL
+            .'  not been prepared. These numbers are still held by more than one live invoice:'.PHP_EOL.PHP_EOL
+            .$lines.PHP_EOL.PHP_EOL
+            .'  Next:'.PHP_EOL
+            .'    1. php artisan paf:check-invoice-duplicates     — review them'.PHP_EOL
+            .'    2. php artisan paf:prepare-invoice-no-uniqueness --apply'.PHP_EOL
+            .'    3. cancel or correct anything it holds back for Finance'.PHP_EOL
+            .'    4. php artisan migrate                          — run this again'.PHP_EOL.PHP_EOL;
+
         throw new RuntimeException(
-            'Invoice numbers cannot be made unique per vendor while duplicates exist.'.PHP_EOL
-            .'Run `php artisan paf:check-invoice-duplicates` to review them, then '
-            .'`php artisan paf:prepare-invoice-no-uniqueness --apply` to mark expense accounts and '
-            .'grandfather what cannot be cancelled. Outstanding:'.PHP_EOL.$lines
+            'Duplicate invoice numbers remain — see the list above, then run '
+            .'`php artisan paf:prepare-invoice-no-uniqueness --apply`. Nothing was changed.'
         );
     }
 };
