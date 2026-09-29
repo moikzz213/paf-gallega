@@ -53,10 +53,12 @@ Structural/maintainability items (distinct from behavioral gaps in
   feature work.
 - **No CI/CD**, no static analysis (PHPStan/Larastan), no frontend lint/format config beyond
   `.editorconfig`. Pint is available but not enforced.
-- **Three pre-existing failing tests** (unrelated to the code they cover being wrong):
+- **Four pre-existing failing tests** (unrelated to the code they cover being wrong):
   `MasterDataImportTest::test_non_admin_cannot_import_or_download_templates` still expects finance
   to be blocked from templates/import, which stopped being true when finance was granted
-  master-data access; and two `PaymentRequestPdfTest` approver-rendering assertions. Fix or retire
+  master-data access; two `PaymentRequestPdfTest` approver-rendering assertions; and, as of
+  2026-09-29, `DashboardPeriodFilterTest::test_spend_charts_are_counted_by_invoice_date` (not yet
+  investigated — likely date-sensitive, as it fails without any code change). Fix or retire
   them — a red baseline hides real regressions.
 
 ## Product-model note

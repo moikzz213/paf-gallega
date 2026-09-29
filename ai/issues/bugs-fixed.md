@@ -5,6 +5,25 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-09-29] Vendor and customer search on Payment Requests showed unrelated names (INC-176271)
+
+- **Symptom:** On New Payment Request, typing in Vendor name or Customer Name left non-matching and
+  stale entries in the list, unlike Department. The Payment Requests list's Vendor filter did the
+  same. Repeated names were also indistinguishable.
+- **Cause:** The autocompletes were fed bare name strings, and Vuetify keys each row by its value.
+  Master data registers a name once per group company — 1,442 of 3,777 active vendor names and
+  1,405 of 3,534 customer names repeat — so rows shared keys and Vue patched the list wrongly.
+  Departments have no repeats.
+- **Fix:** Items are `{ title: 'Name (Code)', value: id }`, the same labels as the invoice form, and
+  the page sends `vendor_id` / `customer_id`. `PaymentRequestController::eligible` and `index`
+  gained those record filters (validated as integers); the name filters remain.
+  (`PaymentRequestsPage.vue`, `PaymentRequestController`.) Picking one company's vendor now returns
+  only that company's invoices — previously a name matched every company's record.
+- **Verified:** `PaymentRequestVendorCustomerFilterTest` (7 tests; 5 fail against the old
+  controller). Against live data, "AL RABIYA AUTO ACCESSORIES TR" returns 8 eligible invoices by
+  name, and 7 / 1 for its GIL / GGL records. Full suite re-run: only the known red baseline fails
+  (see technical-debt).
+
 ## [2026-09-23] Rejection notice went to the approval chain and the whole Finance team
 
 - **Symptom:** Known issue #17. One rejection generated mail to the PRF creator, every invoice

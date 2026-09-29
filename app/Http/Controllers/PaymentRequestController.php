@@ -25,6 +25,11 @@ class PaymentRequestController extends Controller
     /** Invoices eligible to be pulled into a new payment request (Finance only). */
     public function eligible(Request $request)
     {
+        $request->validate([
+            'vendor_id' => ['nullable', 'integer'],
+            'customer_id' => ['nullable', 'integer'],
+        ]);
+
         $query = Invoice::query()
             ->where('payment_status', Invoice::PAY_NOT_INITIATED)
             ->whereIn('status', [Invoice::STATUS_POSTED, Invoice::STATUS_SUBMITTED])
@@ -36,6 +41,12 @@ class PaymentRequestController extends Controller
 
         if ($currency = $request->input('currency')) {
             $query->where('currency', $currency);
+        }
+
+        // One group company's vendor record, not every vendor sharing its name: the same name is
+        // registered once per company (VEN0008 - GIL, VEN0008 - GGL), so a name cannot tell them apart.
+        if ($vendorId = $request->integer('vendor_id')) {
+            $query->where('vendor_id', $vendorId);
         }
 
         if ($vendor = trim((string) $request->input('vendor'))) {
@@ -50,6 +61,10 @@ class PaymentRequestController extends Controller
             $query->whereHas('items', fn ($iq) => $iq->where('job_no', 'like', "%{$jobNo}%"));
         }
 
+        if ($customerId = $request->integer('customer_id')) {
+            $query->whereHas('items', fn ($iq) => $iq->where('customer_id', $customerId));
+        }
+
         if ($customer = trim((string) $request->input('customer'))) {
             $query->whereHas('items.customer', fn ($cq) => $cq->where('name', 'like', "%{$customer}%"));
         }
@@ -59,6 +74,8 @@ class PaymentRequestController extends Controller
 
     public function index(Request $request)
     {
+        $request->validate(['vendor_id' => ['nullable', 'integer']]);
+
         $query = PaymentRequest::query()
             ->visibleTo($request->user())
             ->with(['creator:id,name', 'invoices:id,payment_request_id,reference_no,vendor_name,total_amount,currency', 'approvals.approver:id,name']);
@@ -69,6 +86,10 @@ class PaymentRequestController extends Controller
 
         if ($department = $request->input('department')) {
             $query->whereHas('invoices', fn ($iq) => $iq->where('department', $department));
+        }
+
+        if ($vendorId = $request->integer('vendor_id')) {
+            $query->whereHas('invoices', fn ($iq) => $iq->where('vendor_id', $vendorId));
         }
 
         if ($vendor = trim((string) $request->input('vendor'))) {
