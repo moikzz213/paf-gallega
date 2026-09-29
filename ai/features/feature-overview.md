@@ -70,7 +70,10 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 - Finance selects **multiple eligible invoices** (posted or submitted, not already in a cycle)
   and groups them into one PRF. The selection list can be **filtered** by department, vendor name,
-  invoice no, job no, customer name, and currency.
+  invoice no, job no, customer name, and currency. The vendor and customer choices read
+  "Name (Code)" and each is one master-data record: a name is registered once per group company
+  (`VEN0008 - GIL`, `VEN0008 - GGL`), so picking one returns only that record's invoices. The
+  payment request list's Vendor filter works the same way.
 - **Marking a mis-signed credit note.** Invoices already on record carry credit notes entered as a
   **positive** amount, from before the system accepted a negative one — grouping one *added* it to
   the request. A **Credit note** tick-box on each selected row corrects that: the invoice's own

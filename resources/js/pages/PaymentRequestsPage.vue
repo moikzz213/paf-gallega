@@ -16,8 +16,26 @@ const loading = ref(false);
 const items = ref([]);
 const total = ref(0);
 const search = ref('');
-const filters = reactive({ department: null, vendor: null, status: null });
+const filters = reactive({ department: null, vendor_id: null, status: null });
 const options = reactive({ page: 1, itemsPerPage: 15 });
+
+// A vendor or customer is registered once per group company under the same name (VEN0008 - GIL,
+// VEN0008 - GGL), so the code is what tells the entries apart — and keying each choice by its record
+// rather than its name keeps the list unique, which the autocomplete needs to filter correctly.
+// Same labels as the invoice form.
+const vendorItems = computed(() =>
+    (meta.vendors ?? []).map((v) => ({
+        title: v.name + (v.vendor_code ? ` (${v.vendor_code})` : ''),
+        value: v.id,
+    }))
+);
+
+const customerItems = computed(() =>
+    (meta.customers ?? []).map((c) => ({
+        title: c.name + (c.customer_code ? ` (${c.customer_code})` : ''),
+        value: c.id,
+    }))
+);
 
 // Straight from the server's PaymentRequest::STATUSES, labelled through the same map the status
 // chips use, so a new status appears here without a second list to remember.
@@ -45,7 +63,7 @@ async function load() {
                 per_page: options.itemsPerPage,
                 q: search.value || undefined,
                 department: filters.department || undefined,
-                vendor: filters.vendor || undefined,
+                vendor_id: filters.vendor_id || undefined,
                 status: filters.status || undefined,
             },
         });
@@ -64,7 +82,7 @@ onMounted(() => {
 });
 
 let debounce = null;
-watch([search, () => filters.department, () => filters.vendor, () => filters.status], () => {
+watch([search, () => filters.department, () => filters.vendor_id, () => filters.status], () => {
     clearTimeout(debounce);
     debounce = setTimeout(() => {
         options.page = 1;
@@ -73,7 +91,7 @@ watch([search, () => filters.department, () => filters.vendor, () => filters.sta
 });
 
 // ---- create flow ----
-const emptyEligibleFilters = () => ({ department: null, currency: null, vendor: null, invoice_no: '', job_no: '', customer: null });
+const emptyEligibleFilters = () => ({ department: null, currency: null, vendor_id: null, invoice_no: '', job_no: '', customer_id: null });
 const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], credits: [], saving: false, filters: emptyEligibleFilters() });
 const chain = ref({ assignments: {}, adhoc: [], l2a_approver_id: null, valid: false });
 const confirmingCredits = ref(false);
@@ -120,10 +138,10 @@ async function loadEligible() {
                 per_page: 200,
                 department: f.department || undefined,
                 currency: f.currency || undefined,
-                vendor: f.vendor || undefined,
+                vendor_id: f.vendor_id || undefined,
                 invoice_no: f.invoice_no || undefined,
                 job_no: f.job_no || undefined,
-                customer: f.customer || undefined,
+                customer_id: f.customer_id || undefined,
             },
         });
         create.eligible = data.data;
@@ -222,8 +240,8 @@ async function submitCreate() {
                     </v-col>
                     <v-col cols="12" sm="6" md="3">
                         <v-autocomplete
-                            v-model="filters.vendor"
-                            :items="(meta.vendors ?? []).map(v => v.name)"
+                            v-model="filters.vendor_id"
+                            :items="vendorItems"
                             label="Vendor"
                             clearable
                             hide-details="auto"
@@ -319,7 +337,7 @@ async function submitCreate() {
                                 <v-autocomplete v-model="create.filters.department" :items="meta.departments" label="Department" clearable hide-details="auto" autocomplete="off" density="compact" />
                             </v-col>
                             <v-col cols="12" sm="6" md="2">
-                                <v-autocomplete v-model="create.filters.vendor" :items="(meta.vendors ?? []).map(v => v.name)" label="Vendor name" clearable hide-details="auto" autocomplete="off" density="compact" />
+                                <v-autocomplete v-model="create.filters.vendor_id" :items="vendorItems" label="Vendor name" clearable hide-details="auto" autocomplete="off" density="compact" />
                             </v-col>
                             <v-col cols="12" sm="6" md="2">
                                 <v-text-field v-model="create.filters.invoice_no" label="Invoice No" clearable hide-details="auto" autocomplete="off" density="compact" />
@@ -328,7 +346,7 @@ async function submitCreate() {
                                 <v-text-field v-model="create.filters.job_no" label="Job No" clearable hide-details="auto" autocomplete="off" density="compact" />
                             </v-col>
                             <v-col cols="12" sm="6" md="2">
-                                <v-autocomplete v-model="create.filters.customer" :items="(meta.customers ?? []).map(c => c.name)" label="Customer Name" clearable hide-details="auto" autocomplete="off" density="compact" />
+                                <v-autocomplete v-model="create.filters.customer_id" :items="customerItems" label="Customer Name" clearable hide-details="auto" autocomplete="off" density="compact" />
                             </v-col>
                             <v-col cols="12" sm="6" md="2">
                                 <v-autocomplete v-model="create.filters.currency" :items="meta.currencies" label="Currency" clearable hide-details="auto" autocomplete="off" density="compact" />
