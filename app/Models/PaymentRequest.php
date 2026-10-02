@@ -168,6 +168,39 @@ class PaymentRequest extends Model
         return $this->hasMany(AuditLog::class)->latest('created_at');
     }
 
+    /** Documents attached to the request as a whole — see documentsVisibleTo before showing them. */
+    public function documents()
+    {
+        return $this->hasMany(PaymentRequestDocument::class);
+    }
+
+    /**
+     * Corrections an invoice's submitter made while this request was in approval. Read from the
+     * audit trail rather than stored as a flag: the trail is the record of what changed, and keying
+     * it by request means a corrected invoice that later moves to another request does not carry
+     * the mark with it. Shown to approvers on the request, the approval page and the PAF.
+     */
+    public function corrections()
+    {
+        return $this->hasMany(AuditLog::class)
+            ->where('action', 'corrected_during_approval')
+            ->oldest('created_at');
+    }
+
+    /**
+     * May see the documents attached to the request as a whole.
+     *
+     * Narrower than seeing the request: a submitter can open a request that holds one of their
+     * invoices, but the request may group invoices from other submitters and departments, and a
+     * document covering the whole payment can show figures for all of them. So Finance, admins and
+     * the approvers on this request's chain only.
+     */
+    public function documentsVisibleTo(User $user): bool
+    {
+        return $user->isAdmin() || $user->isFinance()
+            || $this->approvals()->where('approver_id', $user->id)->exists();
+    }
+
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         if ($user->isAdmin() || $user->isFinance()) {

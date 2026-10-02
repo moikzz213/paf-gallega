@@ -25,6 +25,7 @@ users ──< invoices >── payment_requests ──< payment_request_approval
 approval_levels  (config: threshold + default approver; pre-fills a PRF chain)
 vendors, customers, business_units, departments, locations, currencies  (master lists)
 invoice_documents  ──< invoices
+payment_request_documents  ──< payment_requests   (documents for the request as a whole)
 ```
 
 - An **invoice** is submitted by a user, optionally posted by a user, and may belong to one
@@ -136,6 +137,11 @@ time and names the invoice already holding the number; it normalises both sides 
 than leaning on the column's collation, which is case-insensitive in MySQL and case-sensitive in the
 SQLite test database.
 `isEditable()` = status ∈ {submitted, query_raised} **and** payment_status = not_initiated.
+`isCorrectableInPlace()` (finance/admin) = payment_status ∈ {in_approval, approved_for_payment}, not
+cancelled. `isCorrectableBySubmitter()` (the invoice's own submitter) = payment_status = in_approval,
+not cancelled, **and** its request is `in_approval` — closed once the chain signs. A submitter
+correction is recorded only in `audit_logs` (`corrected_during_approval`, against invoice and PRF);
+`PaymentRequest::corrections()` reads it back — there is no column for it.
 `isPayable()` = payment_status = not_initiated **and** status ∈ {posted, submitted}.
 
 ### payment_requests (PRF)
@@ -223,6 +229,23 @@ request had been approved, so it was **not** in front of the approvers; recorded
 rather than inferred from timestamps, so the record itself answers "what did the approver see?").
 Limits (config `paf.php`): 10 files, 10 MB, `pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`.
 
+### payment_request_documents
+
+Supporting documents attached to a **payment request as a whole** rather than to one invoice — a
+vendor statement, a covering memo, a contract schedule (`2026_10_02_000001`). Same shape as
+`invoice_documents`: `payment_request_id` (cascade delete), `uploaded_by` (FK users),
+`uploaded_after_approval` (boolean, default false — set when Finance attaches one after the request
+is `approved`/`paid`, so it was not in front of the approvers), `original_name`, `file_path`
+(`payment-requests/{id}/…` on the local disk), `mime_type`, `size`, timestamps. Same limits as
+invoice documents (`paf.max_documents` counted per request, mimes, size).
+
+Written by `PaymentRequestService::attachDocuments` — at creation (the last step of the creation
+transaction; files written by a failed call are deleted) and later while the request is
+`in_approval`, `approved` or `paid`. Merged into the PAF ahead of the invoices' documents.
+**Narrower visibility than the request**: `PaymentRequest::documentsVisibleTo` — admin, finance, and
+approvers on that request's chain; never submitters, because one request can group invoices from
+several departments. No delete route.
+
 ### invoice_rejections
 
 `invoice_id` (cascade delete), `payment_request_id` (cascade delete), `rejected_at`, timestamps.
@@ -244,8 +267,8 @@ Append-only (`created_at` only). `user_id` (actor), `invoice_id` (nullOnDelete),
 
 ## Referential integrity
 
-- `invoice_documents`, `payment_request_approvals` and `invoice_rejections` **cascade delete** with
-  their parent.
+- `invoice_documents`, `payment_request_documents`, `payment_request_approvals` and
+  `invoice_rejections` **cascade delete** with their parent.
 - `audit_logs.invoice_id` / `payment_request_id` are **null on delete** — history survives.
 - `invoices.payment_request_id` is null on delete — clearing a PRF frees its invoices.
 - **Retired** by ADR-002: the `invoice_approvals` table and the per-invoice approval/payment

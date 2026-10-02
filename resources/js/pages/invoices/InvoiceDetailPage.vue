@@ -42,7 +42,14 @@ const notInitiated = computed(() => invoice.value?.payment_status === 'not_initi
 // Finance/admin may also correct an invoice a payment request is still holding — currency and
 // totals stay locked there. Mirrors InvoiceController::update / isCorrectableInPlace.
 const inPaymentCycle = computed(() => ['in_approval', 'approved_for_payment'].includes(invoice.value?.payment_status));
-const canCorrectInPlace = computed(() => auth.canProcessPayments && inPaymentCycle.value && invoice.value?.status !== 'cancelled');
+// The submitter may correct their own invoice too, but only while its request is still in approval —
+// the option closes once the chain signs. Mirrors Invoice::isCorrectableBySubmitter.
+const canSubmitterCorrect = computed(() => isOwner.value
+    && invoice.value?.payment_status === 'in_approval'
+    && invoice.value?.payment_request?.status === 'in_approval'
+    && invoice.value?.status !== 'cancelled');
+const canCorrectInPlace = computed(() => (auth.canProcessPayments && inPaymentCycle.value && invoice.value?.status !== 'cancelled')
+    || canSubmitterCorrect.value);
 const canEdit = computed(() =>
     ((isOwner.value || auth.isAdmin) && ['submitted', 'query_raised'].includes(invoice.value?.status) && notInitiated.value)
     || canCorrectInPlace.value);

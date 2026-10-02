@@ -79,6 +79,11 @@
                           background: #fff4e0; color: #8a5200; font-size: 7px; font-weight: bold;
                           text-align: center; }
         .advance-tag { color: #8a5200; font-weight: bold; }
+        /* An invoice changed under the chain. Approvals given before it stand (the total can only
+           have fallen), but whoever signs next should know the record moved since the first look. */
+        .corrected-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #1565c0;
+                            background: #e3f2fd; color: #0d47a1; font-size: 7px; font-weight: bold;
+                            text-align: center; }
     </style>
 </head>
 <body>
@@ -196,6 +201,15 @@
         <div class="advance-banner">
             ADVANCE PAYMENT — {{ $invoices->where('is_advance_payment', true)->count() }} of
             {{ $invoices->count() }} invoice(s) on this request are paid in advance of delivery.
+        </div>
+        @endif
+
+        @if($paymentRequest->corrections->isNotEmpty())
+        <div class="corrected-banner">
+            CORRECTED DURING APPROVAL —
+            @foreach($paymentRequest->corrections as $correction)
+                {{ $correction->invoice?->reference_no ?? 'an invoice' }} by {{ $correction->user?->name ?? 'its submitter' }} on {{ $correction->created_at?->format('d M Y H:i') }}@if(! $loop->last); @endif
+            @endforeach
         </div>
         @endif
         <table class="heading top-line">
