@@ -385,11 +385,25 @@ Keep technical detail minimal and management-friendly.
 
 # Post Approval Process
 
-If stakeholders approve the Change Request and provide instruction to proceed with implementation:
+**Test Case generation: DISABLED**
 
-Automatically generate a Test Case document.
+Test Case generation is switched off for now. When stakeholders approve the Change Request and
+instruct you to proceed, go straight to implementation. Do **not** create a Test Case document and
+do **not** write to `/ai/test-cases/`, even if the request asks for testing. Verification still
+happens. It follows the CR's Rollout Plan and the automated tests in `tests/`.
+
+Existing files in `/ai/test-cases/` stay where they are. Do not delete or update them.
+
+**To re-enable:** change the flag above to `ENABLED`, and restore the Test Case steps in
+`AGENTS.md` (see the note in its **Test Cases** section). When the flag reads `ENABLED`, then once
+stakeholders approve the Change Request and give the instruction to proceed with implementation,
+automatically generate a Test Case document by following the sections below.
 
 ---
+
+> The sections below define the Test Case document. They apply **only while the flag above reads
+> `ENABLED`**. They are kept here unchanged so the feature can be switched back on without
+> rewriting them.
 
 # Test Case Generation
 

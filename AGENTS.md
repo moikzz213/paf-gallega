@@ -70,12 +70,12 @@ Learn  →  Intend  →  Forge  →  Tune
    For non-trivial or hard-to-reverse work, surface the plan before doing it. For any change that
    ships (feature, bug fix, API/schema change, security or infrastructure work), produce the
    Change Request first — see [Change Requests](#change-requests).
-3. **Forge** — Once the CR is approved, generate the matching Test Case document (see
-   [Test Cases](#test-cases)), then implement, matching existing conventions (see
+3. **Forge** — Once the CR is approved, implement, matching existing conventions (see
    coding-standards). Keep changes scoped; don't opportunistically refactor unrelated code.
-4. **Tune** — Verify behavior (run/exercise the affected flow, work through the Test Case
-   checklist, add/adjust tests), run `./vendor/bin/pint`, then **update the `/ai` docs** the
-   change affects.
+   (Test Case documents are currently **disabled**. See [Test Cases](#test-cases).)
+4. **Tune** — Verify behavior (run/exercise the affected flow, check it against the CR's Rollout
+   Plan, add/adjust tests), run `./vendor/bin/pint`, then **update the `/ai` docs** the change
+   affects.
 
 ## Change Requests
 
@@ -104,6 +104,17 @@ department heads, project sponsors, business stakeholders, and the Change Adviso
   change, the same way the `/ai` docs are updated during **Tune**.
 
 ## Test Cases
+
+> **Currently DISABLED.** Do not generate Test Case documents, and do not write to
+> [ai/test-cases/](ai/test-cases/). When a CR is approved, go straight to **Forge**. Verification
+> still happens during **Tune**, through the CR's Rollout Plan and the automated tests in `tests/`.
+> Leave the existing files in `ai/test-cases/` as they are.
+>
+> **To re-enable:** set the flag in the skill's *Post Approval Process* section to `ENABLED`
+> ([SKILL.md](.claude/skills/change-request-generator/SKILL.md)). Then remove this note, restore
+> the Test Case steps in **Forge** and **Tune** above, and restore the test-cases row in
+> [Documentation update rules](#documentation-update-rules). The rules below are kept unchanged
+> for that purpose.
 
 Once stakeholders approve a CR and instruct you to proceed, the same skill generates the matching
 Test Case document — this happens **before Forge**, so the tests define what "done" means.
@@ -160,7 +171,7 @@ When your change affects any of these, update the matching doc **in the same cha
 | a convention | [ai/coding-standards.md](ai/coding-standards.md) |
 | setup / env / deploy | [ai/deployment.md](ai/deployment.md) |
 | anything that ships (before implementing) | a CR in [ai/change-requests/](ai/change-requests/) via `change-request-generator` |
-| anything that ships (after CR approval) | matching test cases in [ai/test-cases/](ai/test-cases/), same filename as the CR |
+| anything that ships (after CR approval) | ~~matching test cases in [ai/test-cases/](ai/test-cases/)~~ — **disabled for now**, see [Test Cases](#test-cases) |
 
 Keep `README.md` accurate for setup/run instructions.
 
