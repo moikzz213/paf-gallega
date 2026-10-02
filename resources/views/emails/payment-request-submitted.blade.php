@@ -23,7 +23,9 @@
             <h2 style="margin:0;">Payment Request — Approval Required</h2>
         </div>
         <div class="body">
-            <p>Hello {{ $paymentRequest->currentApproval()?->approver?->name }},</p>
+            {{-- The stage is carried by the mailable, not re-derived here: by the time a queued job
+                 renders, `current_stage` has often moved on or been cleared. --}}
+            <p>Hello {{ $approval?->approver?->name }},</p>
 
             <p>A new payment request has been submitted and is now awaiting your approval.</p>
 
@@ -45,7 +47,7 @@
 
             <p>Please review and take action on this payment request through the PAF system.</p>
 
-            <a href="{{ route('payment-request.public', ['id' => $paymentRequest->id, 'token' => $paymentRequest->currentApproval()?->view_token]) }}" class="btn">Review & Approve</a>
+            <a href="{{ route('payment-request.public', ['id' => $paymentRequest->id, 'token' => $approval->view_token]) }}" class="btn">Review &amp; Approve</a>
         </div>
         <div class="footer">
             This is an automated notification from the Invoice Payment Approval Platform.
