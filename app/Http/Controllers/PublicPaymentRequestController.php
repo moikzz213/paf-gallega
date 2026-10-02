@@ -6,6 +6,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceDocument;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
+use App\Models\PaymentRequestDocument;
 use App\Services\AuditLogger;
 use App\Services\PafDocumentService;
 use App\Services\PaymentRequestService;
@@ -26,6 +27,7 @@ class PublicPaymentRequestController extends Controller
             'paymentRequest' => $pr,
             'canAct' => $canAct,
             'token' => $token,
+            'showRequestDocuments' => $this->isApproverToken($pr, $token),
         ]);
     }
 
@@ -160,6 +162,27 @@ class PublicPaymentRequestController extends Controller
     }
 
     /**
+     * A document attached to the request as a whole. Only on an approval-stage token: the request's
+     * own view token is also emailed to every invoice submitter on approval or rejection, and they
+     * may not see these (PaymentRequest::documentsVisibleTo).
+     */
+    public function downloadRequestDocument(string $prfId, string $token, PaymentRequestDocument $document)
+    {
+        $pr = $this->resolvePr($prfId, $token);
+
+        abort_unless($document->payment_request_id === $pr->id && $this->isApproverToken($pr, $token), 404);
+        abort_unless(Storage::disk('local')->exists($document->file_path), 404, 'File not found on disk.');
+
+        return Storage::disk('local')->download($document->file_path, $document->original_name);
+    }
+
+    /** The token belongs to one of the request's approval stages — current, past or still to come. */
+    private function isApproverToken(PaymentRequest $pr, string $token): bool
+    {
+        return $pr->approvals->contains('view_token', $token);
+    }
+
+    /**
      * The PAF itself, streamed inline so the approval page can show it beside the Approve and
      * Reject buttons instead of asking the approver to download it first.
      *
@@ -170,7 +193,7 @@ class PublicPaymentRequestController extends Controller
     {
         $pr = $this->resolvePr($id, $token);
 
-        return response($paf->render($pr), 200)
+        return response($paf->render($pr, $this->isApproverToken($pr, $token)), 200)
             ->header('Content-Type', 'application/pdf')
             ->header('Content-Disposition', 'inline; filename="'.$paf->filename($pr).'"');
     }
@@ -216,6 +239,8 @@ class PublicPaymentRequestController extends Controller
             'invoices.items.customer:id,name',
             'invoices.documents',
             'approvals.approver',
+            'documents',
+            'corrections.user:id,name', 'corrections.invoice:id,reference_no',
         ])->find($id);
 
         if (! $pr) {

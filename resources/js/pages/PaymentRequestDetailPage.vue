@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../services/api';
-import { dateTime, invoicesCurrency, money, shortDate } from '../utils/format';
+import { dateTime, fileSize, invoicesCurrency, money, shortDate } from '../utils/format';
 import { useAuthStore } from '../stores/auth';
 import { useNotifyStore } from '../stores/notify';
 import StatusChip from '../components/StatusChip.vue';
@@ -32,6 +32,39 @@ async function load() {
 }
 
 onMounted(load);
+
+// Documents for the request as a whole. The server leaves `documents` off for a viewer who may not
+// see them (PaymentRequest::documentsVisibleTo), so its presence is what decides whether to show them.
+const showDocuments = computed(() => Array.isArray(pr.value?.documents));
+// Finance may keep adding them after creation — while in approval, approved or paid. Mirrors
+// PaymentRequestService::attachDocuments.
+const canAttachDocuments = computed(() => auth.canProcessPayments
+    && ['in_approval', 'approved', 'paid'].includes(pr.value?.status));
+const newDocuments = ref([]);
+const uploading = ref(false);
+
+async function uploadDocuments() {
+    if (!newDocuments.value.length) return notify.error('Choose at least one file to attach.');
+
+    const payload = new FormData();
+    newDocuments.value.forEach((file) => payload.append('documents[]', file));
+
+    uploading.value = true;
+    try {
+        const { data } = await api.post(`/payment-requests/${props.id}/documents`, payload);
+        pr.value.documents = data;
+        newDocuments.value = [];
+        notify.success('Documents attached — they are included in the PAF.');
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        uploading.value = false;
+    }
+}
+
+function downloadDocument(doc) {
+    window.open(`/api/payment-request-documents/${doc.id}/download`, '_blank');
+}
 
 const currentStep = computed(() => pr.value?.approvals?.find((s) => s.sequence === pr.value?.current_stage));
 
@@ -193,6 +226,14 @@ function approvalColor(status) {
             Paid on {{ dateTime(pr.paid_at) }} · reference {{ pr.payment_reference }}
         </v-alert>
 
+        <v-alert v-if="pr.corrections?.length" type="info" variant="tonal" class="mb-4" icon="mdi-pencil-circle-outline">
+            <strong>Corrected during approval.</strong> The approvals already given stand — a correction can only
+            lower the total — and the request stays with its current approver.
+            <div v-for="c in pr.corrections" :key="c.id" class="text-body-2">
+                {{ c.invoice?.reference_no ?? 'An invoice' }} corrected by {{ c.user?.name ?? 'its submitter' }} · {{ dateTime(c.created_at) }}
+            </div>
+        </v-alert>
+
         <v-row>
             <v-col cols="12" md="7">
                 <v-card class="mb-4">
@@ -281,6 +322,52 @@ function approvalColor(status) {
                                 <div v-if="step.comments" class="text-caption font-italic mt-1">“{{ step.comments }}”</div>
                             </v-timeline-item>
                         </v-timeline>
+                    </v-card-text>
+                </v-card>
+
+                <v-card v-if="showDocuments" class="mb-4">
+                    <v-card-title class="text-subtitle-1">Payment request documents</v-card-title>
+                    <v-card-text>
+                        <div class="text-caption text-medium-emphasis mb-2">
+                            Documents covering the payment as a whole. They are included in the PAF, and are visible
+                            to Finance, administrators and this request's approvers only.
+                        </div>
+                        <v-list v-if="pr.documents.length" density="compact" class="pa-0">
+                            <v-list-item v-for="doc in pr.documents" :key="doc.id" class="px-0" prepend-icon="mdi-file-document-outline">
+                                <v-list-item-title class="text-body-2">{{ doc.original_name }}</v-list-item-title>
+                                <v-list-item-subtitle class="text-caption">
+                                    {{ fileSize(doc.size) }} · {{ doc.uploader?.name ?? '—' }} · {{ dateTime(doc.created_at) }}
+                                    <v-chip v-if="doc.uploaded_after_approval" size="x-small" color="warning" variant="tonal" class="ml-1">added after approval</v-chip>
+                                </v-list-item-subtitle>
+                                <template #append>
+                                    <v-btn icon="mdi-download" variant="text" size="small" title="Download" @click="downloadDocument(doc)" />
+                                </template>
+                            </v-list-item>
+                        </v-list>
+                        <div v-else class="text-body-2 text-medium-emphasis mb-2">No documents attached to the request itself.</div>
+
+                        <template v-if="canAttachDocuments">
+                            <v-file-input
+                                v-model="newDocuments"
+                                label="Attach documents"
+                                multiple
+                                chips
+                                show-size
+                                density="compact"
+                                class="mt-2"
+                                prepend-icon=""
+                                prepend-inner-icon="mdi-paperclip"
+                                :hint="pr.status === 'in_approval'
+                                    ? 'Included in the PAF straight away.'
+                                    : 'The request is already approved — these will be marked as added after approval.'"
+                                persistent-hint
+                            />
+                            <div class="d-flex justify-end mt-2">
+                                <v-btn color="primary" variant="tonal" size="small" prepend-icon="mdi-upload" :loading="uploading" :disabled="!newDocuments.length" @click="uploadDocuments">
+                                    Attach
+                                </v-btn>
+                            </div>
+                        </template>
                     </v-card-text>
                 </v-card>
 

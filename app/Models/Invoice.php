@@ -158,6 +158,19 @@ class Invoice extends Model
     }
 
     /**
+     * The submitter's own correction window: narrower than Finance's. Open only while the payment
+     * request is still in approval, and closed for good once the chain has signed — after that, a
+     * change goes through Finance. The limits are Finance's plus a locked vendor; see
+     * InvoiceController::update.
+     */
+    public function isCorrectableBySubmitter(): bool
+    {
+        return $this->payment_status === self::PAY_IN_APPROVAL
+            && $this->status !== self::STATUS_CANCELLED
+            && $this->paymentRequest?->status === PaymentRequest::STATUS_IN_APPROVAL;
+    }
+
+    /**
      * Open to a supporting document even though the record itself is closed to change.
      *
      * An advance is raised and paid *before* the vendor's final tax invoice exists, so the document

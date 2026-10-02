@@ -10,7 +10,9 @@ use App\Models\InvoiceRejection;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
 use App\Models\User;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
 class PaymentRequestService
@@ -161,8 +163,9 @@ class PaymentRequestService
 
     /**
      * @param  array<int>  $creditIds  ids of invoices Finance marked as credit notes (see applyCreditMarks)
+     * @param  array<int, UploadedFile>  $documents  supporting documents for the request as a whole
      */
-    public function create(array $invoiceIds, User $creator, array $stages, array $creditIds = []): PaymentRequest
+    public function create(array $invoiceIds, User $creator, array $stages, array $creditIds = [], array $documents = []): PaymentRequest
     {
         $invoices = Invoice::whereIn('id', $invoiceIds)->get();
 
@@ -198,7 +201,7 @@ class PaymentRequestService
             ]);
         }
 
-        $pr = DB::transaction(function () use ($invoices, $creator, $stages, $creditIds) {
+        $pr = DB::transaction(function () use ($invoices, $creator, $stages, $creditIds, $documents) {
             $pr = PaymentRequest::create([
                 'reference_no' => PaymentRequest::nextReferenceNo(),
                 'created_by' => $creator->id,
@@ -239,6 +242,10 @@ class PaymentRequestService
                 null, null, null, $pr,
             );
 
+            // Last in the transaction: the files are the one part a rollback cannot undo, so they are
+            // written only once everything else has succeeded (and cleaned up if this step fails).
+            $this->attachDocuments($pr, $documents, $creator);
+
             return $pr->refresh();
         });
 
@@ -249,6 +256,70 @@ class PaymentRequestService
         );
 
         return $pr;
+    }
+
+    /**
+     * Attach supporting documents to the request as a whole — evidence for the payment rather than
+     * for one invoice, merged into the PAF alongside the invoices' own documents.
+     *
+     * Open while the request is in approval, approved or paid (a rejected or withdrawn request is
+     * finished with). A document arriving once the chain has signed was not in front of the
+     * approvers, and is recorded as such, the same way a late invoice document is.
+     *
+     * If storing any file fails, the files already written by this call are removed before the error
+     * propagates, so a refused request leaves nothing behind on disk.
+     *
+     * @param  array<int, UploadedFile>  $files
+     */
+    public function attachDocuments(PaymentRequest $pr, array $files, User $uploader): void
+    {
+        if (! $files) {
+            return;
+        }
+
+        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_APPROVED, PaymentRequest::STATUS_PAID], true)) {
+            throw ValidationException::withMessages([
+                'documents' => "Documents can no longer be attached to {$pr->reference_no} — it is {$pr->status}.",
+            ]);
+        }
+
+        $existing = $pr->documents()->count();
+        $max = (int) config('paf.max_documents');
+        if ($existing + count($files) > $max) {
+            throw ValidationException::withMessages([
+                'documents' => "{$pr->reference_no} already holds {$existing} document(s); the limit is {$max}.",
+            ]);
+        }
+
+        $late = $pr->status !== PaymentRequest::STATUS_IN_APPROVAL;
+        $stored = [];
+
+        try {
+            foreach ($files as $file) {
+                $path = $file->store("payment-requests/{$pr->id}", 'local');
+                $stored[] = $path;
+
+                $pr->documents()->create([
+                    'uploaded_by' => $uploader->id,
+                    'uploaded_after_approval' => $late,
+                    'original_name' => $file->getClientOriginalName(),
+                    'file_path' => $path,
+                    'mime_type' => $file->getClientMimeType(),
+                    'size' => $file->getSize(),
+                ]);
+
+                AuditLogger::log(
+                    $late ? 'request_document_uploaded_after_approval' : 'request_document_uploaded',
+                    "Document '{$file->getClientOriginalName()}' attached to {$pr->reference_no}"
+                        .($late ? ' after approval' : ''),
+                    null, null, null, $pr,
+                );
+            }
+        } catch (\Throwable $e) {
+            Storage::disk('local')->delete($stored);
+
+            throw $e;
+        }
     }
 
     public function approve(PaymentRequest $pr, User $actor, ?string $comments = null): PaymentRequest

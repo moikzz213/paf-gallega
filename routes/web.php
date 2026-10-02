@@ -96,6 +96,10 @@ Route::prefix('api')->group(function () {
         // Reverses a completed approval, so finance/admin only — never the approvers.
         Route::post('/payment-requests/{paymentRequest}/withdraw', [PaymentRequestController::class, 'withdraw'])->middleware('role:finance,admin');
         Route::get('/payment-requests/{paymentRequest}/pdf', [PaymentRequestController::class, 'downloadPdf']);
+        // Supporting documents for the request as a whole. Adding them is Finance's; seeing them is
+        // narrower than seeing the request (PaymentRequest::documentsVisibleTo), checked inside.
+        Route::post('/payment-requests/{paymentRequest}/documents', [PaymentRequestController::class, 'uploadDocuments'])->middleware('role:finance,admin');
+        Route::get('/payment-request-documents/{document}/download', [PaymentRequestController::class, 'downloadDocument']);
 
         // reports (data scoped by role visibility)
         Route::get('/reports', [ReportController::class, 'index']);
@@ -154,6 +158,13 @@ Route::get('/prf/view/{id}/{token}/paf', [PublicPaymentRequestController::class,
     ->where('token', '[a-zA-Z0-9]+');
 Route::get('/prf/view/{id}/{token}/document/{document}', [PublicPaymentRequestController::class, 'downloadDocument'])
     ->name('payment-request.public.document')
+    ->where('id', '[0-9]+')
+    ->where('token', '[a-zA-Z0-9]+')
+    ->where('document', '[0-9]+');
+// A document attached to the request as a whole. Approval-stage tokens only: the request's own
+// view token also reaches every invoice submitter (approved/rejected emails), who may not see these.
+Route::get('/prf/view/{id}/{token}/request-document/{document}', [PublicPaymentRequestController::class, 'downloadRequestDocument'])
+    ->name('payment-request.public.request-document')
     ->where('id', '[0-9]+')
     ->where('token', '[a-zA-Z0-9]+')
     ->where('document', '[0-9]+');

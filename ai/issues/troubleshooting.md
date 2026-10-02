@@ -8,8 +8,12 @@ Common local-dev issues for this PAF (Laravel 13 + Vue 3) project and how to res
 - **Database errors on first run** — the SQLite file may be missing. Ensure
   `database/database.sqlite` exists (`php artisan migrate` creates the schema; the file is
   git-ignored). Then `php artisan migrate --seed`.
-- **Login always fails with seeded users** — you haven't seeded, or `is_active` is false. Reseed
-  with `php artisan migrate:fresh --seed`. All demo users use password `password`.
+- **Login always fails with seeded users** — you haven't seeded, or `is_active` is false.
+  - On a fresh, empty install, run `php artisan migrate --seed`. All demo users use the password
+    `password`.
+  - On a database that already has data, reactivate the user from the Users page.
+  - Never use `migrate:fresh` or reseed a database that has data. See *Database safety* in
+    [AGENTS.md](../../AGENTS.md).
 - **Blank page / assets 404** — the frontend isn't built. Run `npm run build` (or `npm run dev`
   for HMR). The Blade shell loads the bundle via `@vite`.
 

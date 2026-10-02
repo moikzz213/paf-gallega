@@ -20,8 +20,16 @@ class PafDocumentService
 {
     public function __construct(private PdfMergeService $merger) {}
 
-    /** The merged PAF as raw PDF bytes. */
-    public function render(PaymentRequest $paymentRequest): string
+    /**
+     * The merged PAF as raw PDF bytes.
+     *
+     * @param  bool  $withRequestDocuments  merge in the documents attached to the request as a whole.
+     *                                      Off unless the caller has established the viewer may see
+     *                                      them (PaymentRequest::documentsVisibleTo) — a submitter
+     *                                      can download the PAF of a request that also holds other
+     *                                      departments' invoices.
+     */
+    public function render(PaymentRequest $paymentRequest, bool $withRequestDocuments = false): string
     {
         $paymentRequest->load([
             'creator:id,name', 'payer:id,name',
@@ -29,6 +37,8 @@ class PafDocumentService
             'invoices.vendor:id,name,vendor_code',
             'invoices.items',
             'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
+            'corrections.user:id,name', 'corrections.invoice:id,reference_no',
+            'documents',
         ]);
 
         // Supplier code comes from the vendor master, keyed by the invoice's vendor name.
@@ -60,28 +70,42 @@ class PafDocumentService
         // can only be offered as a download link on a trailing page.
         $attachments = [];
         $links = [];
+        $add = function ($document, string $url, string $group) use (&$attachments, &$links) {
+            $path = storage_path('app/private/'.$document->file_path);
+            if (! is_file($path)) {
+                return;
+            }
+
+            $entry = [
+                'name' => $document->original_name,
+                'url' => $url,
+                'mime_type' => $document->mime_type,
+                'size' => $document->size,
+                'group' => $group,
+            ];
+
+            if (in_array($document->mime_type, PdfMergeService::MERGEABLE_MIMES, true)) {
+                // Carries the link fields too: a PDF that turns out to be encrypted or
+                // damaged falls back to the download list instead of failing the export.
+                $attachments[] = $entry + ['path' => $path];
+            } else {
+                $links[] = $entry;
+            }
+        };
+
+        // The request's own documents first: they cover the payment as a whole (a statement, a
+        // covering memo), so they read as the introduction to the invoices that follow.
+        if ($withRequestDocuments) {
+            foreach ($paymentRequest->documents as $document) {
+                $add($document, url("/api/payment-request-documents/{$document->id}/download"),
+                    "{$paymentRequest->reference_no} - Payment request documents");
+            }
+        }
+
         foreach ($paymentRequest->invoices as $invoice) {
             foreach ($invoice->documents as $document) {
-                $path = storage_path('app/private/'.$document->file_path);
-                if (! is_file($path)) {
-                    continue;
-                }
-
-                $entry = [
-                    'name' => $document->original_name,
-                    'url' => url("/api/documents/{$document->id}/download"),
-                    'mime_type' => $document->mime_type,
-                    'size' => $document->size,
-                    'group' => "{$invoice->reference_no} - {$invoice->vendor_name}",
-                ];
-
-                if (in_array($document->mime_type, PdfMergeService::MERGEABLE_MIMES, true)) {
-                    // Carries the link fields too: a PDF that turns out to be encrypted or
-                    // damaged falls back to the download list instead of failing the export.
-                    $attachments[] = $entry + ['path' => $path];
-                } else {
-                    $links[] = $entry;
-                }
+                $add($document, url("/api/documents/{$document->id}/download"),
+                    "{$invoice->reference_no} - {$invoice->vendor_name}");
             }
         }
 

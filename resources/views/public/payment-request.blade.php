@@ -47,6 +47,8 @@
         @media (max-width: 600px) { .grid { grid-template-columns: 1fr; } }
 
         /* An advance pays ahead of delivery — a different decision from settling a delivered service. */
+        .corrected-note { padding: 12px 16px; margin-bottom: 20px; border: 1px solid #1565c0;
+                          background: #e3f2fd; color: #0d47a1; border-radius: 4px; font-size: 13px; }
         .advance-note { padding: 12px 16px; margin-bottom: 20px; border: 1px solid #b26a00;
                         border-radius: 6px; background: #fff4e0; color: #8a5200; font-size: 14px; font-weight: 600; }
         .advance-tag { display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 3px;
@@ -112,6 +114,15 @@
             {{ $paymentRequest->invoices->where('is_advance_payment', true)->count() }} of
             {{ $paymentRequest->invoices->count() }} invoice(s) on this request are paid before the
             goods or services are delivered.
+        </div>
+        @endif
+
+        @if($paymentRequest->corrections->isNotEmpty())
+        <div class="corrected-note">
+            <strong>Corrected during approval.</strong> The approvals already given stand; the total can only have fallen.
+            @foreach($paymentRequest->corrections as $correction)
+                <div>{{ $correction->invoice?->reference_no ?? 'An invoice' }} corrected by {{ $correction->user?->name ?? 'its submitter' }} on {{ $correction->created_at?->format('d M Y H:i') }}</div>
+            @endforeach
         </div>
         @endif
 
@@ -236,12 +247,24 @@
 
         @php
             $allDocs = $paymentRequest->invoices->flatMap->documents;
+            // Request-level documents only on an approver's link — see showRequestDocuments.
+            $requestDocs = $showRequestDocuments ? $paymentRequest->documents : collect();
         @endphp
-        @if($allDocs->count())
+        @if($allDocs->count() || $requestDocs->count())
         <div class="card">
-            <div class="card-header">Attachments ({{ $allDocs->count() }})</div>
+            <div class="card-header">Attachments ({{ $allDocs->count() + $requestDocs->count() }})</div>
             <div class="card-body" style="padding: 0;">
                 <ul class="doc-list">
+                    @foreach($requestDocs as $doc)
+                    <li>
+                        <span class="doc-icon">&#128196;</span>
+                        <div>
+                            <a href="{{ route('payment-request.public.request-document', ['id' => $paymentRequest->id, 'token' => $token, 'document' => $doc->id]) }}">{{ $doc->original_name }}</a>
+                            <div style="font-size:11px;color:#999;">{{ $paymentRequest->reference_no }} &middot; whole payment request &middot; {{ $doc->mime_type }}@if($doc->uploaded_after_approval) &middot; added after approval @endif</div>
+                        </div>
+                        <span class="doc-size">{{ round($doc->size / 1024, 1) }} KB</span>
+                    </li>
+                    @endforeach
                     @foreach($paymentRequest->invoices as $invoice)
                         @foreach($invoice->documents as $doc)
                         <li>

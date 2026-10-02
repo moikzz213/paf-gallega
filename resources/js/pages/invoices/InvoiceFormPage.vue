@@ -203,9 +203,17 @@ onMounted(async () => {
             // Finance/admin can correct an invoice a payment request is still holding, but the
             // currency and the totals are locked — those are what its approvals cover. Anything
             // else needs the invoice released first. Mirrors InvoiceController::update.
-            const correctable = auth.canProcessPayments
+            const financeCorrectable = auth.canProcessPayments
                 && ['in_approval', 'approved_for_payment'].includes(data.payment_status)
                 && data.status !== 'cancelled';
+            // The submitter's own window: only while the request is still in approval, and the vendor
+            // is locked as well. Mirrors Invoice::isCorrectableBySubmitter.
+            const submitterCorrectable = !financeCorrectable
+                && data.submitted_by === auth.user?.id
+                && data.payment_status === 'in_approval'
+                && data.payment_request?.status === 'in_approval'
+                && data.status !== 'cancelled';
+            const correctable = financeCorrectable || submitterCorrectable;
 
             if (!editable && !correctable) {
                 notify.error('This invoice can no longer be edited.');
@@ -218,6 +226,7 @@ onMounted(async () => {
                     reference_no: data.payment_request?.reference_no ?? 'its payment request',
                     currency: data.currency,
                     total: data.total_amount,
+                    bySubmitter: submitterCorrectable,
                 };
             }
             Object.keys(form.value).forEach((key) => {
@@ -348,7 +357,14 @@ async function save() {
             <v-progress-circular indeterminate color="primary" size="48" />
         </div>
 
-        <v-alert v-if="correction && !loading" type="info" variant="tonal" class="mb-4" icon="mdi-lock-outline">
+        <v-alert v-if="correction?.bySubmitter && !loading" type="info" variant="tonal" class="mb-4" icon="mdi-lock-outline">
+            This invoice is in approval on <strong>{{ correction.reference_no }}</strong>, whose approvals so far cover
+            <strong>{{ money(correction.total, correction.currency) }}</strong>. You can correct its details, lower the
+            total and attach further documents. The <strong>vendor and currency are locked</strong> and the total
+            cannot rise. The approvals already given stand, approvers will see the request marked as corrected,
+            and the Finance user who raised it is told. This option closes once the request is fully approved.
+        </v-alert>
+        <v-alert v-else-if="correction && !loading" type="info" variant="tonal" class="mb-4" icon="mdi-lock-outline">
             This invoice is held by <strong>{{ correction.reference_no }}</strong>, whose approvals cover
             <strong>{{ money(correction.total, correction.currency) }}</strong>. You can correct its details and
             lower the total, but the <strong>currency is locked</strong> and the total cannot rise — that would
@@ -367,6 +383,8 @@ async function save() {
                                 :items="vendorItems"
                                 label="Vendor name *"
                                 autocomplete="off"
+                                :disabled="!!correction?.bySubmitter"
+                                :messages="correction?.bySubmitter ? 'Locked while the payment request is in approval' : undefined"
                                 :rules="[rules.required]"
                                 hide-details="auto"
                                 @update:model-value="onVendorSelected"
@@ -432,7 +450,7 @@ async function save() {
                                     :items="meta.currencies"
                                     label="Currency *"
                                     :disabled="!!correction"
-                                    :messages="correction ? 'Locked by the approved payment request' : undefined"
+                                    :messages="correction ? (correction.bySubmitter ? 'Locked while the payment request is in approval' : 'Locked by the approved payment request') : undefined"
                                     hide-details="auto"
                                     density="compact"
                                     :rules="[rules.required]"

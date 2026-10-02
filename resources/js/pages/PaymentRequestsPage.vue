@@ -92,7 +92,7 @@ watch([search, () => filters.department, () => filters.vendor_id, () => filters.
 
 // ---- create flow ----
 const emptyEligibleFilters = () => ({ department: null, currency: null, vendor_id: null, invoice_no: '', job_no: '', customer_id: null });
-const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], credits: [], saving: false, filters: emptyEligibleFilters() });
+const create = reactive({ show: false, loadingEligible: false, eligible: [], selected: [], credits: [], files: [], saving: false, filters: emptyEligibleFilters() });
 const chain = ref({ assignments: {}, adhoc: [], l2a_approver_id: null, valid: false });
 const confirmingCredits = ref(false);
 
@@ -155,6 +155,7 @@ async function loadEligible() {
 function openCreate() {
     create.selected = [];
     create.credits = [];
+    create.files = [];
     create.filters = emptyEligibleFilters();
     create.show = true;
     loadEligible();
@@ -196,13 +197,20 @@ async function submitCreate() {
 
     create.saving = true;
     try {
-        const { data } = await api.post('/payment-requests', {
-            invoice_ids: create.selected,
-            credit_invoice_ids: markedIds.value,
-            approvers,
-            adhoc_approvers,
-            l2a_approver_id: chain.value.l2a_approver_id ?? null,
+        // Multipart, so supporting documents for the request travel in the same step as creating it
+        // and a refused request leaves no stray files. Laravel reads the bracketed keys as arrays.
+        const payload = new FormData();
+        create.selected.forEach((id) => payload.append('invoice_ids[]', id));
+        markedIds.value.forEach((id) => payload.append('credit_invoice_ids[]', id));
+        Object.entries(approvers).forEach(([lvl, id]) => payload.append(`approvers[${lvl}]`, id));
+        adhoc_approvers.forEach((stage, i) => {
+            payload.append(`adhoc_approvers[${i}][approver_id]`, stage.approver_id);
+            if (stage.label) payload.append(`adhoc_approvers[${i}][label]`, stage.label);
         });
+        if (chain.value.l2a_approver_id) payload.append('l2a_approver_id', chain.value.l2a_approver_id);
+        create.files.forEach((file) => payload.append('documents[]', file));
+
+        const { data } = await api.post('/payment-requests', payload);
         notify.success(`${data.reference_no} created and sent for approval.`);
         create.show = false;
         await load();
@@ -439,6 +447,29 @@ async function submitCreate() {
                             </template>
                             <template v-else>Select at least one invoice with an amount owed.</template>
                         </v-alert>
+
+                        <template v-if="create.selected.length">
+                            <v-divider class="mb-4" />
+                            <div class="text-subtitle-2 mb-1">Supporting documents for this payment request</div>
+                            <div class="text-caption text-medium-emphasis mb-2">
+                                Optional. For documents that cover the payment as a whole — a vendor statement, a covering
+                                memo, a contract schedule. They are included in the PAF the approvers sign. Attach a
+                                document that belongs to one invoice to that invoice instead.
+                            </div>
+                            <v-file-input
+                                v-model="create.files"
+                                label="Attach statement, covering memo…"
+                                multiple
+                                chips
+                                show-size
+                                density="compact"
+                                class="mb-4"
+                                prepend-icon=""
+                                prepend-inner-icon="mdi-paperclip"
+                                :hint="meta.upload ? `Up to ${meta.upload.max_documents} files, ${Math.round(meta.upload.max_document_kb / 1024)}MB each (${meta.upload.mimes})` : ''"
+                                persistent-hint
+                            />
+                        </template>
 
                         <template v-if="!nothingPayable">
                             <v-divider class="mb-4" />

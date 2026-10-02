@@ -5,10 +5,12 @@ namespace App\Http\Controllers;
 use App\Models\ApprovalLevel;
 use App\Models\Invoice;
 use App\Models\PaymentRequest;
+use App\Models\PaymentRequestDocument;
 use App\Models\User;
 use App\Services\PafDocumentService;
 use App\Services\PaymentRequestService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -115,13 +117,22 @@ class PaymentRequestController extends Controller
             403, 'You do not have access to this payment request.'
         );
 
-        return response()->json($paymentRequest->load([
+        $paymentRequest->load([
             'creator:id,name', 'payer:id,name', 'withdrawer:id,name',
             'invoices.submitter:id,name',
             'invoices.items.customer:id,name',
             'approvals.approver:id,name',
             'auditLogs.user:id,name',
-        ]));
+            'corrections.user:id,name', 'corrections.invoice:id,reference_no',
+        ]);
+
+        // Request-level documents are narrower than the request itself: left off entirely, rather
+        // than sent empty, for a viewer who may not see them, so the screen knows not to offer them.
+        if ($paymentRequest->documentsVisibleTo($request->user())) {
+            $paymentRequest->load('documents.uploader:id,name');
+        }
+
+        return response()->json($paymentRequest);
     }
 
     public function store(Request $request)
@@ -149,7 +160,9 @@ class PaymentRequestController extends Controller
             ! empty($data['l2a_approver_id']) ? (int) $data['l2a_approver_id'] : null,
         );
 
-        $pr = $this->service->create($data['invoice_ids'], $request->user(), $stages, $creditIds);
+        // Supporting documents for the payment as a whole (a vendor statement, a covering memo),
+        // saved in the same step so a refused request leaves no stray files.
+        $pr = $this->service->create($data['invoice_ids'], $request->user(), $stages, $creditIds, $request->file('documents', []));
 
         return response()->json($pr->load('invoices', 'approvals.approver:id,name'), 201);
     }
@@ -239,9 +252,35 @@ class PaymentRequestController extends Controller
         // the document the approval chain is meant to be approving, so it has to exist while that
         // chain is still running. A document produced before the last signature is watermarked as
         // not yet approved by the view, so a draft cannot be mistaken for an authorisation.
-        return response($paf->render($paymentRequest), 200)
+        return response($paf->render($paymentRequest, $paymentRequest->documentsVisibleTo($request->user())), 200)
             ->header('Content-Type', 'application/pdf')
             ->header('Content-Disposition', 'attachment; filename="'.$paf->filename($paymentRequest).'"');
+    }
+
+    /**
+     * Attach supporting documents to an existing request — the "later as well" half of request-level
+     * attachments. Finance/admin only (route middleware); the service owns which statuses accept them.
+     */
+    public function uploadDocuments(Request $request, PaymentRequest $paymentRequest)
+    {
+        $request->validate([
+            'documents' => ['required', 'array', 'min:1', 'max:'.config('paf.max_documents')],
+            'documents.*' => ['file', 'mimes:'.config('paf.document_mimes'), 'max:'.config('paf.max_document_kb')],
+        ], [
+            'documents.required' => 'Choose at least one file to attach.',
+        ]);
+
+        $this->service->attachDocuments($paymentRequest, $request->file('documents', []), $request->user());
+
+        return response()->json($paymentRequest->load('documents.uploader:id,name')->documents);
+    }
+
+    public function downloadDocument(Request $request, PaymentRequestDocument $document)
+    {
+        abort_unless($document->paymentRequest->documentsVisibleTo($request->user()), 403, 'You do not have access to this document.');
+        abort_unless(Storage::disk('local')->exists($document->file_path), 404, 'File not found on disk.');
+
+        return Storage::disk('local')->download($document->file_path, $document->original_name);
     }
 
     /**
@@ -385,6 +424,9 @@ class PaymentRequestController extends Controller
             // The optional second signature at level 2 — see buildStages for where it lands in the
             // chain and the two ways it can be refused.
             'l2a_approver_id' => ['nullable', 'integer', $isApprover],
+            // Optional documents for the request as a whole; same limits as an invoice's.
+            'documents' => ['nullable', 'array', 'max:'.config('paf.max_documents')],
+            'documents.*' => ['file', 'mimes:'.config('paf.document_mimes'), 'max:'.config('paf.max_document_kb')],
         ]);
     }
 }

@@ -90,6 +90,17 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - Builds the **approval chain** for the PRF total (pre-filled from level defaults, fully
   editable, ad-hoc stages allowed) and sends it for approval in one step.
 - Selected invoices are reserved (`payment_status = in_approval`) and linked to the PRF.
+- **Supporting documents for the request as a whole.** Once at least one invoice is selected, the
+  create dialog offers an optional attachments section for documents that cover the payment rather
+  than one invoice — a vendor statement, a covering memo, a contract schedule. They are saved in the
+  same step as the request (a refused request keeps none) and are **merged into the PAF**
+  automatically, ahead of the invoices' own documents, without being copied onto any invoice.
+  Finance/admin can **add more later** from the request page while it is in approval, approved or
+  paid; one added after the final approval is marked "added after approval". Same file types and
+  limits as invoice documents. **Visible to Finance, admins and that request's approvers only** —
+  not to submitters, because one request can group invoices from several departments. That holds on
+  the emailed links too: the request's own link (sent to every submitter on approval/rejection)
+  neither lists nor merges them; an approver's stage link does. No removal yet.
 - The payment request list shows the **vendor name** of the invoices it groups; a PRF spanning
   several vendors shows the first with a `+N more` suffix (all names in the cell tooltip), the
   same way the currency column labels mixed sets.
@@ -139,6 +150,17 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   same levels — a larger one may need levels nobody has given). Those need a release first.
   Also locked: a correction that would leave the **PRF** at zero or below — the total only falling
   is no longer enough now that an invoice can net below zero. Withdraw the PRF instead.
+- **Correcting your own invoice during approval (the submitter).** The person who submitted an
+  invoice can **Correct** it while its PRF is still **in approval**, with Finance's limits (currency
+  locked, total may only stay the same or fall, the PRF must stay above zero) **plus** a locked
+  **vendor** — who gets paid is not the submitter's to change under a running approval — and the
+  locked advance marker. They may attach further documents as part of the correction. Approvals
+  already given are kept and the PRF **stays with its current approver**; the request is marked
+  **Corrected during approval** (on the request page, the token-gated approval page and the PAF),
+  and the Finance user who raised it is emailed so the ERP posting can be checked. The option
+  **closes once the PRF is fully approved** (and stays closed when paid, rejected or withdrawn);
+  after that a change goes through Finance. Finance's own corrections are unchanged — and still not
+  vendor-locked (known issue #20, by decision).
 - **Releasing a single invoice (Finance/Admin only).** When one invoice in a PRF is wrong and the
   others are fine, release just that invoice with a required reason: it returns to the Invoice Log
   while the rest of the PRF stays approved and payable, its total re-synced. Releasing the last
@@ -201,6 +223,9 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   rollback the change request had itself reserved. Approvers see the outcome on the request, and
   Finance find the returned invoices in the Invoice Log and the rejection in the report.
 - **Approvals queue** lists the PRFs awaiting the current user's stage.
+- If a submitter corrected one of the invoices after the chain started, the request carries a
+  **Corrected during approval** note listing the invoice, who corrected it and when. The approvals
+  already given stand — a correction can only lower the total.
 - The approval decision dialog, authenticated PRF detail, and token-gated approval page show each
   invoice submitter and the invoice-line job no., customer, description, and currency-prefixed
   line total for review.
@@ -239,6 +264,9 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   configured approval levels: levels with `min_amount = 0.00` appear in **For Requisition Dept.
   Use**, while levels above zero (plus ad-hoc stages) appear in **For Approval**. The accounts area
   stays outside the approval chain.
+- Documents attached to the request as a whole come first (group "Payment request documents"),
+  and only on a PAF produced for someone allowed to see them; a `CORRECTED DURING APPROVAL` banner
+  lists any submitter corrections.
 - Attachments are merged into that single file by `PdfMergeService`: PDF attachments are appended
   page for page, images get one centred page each, and file types that cannot be rendered (Excel,
   Word, archives) are listed per invoice on a trailing **Additional Documents** page as clickable
@@ -317,6 +345,9 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | Withdraw an approved PRF | | | ✓ | ✓ |
 | Release one invoice from a PRF | | | ✓ | ✓ |
 | Correct an invoice held by a PRF | | | ✓ | ✓ |
+| Correct own invoice while its PRF is in approval (vendor locked) | ✓ (own) | ✓ (own) | (✓ wider) | (✓ wider) |
+| Attach documents to a PRF as a whole | | | ✓ | ✓ |
+| See a PRF's own documents | | ✓ (on its chain) | ✓ | ✓ |
 | Download PRF PAF (any status) | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Audit log viewer, manage users/levels | | | | ✓ |

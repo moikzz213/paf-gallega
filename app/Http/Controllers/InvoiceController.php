@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\InvoiceCorrectedDuringApproval;
 use App\Mail\InvoiceQueryRaised;
 use App\Models\Department;
 use App\Models\Invoice;
+use App\Models\PaymentRequest;
 use App\Models\Vendor;
 use App\Rules\UniqueVendorInvoiceNumber;
 use App\Services\AuditLogger;
@@ -135,26 +137,40 @@ class InvoiceController extends Controller
     {
         $user = $request->user();
         $canCorrect = $user->isAdmin() || $user->isFinance();
+        $isOwner = $invoice->submitted_by === $user->id;
 
-        if ($invoice->submitted_by !== $user->id && ! $canCorrect) {
+        if (! $isOwner && ! $canCorrect) {
             abort(403, 'You can only edit your own invoices.');
         }
 
         // Finance/admin can correct an invoice that a payment request is already holding, without
         // anyone's approval — but only in ways that cannot invalidate the approvals it carries.
         // Anything beyond that (currency, a higher total) needs the invoice released first.
+        //
+        // The invoice's own submitter gets the same correction on a narrower window: only while the
+        // request is still in approval, closed for good once the chain signs, and with the vendor
+        // locked as well — who gets paid is not the submitter's to change under a running approval.
         $inPlace = false;
+        $bySubmitter = false;
         if (! $invoice->isEditable()) {
-            if (! ($canCorrect && $invoice->isCorrectableInPlace())) {
+            if ($canCorrect && $invoice->isCorrectableInPlace()) {
+                $inPlace = true;
+            } elseif ($isOwner && $invoice->isCorrectableBySubmitter()) {
+                $inPlace = true;
+                $bySubmitter = true;
+            } elseif ($isOwner && $invoice->isCorrectableInPlace()) {
+                abort(422, 'The payment request holding this invoice has been fully approved, so it can no longer be corrected here. Ask Finance if something needs to change.');
+            } else {
                 abort(422, 'This invoice can no longer be edited.');
             }
-            $inPlace = true;
         }
 
         $data = $this->validated($request, $invoice);
         $itemsData = $this->validatedItems($request);
         $data['currency'] = $this->currencyOf($itemsData);
         $old = $invoice->only(array_keys($data));
+        $oldTotal = (float) $invoice->total_amount;
+        $oldLines = $this->lineSignature($invoice->items()->get()->toArray());
 
         if ($inPlace) {
             $this->assertInPlaceCorrection($invoice, $data['currency'], $this->totalOf($itemsData));
@@ -166,36 +182,136 @@ class InvoiceController extends Controller
                     'is_advance_payment' => 'The advance payment marker cannot be changed while a payment request is holding this invoice — it is part of what was approved. Release it first.',
                 ]);
             }
+            if ($bySubmitter) {
+                $this->assertSameVendor($invoice, $data);
+            }
         } elseif ($invoice->status === Invoice::STATUS_QUERY) {
             $data['status'] = Invoice::STATUS_SUBMITTED;
             $data['finance_remarks'] = null;
         }
 
-        $invoice->update($data);
-        $this->syncItems($invoice, $itemsData);
+        $changed = [];
+        $pr = DB::transaction(function () use ($request, $invoice, $data, $itemsData, $old, $inPlace, $bySubmitter, $oldTotal, $oldLines, &$changed) {
+            if ($bySubmitter) {
+                // Re-read under a lock: the chain may have signed off between the check above and
+                // this write, and the submitter's window closes the moment it does.
+                $locked = PaymentRequest::whereKey($invoice->payment_request_id)->lockForUpdate()->first();
+                if ($locked?->status !== PaymentRequest::STATUS_IN_APPROVAL) {
+                    abort(422, 'The payment request holding this invoice has just been approved, so it can no longer be corrected here. Ask Finance if something needs to change.');
+                }
+            }
 
-        $invoice->update([
-            'amount' => $invoice->items()->sum('amount'),
-            'tax_amount' => $invoice->items()->sum('tax_amount'),
-            'total_amount' => $invoice->items()->sum('total_amount'),
-        ]);
+            $invoice->update($data);
+            $this->syncItems($invoice, $itemsData);
 
-        $this->storeDocuments($request, $invoice);
+            $invoice->update([
+                'amount' => $invoice->items()->sum('amount'),
+                'tax_amount' => $invoice->items()->sum('tax_amount'),
+                'total_amount' => $invoice->items()->sum('total_amount'),
+            ]);
 
-        $pr = $inPlace ? $invoice->refresh()->paymentRequest : null;
-        // The request total is what the thresholds were measured against, so it follows the invoice.
-        $pr?->syncTotal();
+            $this->storeDocuments($request, $invoice);
 
-        AuditLogger::log(
-            'updated',
-            ($pr
-                ? "Invoice {$invoice->reference_no} corrected in place by Finance while held by {$pr->reference_no}"
-                : "Invoice {$invoice->reference_no} updated")
-                ." ({$invoice->currency} {$invoice->total_amount})".$this->creditSummary($invoice),
-            $invoice, $old, $data, $pr,
-        );
+            $pr = $inPlace ? $invoice->refresh()->paymentRequest : null;
+            // The request total is what the thresholds were measured against, so it follows the invoice.
+            $pr?->syncTotal();
+
+            if ($bySubmitter) {
+                // Named apart from Finance's corrections: this entry is what marks the request as
+                // corrected during approval for the approvers still to sign (PaymentRequest::corrections).
+                $changed = $this->changedFields($old, $data, $oldLines, $invoice);
+                AuditLogger::log(
+                    'corrected_during_approval',
+                    "Invoice {$invoice->reference_no} corrected by its submitter while {$pr->reference_no} was in approval"
+                        ." ({$invoice->currency} ".number_format($oldTotal, 2).' → '.number_format((float) $invoice->total_amount, 2).')'
+                        .($changed ? '; changed: '.implode(', ', $changed) : '; no field changed'),
+                    $invoice, $old + ['total_amount' => $oldTotal], $data + ['total_amount' => (float) $invoice->total_amount], $pr,
+                );
+            } else {
+                AuditLogger::log(
+                    'updated',
+                    ($pr
+                        ? "Invoice {$invoice->reference_no} corrected in place by Finance while held by {$pr->reference_no}"
+                        : "Invoice {$invoice->reference_no} updated")
+                        ." ({$invoice->currency} {$invoice->total_amount})".$this->creditSummary($invoice),
+                    $invoice, $old, $data, $pr,
+                );
+            }
+
+            return $pr;
+        });
+
+        // After the commit, so a mail problem cannot undo the correction. Finance raised the request
+        // and posted to the ERP from the old figures, so they are the ones who need to know.
+        if ($bySubmitter && $pr && $pr->created_by !== $user->id) {
+            Notifier::send(
+                $pr->creator?->email,
+                new InvoiceCorrectedDuringApproval($invoice->refresh(), $pr, $user, $oldTotal, $changed),
+                "{$invoice->reference_no} corrected during approval of {$pr->reference_no}",
+            );
+        }
 
         return response()->json($invoice->refresh()->load('vendor:id,name,vendor_code,credit_days', 'items.customer', 'documents'));
+    }
+
+    /**
+     * The vendor is who gets paid. A submitter correcting an invoice under a running approval may not
+     * change it — the approvals given so far were given for that payee. An invoice that predates the
+     * vendor master list (no vendor_id) may be linked to the record of the same name, which changes
+     * nothing about who is paid.
+     */
+    private function assertSameVendor(Invoice $invoice, array $data): void
+    {
+        $same = $invoice->vendor_id
+            ? (int) $data['vendor_id'] === (int) $invoice->vendor_id
+            : $data['vendor_name'] === $invoice->vendor_name;
+
+        if (! $same) {
+            $held = $invoice->paymentRequest?->reference_no ?? 'its payment request';
+
+            throw ValidationException::withMessages([
+                'vendor_id' => "The vendor cannot be changed while {$held} is in approval — the approvals given so far are for {$invoice->vendor_name}. Ask Finance to release the invoice if it was raised against the wrong vendor.",
+            ]);
+        }
+    }
+
+    /**
+     * Readable names of what a correction changed, for the audit entry and Finance's email.
+     *
+     * @param  array<string, mixed>  $old
+     * @param  array<string, mixed>  $new
+     * @return array<int, string>
+     */
+    private function changedFields(array $old, array $new, string $oldLines, Invoice $invoice): array
+    {
+        $labels = [
+            'invoice_no' => 'invoice number', 'invoice_date' => 'invoice date', 'due_date' => 'due date',
+            'business_unit' => 'business unit', 'department' => 'department', 'location' => 'location',
+            'payment_method' => 'payment method', 'priority' => 'priority', 'description' => 'description',
+        ];
+        $normalise = fn ($value) => $value instanceof \DateTimeInterface ? $value->format('Y-m-d') : (string) ($value ?? '');
+
+        $changed = [];
+        foreach ($labels as $key => $label) {
+            if (array_key_exists($key, $new) && $normalise($old[$key] ?? null) !== $normalise($new[$key])) {
+                $changed[] = $label;
+            }
+        }
+
+        if ($oldLines !== $this->lineSignature($invoice->items()->get()->toArray())) {
+            $changed[] = 'line items';
+        }
+
+        return $changed;
+    }
+
+    /** The parts of the line items a person can change, as one comparable string. */
+    private function lineSignature(array $items): string
+    {
+        return json_encode(array_map(fn ($item) => [
+            (string) ($item['job_no'] ?? ''), (int) ($item['customer_id'] ?? 0), (string) ($item['description'] ?? ''),
+            round((float) $item['amount'], 2), round((float) ($item['tax_rate'] ?? 0), 2),
+        ], array_values($items)));
     }
 
     /**

@@ -50,6 +50,11 @@ Laravel 13 (routes/web.php, prefix "api")
     shared by the in-app download and the token-gated approval page so the two cannot drift. On
     demand rather than stored: the document exists from creation onwards and must show the approval
     progress reached at the time it is produced, which a snapshot taken at creation could not.
+    `render($pr, $withRequestDocuments)` merges the request's own documents only when the caller has
+    established the viewer may see them (`PaymentRequest::documentsVisibleTo`, or an approval-stage
+    token on the public page) — off by default.
+  - `PaymentRequestService::attachDocuments` stores request-level documents, at creation (last step
+    of the creation transaction) and later; it deletes the files it wrote if any step fails.
   - `MasterDataImportService` — parses and validates admin-uploaded Excel rows, then creates and
     audits the complete batch in one transaction.
   - `AuditLogger` — static `log(action, description, ?invoice, ?old, ?new, ?paymentRequest)`
@@ -129,10 +134,15 @@ Laravel 13 (routes/web.php, prefix "api")
 - **Submit invoice:** `POST /api/invoices` (multipart) → invoice `submitted` + documents.
 - **Post / query:** `POST /api/invoices/{id}/post|query` (finance/admin) → `posted` (with
   `erp_doc_no`) or `query_raised` (with `finance_remarks`).
-- **Create PRF:** `POST /api/payment-requests` (finance/admin) with `invoice_ids` + chain
-  (`approvers` per level + `adhoc_approvers`) → `PaymentRequestService::create()` builds the
-  ordered chain, reserves the invoices (`in_approval`), routes to stage 1, and sends an email
+- **Create PRF:** `POST /api/payment-requests` (finance/admin, multipart from the UI) with
+  `invoice_ids` + chain (`approvers` per level + `adhoc_approvers`) + optional `documents[]` →
+  `PaymentRequestService::create()` builds the ordered chain, reserves the invoices
+  (`in_approval`), stores the request-level documents, routes to stage 1, and sends an email
   notification to the stage-1 approver.
+- **Submitter correction during approval:** `POST /api/invoices/{id}` by the invoice's submitter
+  while its PRF is `in_approval` → same path as Finance's in-place correction, plus a vendor lock and
+  a locked re-check of the PRF status; audited as `corrected_during_approval`, mailed to the PRF
+  creator after commit.
 - **Approve/reject:** `POST /api/payment-requests/{id}/approve|reject` → advances `current_stage`
   / finalizes to `approved` (invoices `approved_for_payment`), or rejects and frees the invoices.
 - **Pay:** `POST /api/payment-requests/{id}/mark-paid` (finance/admin) → PRF & invoices `paid`.
