@@ -12,6 +12,7 @@ use App\Models\PaymentRequestApproval;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 
@@ -249,11 +250,7 @@ class PaymentRequestService
             return $pr->refresh();
         });
 
-        Notifier::send(
-            $pr->currentApproval()?->approver?->email,
-            new PaymentRequestSubmitted($pr),
-            "{$pr->reference_no} sent for approval",
-        );
+        $this->notifyNextApprover($pr, $pr->currentApproval());
 
         return $pr;
     }
@@ -376,10 +373,20 @@ class PaymentRequestService
      */
     public function notifyNextApprover(PaymentRequest $pr, ?PaymentRequestApproval $next): void
     {
+        // The stage goes with the mailable. It used to be re-derived at render time from
+        // `current_stage`, which a queued job reads long after the chain has moved — and once that
+        // is null, the approval link cannot be built and the whole notification is lost without
+        // anyone noticing. See PaymentRequestSubmitted.
+        if (! $next?->view_token) {
+            Log::warning("Notification skipped ({$pr->reference_no} routed for approval): the stage has no approval token to link to.");
+
+            return;
+        }
+
         Notifier::send(
-            $next?->approver?->email,
-            new PaymentRequestSubmitted($pr),
-            "stage {$next?->sequence} of {$pr->reference_no} routed for approval",
+            $next->approver?->email,
+            new PaymentRequestSubmitted($pr, $next),
+            "stage {$next->sequence} of {$pr->reference_no} routed for approval",
         );
     }
 

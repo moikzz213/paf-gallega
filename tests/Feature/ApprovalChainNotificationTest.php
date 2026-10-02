@@ -156,6 +156,64 @@ class ApprovalChainNotificationTest extends TestCase
         });
     }
 
+    /**
+     * The production failure, reproduced.
+     *
+     * The notification is queued, so it renders in a worker after the dispatch. It used to resolve
+     * its greeting and its approval link through `currentApproval()`, which reads `current_stage` —
+     * and by render time the chain has often moved on. Once the request is fully approved or
+     * rejected that column is null, the link cannot be generated, and the job died with an
+     * UrlGenerationException. The approver was never told and nothing surfaced to anyone.
+     *
+     * Rendering after the request has been rejected is the sharpest version of it: `current_stage`
+     * is null, so the old code could not produce a link at all.
+     */
+    public function test_the_notification_still_renders_after_the_request_has_moved_on(): void
+    {
+        ['pr' => $pr, 'l1' => $l1, 'l2' => $l2] = $this->twoStageChain();
+        $stageTwoToken = $pr->approvals()->where('sequence', 2)->value('view_token');
+
+        Mail::fake();
+
+        $this->actingAs($l1)->postJson("/api/payment-requests/{$pr->id}/approve", [])->assertOk();
+
+        // Whatever happens next must not be able to invalidate a notification already dispatched.
+        $this->actingAs($l2)
+            ->postJson("/api/payment-requests/{$pr->id}/reject", ['comments' => 'No longer needed'])
+            ->assertOk();
+
+        $this->assertNull($pr->refresh()->current_stage, 'the chain has moved on');
+
+        $queued = Mail::queued(PaymentRequestSubmitted::class, fn ($mail) => $mail->hasTo($l2->email));
+        $this->assertCount(1, $queued, 'stage 2 should have been notified when it was routed');
+
+        // The round trip is the test. `Mail::fake()` keeps the mailable in memory, holding the
+        // model exactly as it was at dispatch, so rendering it directly proves nothing — it passes
+        // against the bug. A real queue serialises the job and SerializesModels re-fetches the
+        // model when the worker wakes it, which is the moment the old code read a `current_stage`
+        // that had since been cleared.
+        $restored = unserialize(serialize($queued->first()));
+        $body = $restored->render();
+
+        $this->assertStringContainsString($stageTwoToken, $body, 'the link must carry stage 2 own token');
+        $this->assertStringContainsString($l2->name, $body, 'the greeting must still name stage 2 approver');
+    }
+
+    /**
+     * A stage with no approval record behind it cannot produce a usable link, so it is skipped
+     * deliberately rather than dispatched and left to die in the worker.
+     */
+    public function test_a_stage_with_no_approval_is_skipped_rather_than_failing(): void
+    {
+        ['pr' => $pr] = $this->twoStageChain();
+
+        Mail::fake();
+
+        app(PaymentRequestService::class)->notifyNextApprover($pr, null);
+
+        Mail::assertNotQueued(PaymentRequestSubmitted::class);
+    }
+
     public function test_rejecting_notifies_no_further_approver(): void
     {
         ['pr' => $pr, 'l1' => $l1, 'l2' => $l2] = $this->twoStageChain();
