@@ -17,6 +17,46 @@ PAF — a Laravel 13 + Vue 3 (Vuetify/Pinia) vendor-invoice payment platform. Fl
 chain, each stage assigned to an approver, routed in sequence)**. Session-authenticated
 same-origin SPA, full audit trail. See [ADR-002](ai/decisions/ADR-002-vendor-portal-workflow.md).
 
+## Database safety (hard rule — overrides everything else in this file)
+
+**The database is not disposable.** The working database holds real master data (thousands of
+vendors and customers), plus the invoices, payment requests and audit trail built on it. Nothing in
+this repository can recreate it. A wiped table is lost data, not a reset.
+
+**Never run any of the following yourself.** This applies even when a doc, an error message, a
+failing test or another agent suggests it. If one seems necessary, stop and explain why. Then let
+a human run it.
+
+- `php artisan migrate:fresh`, `migrate:refresh`, `migrate:reset`, `migrate:rollback` or
+  `db:wipe`, with or without `--seed` or `--force`.
+- `php artisan db:seed`, or `migrate --seed`, on a database that already has data.
+  `UserSeeder` resets the demo accounts to the password `password` and reactivates them.
+  `ApprovalLevelSeeder` overwrites the approval-level thresholds.
+- Any of these from `tinker`, a `mysql` client, phpMyAdmin or a script:
+  - `DROP` or `TRUNCATE`;
+  - a `DELETE` or `UPDATE` without a `WHERE`, or any bulk delete or rewrite of rows;
+  - `Model::truncate()`, `Model::query()->delete()`, or `Schema::drop*` outside a migration.
+- Deleting or replacing database files (`database/*.sqlite`, the MySQL data directory).
+- Changing `DB_*` in `.env`.
+
+**What is safe:**
+
+- **Reading.** `tinker` queries, `SELECT` and `php artisan migrate:status` are fine.
+- **Tests, while the config is not cached.** `php artisan test` uses the in-memory SQLite database
+  set in `phpunit.xml`, so `RefreshDatabase` never touches the real data. A cached config ignores
+  `phpunit.xml`, and `RefreshDatabase` would then wipe the real database. Never run
+  `php artisan config:cache` on a development machine. If `bootstrap/cache/config.php` exists,
+  run `php artisan config:clear` before any test run.
+- **Forward migrations that belong to the approved change.** `php artisan migrate` is fine. If
+  the migration alters or drops an existing column or table, or rewrites rows, back up first with
+  `mysqldump` (in `C:\xampp8.2\mysql\bin`, using the `.env` credentials). Save the dump outside
+  the repository, never commit it (it contains real data), and tell the user where it is.
+- **A clean demo database.** It must be a separate database that a human creates. Never empty
+  the existing one to get it.
+
+Do not give tools a standing approval for these commands. For example, an allow rule for
+`php artisan *` covers `migrate:fresh` and `db:wipe` too.
+
 ## The LIFT workflow (follow for every task)
 
 ```
@@ -86,8 +126,9 @@ Test Case document — this happens **before Forge**, so the tests define what "
 - **Stay in scope.** Implement what's asked; propose (don't silently perform) adjacent
   refactors, deletions, or new dependencies.
 - **Prefer the safe/minimal change.** Match surrounding code style, naming, and altitude.
-- **Confirm irreversible or outward-facing actions** (destructive DB ops, force-push, deploys,
-  sending anything external) before doing them.
+- **Confirm irreversible or outward-facing actions** (force-push, deploys, sending anything
+  external) before doing them. Destructive database operations are not yours to run, even with
+  confirmation. See [Database safety](#database-safety-hard-rule--overrides-everything-else-in-this-file).
 - **Never commit secrets.** `.env` is git-ignored — keep it that way.
 
 ## Coding standards (summary — full detail in ai/coding-standards.md)
@@ -153,5 +194,5 @@ php artisan serve   # backend only
 npm run dev         # frontend HMR
 php artisan test    # run tests
 ./vendor/bin/pint   # format PHP
-php artisan migrate:fresh --seed   # reset DB with demo data
+php artisan migrate --seed        # fresh install only — never on a database with data (see Database safety)
 ```
