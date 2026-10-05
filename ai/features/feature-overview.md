@@ -258,9 +258,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - The document is a landscape
   Payment Approval Form matching the company PAF layout, including the Gallega logo and aligned
   approval-flow connectors: voucher/request and accounts-document
-  details, supplier line items, totals and amount in words, payment-approval limits, comments,
+  details, supplier line items, totals and amount in words, the payment-approval-limits line, comments,
   separate requisition/approval/accounts sign-off areas, and invoice attachments on following
-  pages. The PRF status is intentionally omitted. Approval stages are grouped directly from their
+  pages. The PRF status is intentionally omitted. The **Approvals Limit for Payment** line keeps its
+  label but is left blank: the fixed "Up to AED 50,000…" sentence it used to print did not follow the
+  configured approval levels, so it could contradict the approvers on the same form
+  (CR `remove-the-approval-limit-text-from-the-paf`). Approval stages are grouped directly from their
   configured approval levels: levels with `min_amount = 0.00` appear in **For Requisition Dept.
   Use**, while levels above zero (plus ad-hoc stages) appear in **For Approval**. The accounts area
   stays outside the approval chain.
