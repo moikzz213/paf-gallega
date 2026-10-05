@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Mail\InvoiceCorrectedAfterPosting;
 use App\Mail\InvoiceCorrectedDuringApproval;
 use App\Mail\InvoiceQueryRaised;
 use App\Models\Department;
@@ -150,10 +151,16 @@ class InvoiceController extends Controller
         // The invoice's own submitter gets the same correction on a narrower window: only while the
         // request is still in approval, closed for good once the chain signs, and with the vendor
         // locked as well — who gets paid is not the submitter's to change under a running approval.
+        //
+        // Before any of that, a posted invoice not yet in a payment cycle is Finance/admin's to
+        // correct outright: no approval exists to protect, so nothing is locked, and it stays posted.
         $inPlace = false;
         $bySubmitter = false;
+        $afterPosting = false;
         if (! $invoice->isEditable()) {
-            if ($canCorrect && $invoice->isCorrectableInPlace()) {
+            if ($canCorrect && $invoice->isCorrectableAfterPosting()) {
+                $afterPosting = true;
+            } elseif ($canCorrect && $invoice->isCorrectableInPlace()) {
                 $inPlace = true;
             } elseif ($isOwner && $invoice->isCorrectableBySubmitter()) {
                 $inPlace = true;
@@ -191,7 +198,16 @@ class InvoiceController extends Controller
         }
 
         $changed = [];
-        $pr = DB::transaction(function () use ($request, $invoice, $data, $itemsData, $old, $inPlace, $bySubmitter, $oldTotal, $oldLines, &$changed) {
+        $pr = DB::transaction(function () use ($request, $invoice, $data, $itemsData, $old, $inPlace, $bySubmitter, $afterPosting, $oldTotal, $oldLines, &$changed) {
+            if ($afterPosting) {
+                // Re-read under a lock: the invoice may have been placed on a payment request since
+                // the check above, and from then on its approvals' limits apply instead.
+                $locked = Invoice::whereKey($invoice->id)->lockForUpdate()->first();
+                if (! $locked?->isCorrectableAfterPosting()) {
+                    abort(422, 'This invoice has just been placed on a payment request, so it can no longer be corrected this way. Open it again to correct it within that request\'s limits.');
+                }
+            }
+
             if ($bySubmitter) {
                 // Re-read under a lock: the chain may have signed off between the check above and
                 // this write, and the submitter's window closes the moment it does.
@@ -227,6 +243,18 @@ class InvoiceController extends Controller
                         .($changed ? '; changed: '.implode(', ', $changed) : '; no field changed'),
                     $invoice, $old + ['total_amount' => $oldTotal], $data + ['total_amount' => (float) $invoice->total_amount], $pr,
                 );
+            } elseif ($afterPosting) {
+                // Named apart from an ordinary edit: the ERP entry was posted from the figures this
+                // replaced, so the log has to say which document they were posted under.
+                $changed = $this->changedFields($old, $data, $oldLines, $invoice);
+                AuditLogger::log(
+                    'corrected_after_posting',
+                    "Invoice {$invoice->reference_no} corrected by Finance after posting (ERP doc {$invoice->erp_doc_no})"
+                        ." ({$old['currency']} ".number_format($oldTotal, 2)." → {$invoice->currency} ".number_format((float) $invoice->total_amount, 2).')'
+                        .($changed ? '; changed: '.implode(', ', $changed) : '; no field changed')
+                        .$this->creditSummary($invoice),
+                    $invoice, $old + ['total_amount' => $oldTotal], $data + ['total_amount' => (float) $invoice->total_amount],
+                );
             } else {
                 AuditLogger::log(
                     'updated',
@@ -248,6 +276,17 @@ class InvoiceController extends Controller
                 $pr->creator?->email,
                 new InvoiceCorrectedDuringApproval($invoice->refresh(), $pr, $user, $oldTotal, $changed),
                 "{$invoice->reference_no} corrected during approval of {$pr->reference_no}",
+            );
+        }
+
+        // The submitter used to make this correction themselves, through a query. They no longer
+        // do, so they are told what Finance changed on their invoice.
+        if ($afterPosting && $invoice->submitted_by !== $user->id) {
+            $invoice->loadMissing('submitter');
+            Notifier::send(
+                $invoice->submitter?->email,
+                new InvoiceCorrectedAfterPosting($invoice->refresh(), $user, $old['currency'], $oldTotal, $changed),
+                "{$invoice->reference_no} corrected by Finance after posting",
             );
         }
 
@@ -276,7 +315,7 @@ class InvoiceController extends Controller
     }
 
     /**
-     * Readable names of what a correction changed, for the audit entry and Finance's email.
+     * Readable names of what a correction changed, for the audit entry and the notification email.
      *
      * @param  array<string, mixed>  $old
      * @param  array<string, mixed>  $new
@@ -284,7 +323,10 @@ class InvoiceController extends Controller
      */
     private function changedFields(array $old, array $new, string $oldLines, Invoice $invoice): array
     {
+        // Vendor, currency and the advance marker are locked under a running approval, so they only
+        // ever show here for a correction made after posting, where nothing is locked.
         $labels = [
+            'vendor_name' => 'vendor', 'currency' => 'currency', 'is_advance_payment' => 'advance payment marker',
             'invoice_no' => 'invoice number', 'invoice_date' => 'invoice date', 'due_date' => 'due date',
             'business_unit' => 'business unit', 'department' => 'department', 'location' => 'location',
             'payment_method' => 'payment method', 'priority' => 'priority', 'description' => 'description',

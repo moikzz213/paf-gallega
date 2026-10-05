@@ -147,6 +147,20 @@ class Invoice extends Model
     }
 
     /**
+     * Posted to the ERP but not yet in a payment cycle, so Finance/admin may correct it directly
+     * rather than querying it back to the submitter. Nobody has approved anything yet, so no field
+     * is locked; the invoice stays posted under its ERP document. Includes invoices returned from a
+     * rejected, withdrawn or released request, which come back posted. See InvoiceController::update.
+     *
+     * CR: ai/change-requests/allow-finance-to-correct-posted-invoices-before-payment.md
+     */
+    public function isCorrectableAfterPosting(): bool
+    {
+        return $this->status === self::STATUS_POSTED
+            && $this->payment_status === self::PAY_NOT_INITIATED;
+    }
+
+    /**
      * Held by a payment request that has not been paid, so Finance/admin may still correct it in
      * place — within limits that cannot invalidate the approvals it already carries. See
      * InvoiceController::assertInPlaceCorrection.

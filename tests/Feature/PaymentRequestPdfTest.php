@@ -83,6 +83,26 @@ class PaymentRequestPdfTest extends TestCase
         $this->assertStringContainsString('ALN-77', $html);
     }
 
+    public function test_approval_limit_line_keeps_its_label_but_states_no_limit(): void
+    {
+        $u = $this->ladder();
+        $finance = User::create(['name' => 'Fin', 'email' => 'fin@t.local', 'password' => 'password', 'role' => User::ROLE_FINANCE, 'is_active' => true]);
+        $requester = User::create(['name' => 'Req', 'email' => 'req@t.local', 'password' => 'password', 'role' => User::ROLE_REQUESTER, 'is_active' => true]);
+
+        $invoice = $this->postedInvoice($requester, 300, [['job_no' => 'JOB-AAA', 'amount' => 300]]);
+        $pr = app(PaymentRequestService::class)->create([$invoice->id], $finance, [
+            ['approver_id' => $u['mgr']->id, 'label' => 'Department Manager', 'level' => 1, 'is_adhoc' => false],
+        ]);
+
+        $html = $this->render($pr->id);
+
+        // The fixed limit text did not follow the configured approval levels, so it is gone; the
+        // heading stays so the sheet keeps the shape of the paper form.
+        $this->assertStringContainsString('APPROVALS LIMIT FOR PAYMENT', $html);
+        $this->assertStringNotContainsString('by Finance Manager', $html);
+        $this->assertStringNotContainsString('Gallega CEO or SVP', $html);
+    }
+
     public function test_for_approval_shows_reached_and_not_reached_approvers(): void
     {
         $u = $this->ladder();

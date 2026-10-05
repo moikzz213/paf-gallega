@@ -110,7 +110,6 @@
             $amountWords = trim($formatter->format($whole).' '.$displayCurrency.($fraction ? " and {$fraction}/100" : '').' only');
         }
         $companyName = 'GALLEGA GLOBAL LOGISTICS SINGLE OWNER L.L.C (DUBAI BRANCH)';
-        $approvalLimit = 'Up to AED 50,000 by Finance Manager. All above AED 50,000 by Gallega CEO or SVP - Group Finance';
         $requisitionApprovals = $approvals->filter(
             fn ($approval) => $approval->approvalLevel
                 && (float) $approval->approvalLevel->min_amount === 0.0
@@ -334,7 +333,9 @@
         <table class="form-row">
             <tr>
                 <td class="label">APPROVALS LIMIT FOR PAYMENT</td>
-                <td class="value">{{ $approvalLimit }}</td>
+                {{-- Left blank on purpose. The fixed limit text that stood here did not follow the
+                     configured approval levels, so the form could contradict its own approvals. --}}
+                <td class="value">&nbsp;</td>
             </tr>
             <tr>
                 <td class="label">COMMENTS / OBSERVATION</td>

@@ -18,6 +18,9 @@ const isEdit = computed(() => !!props.id);
 // Set when Finance is correcting an invoice held by a payment request: currency and amounts are
 // locked to what that request's approvals cover.
 const correction = ref(null);
+// Set when Finance is correcting a posted invoice that is not yet in a payment cycle. Nothing is
+// locked — no approval exists yet — but the ERP entry was posted from the old figures.
+const postedCorrection = ref(null);
 // The tax figure the invoice was loaded with. Lines created before tax became a percentage carry a
 // rate recovered from their cash figure, and an arbitrary figure is not always expressible as one —
 // so re-saving can move the tax by a cent or two. Surfaced rather than applied silently.
@@ -213,15 +216,22 @@ onMounted(async () => {
                 && data.payment_status === 'in_approval'
                 && data.payment_request?.status === 'in_approval'
                 && data.status !== 'cancelled';
+            // Posted but not yet in a payment cycle: Finance/admin may correct it outright, and it
+            // stays posted. Mirrors Invoice::isCorrectableAfterPosting.
+            const postedCorrectable = auth.canProcessPayments
+                && data.status === 'posted'
+                && data.payment_status === 'not_initiated';
             const correctable = financeCorrectable || submitterCorrectable;
 
-            if (!editable && !correctable) {
+            if (postedCorrectable) {
+                postedCorrection.value = { erp_doc_no: data.erp_doc_no };
+            } else if (!editable && !correctable) {
                 notify.error('This invoice can no longer be edited.');
                 router.replace(`/invoices/${props.id}`);
                 return;
             }
             loadedTax.value = Number(data.tax_amount ?? 0);
-            if (!editable) {
+            if (!editable && !postedCorrectable) {
                 correction.value = {
                     reference_no: data.payment_request?.reference_no ?? 'its payment request',
                     currency: data.currency,
@@ -260,9 +270,10 @@ function downloadDocument(doc) {
 }
 
 // Only the uploader (or an admin) may remove a document, and only while the invoice is still
-// editable — an in-place correction is held by a payment request, so its documents stay put.
+// editable — an in-place correction is held by a payment request, and a posted invoice is past the
+// point documents can be removed (DocumentController), so in both their documents stay put.
 function canRemoveDocument(doc) {
-    return !correction.value && (auth.isAdmin || doc.uploaded_by === auth.user?.id);
+    return !correction.value && !postedCorrection.value && (auth.isAdmin || doc.uploaded_by === auth.user?.id);
 }
 
 async function removeDocument() {
@@ -346,7 +357,7 @@ async function save() {
         <div class="d-flex align-center mb-6">
             <v-btn icon="mdi-arrow-left" variant="text" class="mr-2" @click="router.back()" />
             <div>
-                <h1 class="text-h5 font-weight-bold">{{ correction ? 'Correct Invoice' : (isEdit ? 'Edit Invoice' : 'Submit Invoice') }}</h1>
+                <h1 class="text-h5 font-weight-bold">{{ correction || postedCorrection ? 'Correct Invoice' : (isEdit ? 'Edit Invoice' : 'Submit Invoice') }}</h1>
                 <div class="text-body-2 text-medium-emphasis">
                     Submit a vendor invoice to Finance — it is logged date-wise for posting and payment
                 </div>
@@ -357,7 +368,14 @@ async function save() {
             <v-progress-circular indeterminate color="primary" size="48" />
         </div>
 
-        <v-alert v-if="correction?.bySubmitter && !loading" type="info" variant="tonal" class="mb-4" icon="mdi-lock-outline">
+        <v-alert v-if="postedCorrection && !loading" type="warning" variant="tonal" class="mb-4" icon="mdi-database-edit-outline">
+            This invoice is posted to the ERP<template v-if="postedCorrection.erp_doc_no"> as
+            <strong>{{ postedCorrection.erp_doc_no }}</strong></template>. It stays posted after your correction, so
+            <strong>adjust the ERP entry to match</strong>. If the ERP document number changes too, use
+            <strong>Edit Posting</strong> on the invoice afterwards. The submitter is emailed what changed, and the
+            correction is recorded in the invoice history.
+        </v-alert>
+        <v-alert v-else-if="correction?.bySubmitter && !loading" type="info" variant="tonal" class="mb-4" icon="mdi-lock-outline">
             This invoice is in approval on <strong>{{ correction.reference_no }}</strong>, whose approvals so far cover
             <strong>{{ money(correction.total, correction.currency) }}</strong>. You can correct its details, lower the
             total and attach further documents. The <strong>vendor and currency are locked</strong> and the total

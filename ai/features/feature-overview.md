@@ -51,6 +51,17 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
     Only available while the invoice is **outside a payment cycle** (`not_initiated`): a query asks
     for a correction, and an invoice held by a PRF cannot be edited. Return it first (reject the PRF,
     or withdraw it if already approved).
+  - **Correct** (posted, not yet in a PRF) — Finance/admin correct the invoice directly instead of
+    querying it back to the submitter. Covers invoices returned from a rejected, withdrawn or released
+    PRF, which come back `posted`. No approval exists yet, so nothing is locked: vendor, currency,
+    totals and the advance marker may all change, under the same validation as any edit (duplicate
+    invoice-number rule included). The invoice **stays posted** under its ERP document number and
+    poster. The form warns that the ERP entry must be adjusted to match (and points to Edit Posting if
+    the document number itself changes). Audited as `corrected_after_posting` with old/new values;
+    the submitter is emailed what changed (`InvoiceCorrectedAfterPosting`), unless they made the
+    correction themselves. New documents can be added; removing one still needs an editable
+    invoice. Raise Query stays available for issues the submitter must resolve.
+    (CR `allow-finance-to-correct-posted-invoices-before-payment`)
   - **Edit Posting** — correct a mistyped `erp_doc_no` (or posting date) on an invoice that is
     already `posted`. The number is keyed by hand and is what reconciles a PAF payment to the ERP
     document, so a typo had to be fixable; until this, it was permanent. Restricted to the user
@@ -258,9 +269,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 - The document is a landscape
   Payment Approval Form matching the company PAF layout, including the Gallega logo and aligned
   approval-flow connectors: voucher/request and accounts-document
-  details, supplier line items, totals and amount in words, payment-approval limits, comments,
+  details, supplier line items, totals and amount in words, the payment-approval-limits line, comments,
   separate requisition/approval/accounts sign-off areas, and invoice attachments on following
-  pages. The PRF status is intentionally omitted. Approval stages are grouped directly from their
+  pages. The PRF status is intentionally omitted. The **Approvals Limit for Payment** line keeps its
+  label but is left blank: the fixed "Up to AED 50,000…" sentence it used to print did not follow the
+  configured approval levels, so it could contradict the approvers on the same form
+  (CR `remove-the-approval-limit-text-from-the-paf`). Approval stages are grouped directly from their
   configured approval levels: levels with `min_amount = 0.00` appear in **For Requisition Dept.
   Use**, while levels above zero (plus ad-hoc stages) appear in **For Approval**. The accounts area
   stays outside the approval chain.
@@ -344,6 +358,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | Mark PRF paid | | | ✓ | ✓ |
 | Withdraw an approved PRF | | | ✓ | ✓ |
 | Release one invoice from a PRF | | | ✓ | ✓ |
+| Correct a posted invoice not yet in a PRF (nothing locked, stays posted) | | | ✓ | ✓ |
 | Correct an invoice held by a PRF | | | ✓ | ✓ |
 | Correct own invoice while its PRF is in approval (vendor locked) | ✓ (own) | ✓ (own) | (✓ wider) | (✓ wider) |
 | Attach documents to a PRF as a whole | | | ✓ | ✓ |
