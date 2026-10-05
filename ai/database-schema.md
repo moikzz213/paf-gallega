@@ -137,6 +137,8 @@ time and names the invoice already holding the number; it normalises both sides 
 than leaning on the column's collation, which is case-insensitive in MySQL and case-sensitive in the
 SQLite test database.
 `isEditable()` = status ∈ {submitted, query_raised} **and** payment_status = not_initiated.
+`isCorrectableAfterPosting()` (finance/admin) = status = posted **and** payment_status = not_initiated;
+recorded only in `audit_logs` (`corrected_after_posting`), with no column of its own.
 `isCorrectableInPlace()` (finance/admin) = payment_status ∈ {in_approval, approved_for_payment}, not
 cancelled. `isCorrectableBySubmitter()` (the invoice's own submitter) = payment_status = in_approval,
 not cancelled, **and** its request is `in_approval` — closed once the chain signs. A submitter

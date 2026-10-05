@@ -50,9 +50,15 @@ const canSubmitterCorrect = computed(() => isOwner.value
     && invoice.value?.status !== 'cancelled');
 const canCorrectInPlace = computed(() => (auth.canProcessPayments && inPaymentCycle.value && invoice.value?.status !== 'cancelled')
     || canSubmitterCorrect.value);
+// Posted but not yet in a payment cycle: Finance/admin correct it directly instead of querying it
+// back, with nothing locked and the invoice staying posted. Mirrors Invoice::isCorrectableAfterPosting.
+const canCorrectAfterPosting = computed(() => auth.canProcessPayments
+    && invoice.value?.status === 'posted'
+    && notInitiated.value);
 const canEdit = computed(() =>
     ((isOwner.value || auth.isAdmin) && ['submitted', 'query_raised'].includes(invoice.value?.status) && notInitiated.value)
-    || canCorrectInPlace.value);
+    || canCorrectInPlace.value
+    || canCorrectAfterPosting.value);
 // Pull just this invoice out of its payment request, leaving the others in it approved.
 const canRelease = computed(() => auth.canProcessPayments && inPaymentCycle.value && !!invoice.value?.payment_request_id);
 const canCancel = computed(() => (isOwner.value || auth.isAdmin) && notInitiated.value && invoice.value?.status !== 'cancelled');
@@ -219,6 +225,7 @@ const auditIcons = {
     payment_initiated: 'mdi-bank-transfer',
     credit_note_marked: 'mdi-minus-circle-outline',
     posting_corrected: 'mdi-file-edit-outline',
+    corrected_after_posting: 'mdi-pencil-circle-outline',
     approved: 'mdi-thumb-up-outline',
     rejected: 'mdi-thumb-down-outline',
     paid: 'mdi-cash-check',
@@ -270,7 +277,7 @@ const auditIcons = {
                 @click="runAction('resendQuery')"
             >Resend Notification</v-btn>
             <v-btn v-if="canEdit" variant="tonal" prepend-icon="mdi-pencil" :to="`/invoices/${invoice.id}/edit`">
-                {{ canCorrectInPlace && !notInitiated ? 'Correct' : 'Edit' }}
+                {{ (canCorrectInPlace && !notInitiated) || canCorrectAfterPosting ? 'Correct' : 'Edit' }}
             </v-btn>
             <v-btn v-if="canRelease" color="warning" variant="tonal" prepend-icon="mdi-undo-variant" @click="openDialog('release')">
                 Release from PRF

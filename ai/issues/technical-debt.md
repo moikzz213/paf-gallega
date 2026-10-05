@@ -60,6 +60,13 @@ Structural/maintainability items (distinct from behavioral gaps in
   2026-09-29, `DashboardPeriodFilterTest::test_spend_charts_are_counted_by_invoice_date` (not yet
   investigated — likely date-sensitive, as it fails without any code change). Fix or retire
   them — a red baseline hides real regressions.
+- **Payment request creation reads its invoices without a lock.** `PaymentRequestService::create`
+  loads and checks the invoices *before* its transaction, and does not lock them. An edit saved at
+  the same moment (an ordinary edit of a `submitted` invoice, or a correction after posting) can
+  commit between that read and the request's insert, so the request's `total_amount` and routing are
+  measured on the old figures. The correction-after-posting path locks and re-checks the invoice on
+  its own side, so it cannot write to an invoice that is already on a request. The fix is for creation
+  to `lockForUpdate` the invoices inside its transaction and re-run `isPayable()` there.
 
 ## Product-model note
 
