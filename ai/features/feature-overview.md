@@ -329,6 +329,26 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 - **Users:** create/edit (no hard delete — deactivate via `is_active`); role assignment;
   `approval_level` for approvers.
+- **Department visibility** (no setting — follows each user's department; **Requester role
+  only** — approvers, Finance and admins keep their existing access): every requester sees,
+  read-only, the invoices submitted by members of **their own department**, and the payment
+  requests holding them, across every screen. The submitter's department decides, not the
+  "Submitting department" picked on the invoice, so an invoice stays with the team that raised it
+  and moves with its submitter if they change department; a former member's invoices stay with
+  the department. The submitter may hold any role. Other departments stay hidden; a requester
+  with no department sees only their own. No write or approval right comes with it, and
+  request-level PRF documents stay hidden. CR:
+  `ai/change-requests/show-paf-invoices-to-all-users-in-the-same-department.md`.
+- **View-only access to colleagues' PAFs** ("Can view PAFs raised by" on the user form): an admin
+  names colleagues whose invoices — and the payment requests holding them — this user may **see**,
+  on the Invoice Log, invoice detail and attachments, Payment Requests, the PAF PDF, the dashboard
+  and reports. It grants nothing else: no edit, cancel, delete, correction, document upload or
+  approval, request-level PRF documents stay hidden (as they are from the submitter), "My invoices"
+  still means the user's own, and it is not passed on through the colleague's own grants. Any role
+  can hold it; it is empty by default, changeable at any time with no release, listed in the Users
+  table for access reviews, and audited. The Invoice Log's Submitted column shows the submitter's
+  name under the date, so a viewer can tell whose record each row is. First used for Customs Clearance (Chandru Manoharan →
+  his team). CR: `ai/change-requests/grant-view-only-access-to-paf-records-of-nominated-colleagues.md`.
 - **Approval levels:** CRUD of the threshold levels used to **pre-fill** PRF chains, each with a
   **default approver**. The default-approver list offers only users assigned to **that** level (the
   same membership rule the chain builder applies), so a level cannot be defaulted to someone whose
@@ -365,6 +385,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | See a PRF's own documents | | ✓ (on its chain) | ✓ | ✓ |
 | Download PRF PAF (any status) | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
+| View (read-only) own department's invoices & PRFs | ✓ | | (sees all) | (sees all) |
+| View (read-only) named colleagues' invoices & PRFs | ✓ (if granted) | ✓ (if granted) | (sees all) | (sees all) |
 | Audit log viewer, manage users/levels | | | | ✓ |
 
 ## Not yet implemented

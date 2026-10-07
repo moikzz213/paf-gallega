@@ -97,8 +97,15 @@ Laravel 13 (routes/web.php, prefix "api")
      (only the assigned approver of the current stage, or an admin, may act).
    - **Data scoping** via `Invoice::scopeVisibleTo` / `PaymentRequest::scopeVisibleTo`: admin &
      finance see all; approvers see items routed to them (PRFs where they're an approver, plus
-     own submissions); requesters see their own. Reports & dashboard have no role gate — they
-     rely entirely on these scopes.
+     own submissions); requesters see their own. **Requesters** additionally see, read-only, the
+     invoices — and the PRFs holding them — submitted by **members of their own department**
+     (the submitter's `users.department`, compared case-insensitively; a blank department matches
+     nobody; approvers/finance/admin are unaffected). **Anyone** additionally sees those of
+     colleagues an admin granted them (`user_view_grants`). Both live in
+     `Invoice::scopeSharedWith`, which the two `visibleTo` scopes share; no write check consults
+     it. Reports & dashboard have no role gate — they
+     rely entirely on these scopes. The invoice-detail and invoice-document checks call the scope
+     too (`whereKey(...)->visibleTo($user)->exists()`) rather than restating it.
 2. **Client (UX only):** Vue Router `beforeEach` checks `to.meta.roles`; `AppLayout` shows nav
    items by auth getters (`canApprove`, `canProcessPayments`, `isAdmin`). These mirror the
    server rules but are **independent code paths** — keep them aligned when adding routes.

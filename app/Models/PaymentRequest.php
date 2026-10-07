@@ -207,12 +207,17 @@ class PaymentRequest extends Model
             return $query;
         }
 
+        // Approvers see the PRFs routed to them, plus any holding an invoice by a colleague an admin
+        // has granted them view access to (read-only — see User::viewableColleagues).
         if ($user->isApprover()) {
-            return $query->whereHas('approvals', fn (Builder $a) => $a->where('approver_id', $user->id));
+            return $query->where(fn (Builder $q) => $q
+                ->whereHas('approvals', fn (Builder $a) => $a->where('approver_id', $user->id))
+                ->orWhereHas('invoices', fn (Builder $i) => $i->whereIn('submitted_by', $user->viewableColleagueIds())));
         }
 
-        // requesters can track PRFs that contain one of their invoices
-        return $query->whereHas('invoices', fn (Builder $i) => $i->where('submitted_by', $user->id));
+        // Requesters can track PRFs holding an invoice shared with them — their own, a granted
+        // colleague's, or their department's (Invoice::scopeSharedWith).
+        return $query->whereHas('invoices', fn (Builder $i) => $i->sharedWith($user));
     }
 
     /**
