@@ -26,6 +26,7 @@ approval_levels  (config: threshold + default approver; pre-fills a PRF chain)
 vendors, customers, business_units, departments, locations, currencies  (master lists)
 invoice_documents  ──< invoices
 payment_request_documents  ──< payment_requests   (documents for the request as a whole)
+user_view_grants  (users ↔ users: viewer may see a colleague's records, read-only)
 ```
 
 - An **invoice** is submitted by a user, optionally posted by a user, and may belong to one
@@ -44,7 +45,27 @@ Base Laravel columns plus (`add_paf_fields_to_users_table`): `role`
 (`admin|requester|approver|finance`), `approval_level` (tinyint; required for approvers, optional for
 finance — a finance user with a level is selectable as an approver at that level, see
 `User::canApprove()`; null for requesters/admins),
-`department`, `job_title`, `is_active` (bool).
+`department`, `job_title`, `is_active` (bool). `department` is **access-relevant**: **requesters** see the
+invoices submitted by everyone in the same department (`User::departmentColleagueIds`, compared
+case-insensitively; null/blank matches nobody). Changes to it are audited on `user_updated`.
+
+### user_view_grants
+
+Named, **read-only** exceptions to role-based visibility (`2026_10_06_000001`). The viewer sees the
+colleague's invoices and the PRFs holding them as if they were their own submissions — and gains no
+write right: every write check stays on `submitted_by`, role or chain membership. Not transitive.
+Maintained by an admin on the Users screen (`User::viewableColleagues()`), audited on the
+`user_updated` entry as `can_view_records_of` (names).
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint PK | |
+| `viewer_id` | FK users, cascade delete | who gains the view |
+| `colleague_id` | FK users, cascade delete | whose invoices/PRFs they may see |
+| timestamps | | |
+
+Unique (`viewer_id`, `colleague_id`). Read through `User::viewableColleagueIds()` (a subquery) in
+both `scopeVisibleTo` scopes.
 
 ### approval_levels
 

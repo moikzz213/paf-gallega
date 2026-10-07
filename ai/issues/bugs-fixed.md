@@ -5,6 +5,18 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-10-06] Invoice document download returned a server error to a guest
+
+- **Symptom:** `GET /api/documents/{id}/download` without a session answered `500` instead of
+  `401`. No file was served, so nothing leaked.
+- **Cause:** the route sits outside the `auth` group (so `window.open` downloads work), and the
+  access check called a method on the null user.
+- **Fix:** the check now returns `401` for a guest, then applies `Invoice::scopeVisibleTo` — the same
+  rule as the invoice detail — instead of restating it inline. Found while widening that rule for
+  view-only colleague grants (CR `grant-view-only-access-to-paf-records-of-nominated-colleagues`).
+- **Verified:** `ColleagueViewAccessTest` (document download allowed for a granted colleague's
+  invoice, refused for anyone else's); full suite shows no new failures.
+
 ## [2026-09-29] Vendor and customer search on Payment Requests showed unrelated names (INC-176271)
 
 - **Symptom:** On New Payment Request, typing in Vendor name or Customer Name left non-matching and

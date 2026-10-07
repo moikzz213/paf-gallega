@@ -5,13 +5,15 @@ namespace App\Http\Controllers;
 use App\Models\User;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 
 class UserController extends Controller
 {
     public function index(Request $request)
     {
-        $query = User::query();
+        $query = User::query()->with('viewableColleagues:id,name');
 
         if ($q = trim((string) $request->input('q'))) {
             $query->where(fn ($sub) => $sub
@@ -30,11 +32,16 @@ class UserController extends Controller
     {
         $data = $this->validated($request);
 
-        $user = User::create($data);
+        $user = DB::transaction(function () use ($data) {
+            $user = User::create(Arr::except($data, 'viewable_colleague_ids'));
+            $this->syncViewAccess($user, $data['viewable_colleague_ids'] ?? []);
 
-        AuditLogger::log('user_created', "User {$user->name} ({$user->email}) created with role {$user->role}");
+            return $user;
+        });
 
-        return response()->json($user, 201);
+        AuditLogger::log('user_created', "User {$user->name} ({$user->email}) created with role {$user->role}", null, null, $this->auditValues($user));
+
+        return response()->json($user->load('viewableColleagues:id,name'), 201);
     }
 
     public function update(Request $request, User $user)
@@ -45,12 +52,20 @@ class UserController extends Controller
             unset($data['password']);
         }
 
-        $old = $user->only(['role', 'approval_level', 'department', 'is_active']);
-        $user->update($data);
+        $old = $this->auditValues($user);
 
-        AuditLogger::log('user_updated', "User {$user->name} updated", null, $old, $user->only(['role', 'approval_level', 'department', 'is_active']));
+        DB::transaction(function () use ($user, $data) {
+            $user->update(Arr::except($data, 'viewable_colleague_ids'));
 
-        return response()->json($user);
+            // Only when sent, so a client that predates the field cannot wipe someone's grants.
+            if (array_key_exists('viewable_colleague_ids', $data)) {
+                $this->syncViewAccess($user, $data['viewable_colleague_ids'] ?? []);
+            }
+        });
+
+        AuditLogger::log('user_updated', "User {$user->name} updated", null, $old, $this->auditValues($user));
+
+        return response()->json($user->load('viewableColleagues:id,name'));
     }
 
     private function validated(Request $request, ?User $user = null): array
@@ -64,6 +79,36 @@ class UserController extends Controller
             'department' => ['nullable', 'string', Rule::exists('departments', 'name')->where('is_active', true)],
             'job_title' => ['nullable', 'string', 'max:255'],
             'is_active' => ['boolean'],
+            // Read-only access to these colleagues' invoices and payment requests. Inactive users stay
+            // selectable: their past records are what a manager may still need to look up.
+            'viewable_colleague_ids' => ['sometimes', 'nullable', 'array'],
+            'viewable_colleague_ids.*' => [
+                'integer', 'distinct', Rule::exists('users', 'id'),
+                Rule::notIn(array_filter([$user?->id])),
+            ],
         ]);
+    }
+
+    /**
+     * Replace the colleagues whose PAF records this user may view.
+     *
+     * CR: ai/change-requests/grant-view-only-access-to-paf-records-of-nominated-colleagues.md
+     */
+    private function syncViewAccess(User $user, array $colleagueIds): void
+    {
+        $user->viewableColleagues()->sync($colleagueIds);
+        $user->unsetRelation('viewableColleagues');
+    }
+
+    /**
+     * What the audit trail records about a user. The view grants are recorded by name, because the
+     * question an access review asks is "who could see whose records, and since when?".
+     */
+    private function auditValues(User $user): array
+    {
+        return [
+            ...$user->only(['role', 'approval_level', 'department', 'is_active']),
+            'can_view_records_of' => $user->viewableColleagues()->orderBy('name')->pluck('name')->all(),
+        ];
     }
 }

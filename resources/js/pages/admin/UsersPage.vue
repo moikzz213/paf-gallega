@@ -18,6 +18,8 @@ const dialog = ref(false);
 const editing = ref(null);
 const form = ref({});
 const formRef = ref(null);
+// Everyone, for the "can view PAFs raised by" picker. Loaded on first use; the user list is small.
+const colleagueOptions = ref([]);
 
 const rules = {
     required: (v) => (v !== null && v !== undefined && v !== '') || 'Required',
@@ -35,6 +37,7 @@ const headers = [
     { title: 'Role', key: 'role', sortable: false },
     { title: 'Level', key: 'approval_level', sortable: false },
     { title: 'Department', key: 'department', sortable: false },
+    { title: 'Can view PAFs of', key: 'viewable_colleagues', sortable: false },
     { title: 'Status', key: 'is_active', sortable: false },
     { title: '', key: 'actions', align: 'end', sortable: false },
 ];
@@ -66,16 +69,32 @@ watch(filters, () => {
     }, 350);
 });
 
+async function loadColleagueOptions() {
+    if (colleagueOptions.value.length) return;
+    try {
+        const { data } = await api.get('/users', { params: { per_page: 1000 } });
+        colleagueOptions.value = data.data.map((u) => ({
+            value: u.id,
+            title: u.is_active ? u.name : `${u.name} (inactive)`,
+            subtitle: u.department || undefined,
+        }));
+    } catch (e) {
+        notify.error(errorMessage(e));
+    }
+}
+
 function openCreate() {
     editing.value = null;
-    form.value = { name: '', email: '', password: '', role: 'requester', approval_level: null, department: null, job_title: '', is_active: true };
+    form.value = { name: '', email: '', password: '', role: 'requester', approval_level: null, department: null, job_title: '', is_active: true, viewable_colleague_ids: [] };
     dialog.value = true;
+    loadColleagueOptions();
 }
 
 function openEdit(user) {
     editing.value = user;
-    form.value = { ...user, password: '' };
+    form.value = { ...user, password: '', viewable_colleague_ids: (user.viewable_colleagues ?? []).map((c) => c.id) };
     dialog.value = true;
+    loadColleagueOptions();
 }
 
 async function save() {
@@ -85,6 +104,7 @@ async function save() {
     saving.value = true;
     try {
         const payload = { ...form.value };
+        delete payload.viewable_colleagues;
         if (!takesLevel(payload.role)) payload.approval_level = null;
         if (!payload.password) delete payload.password;
 
@@ -154,6 +174,12 @@ onMounted(() => meta.load());
                 <template #item.approval_level="{ item }">
                     {{ item.approval_level != null ? `L${item.approval_level}` : '—' }}
                 </template>
+                <template #item.viewable_colleagues="{ item }">
+                    <span v-if="item.viewable_colleagues?.length" class="text-body-2">
+                        {{ item.viewable_colleagues.map((c) => c.name).join(', ') }}
+                    </span>
+                    <span v-else class="text-medium-emphasis">—</span>
+                </template>
                 <template #item.is_active="{ item }">
                     <v-chip size="small" variant="tonal" :style="{ color: item.is_active ? '#008300' : '#d03b3b' }">
                         {{ item.is_active ? 'Active' : 'Inactive' }}
@@ -211,6 +237,19 @@ onMounted(() => meta.load());
                             </v-col>
                             <v-col cols="12" sm="6" class="d-flex align-center">
                                 <v-switch v-model="form.is_active" label="Active" color="success" hide-details />
+                            </v-col>
+                            <v-col cols="12">
+                                <v-autocomplete
+                                    v-model="form.viewable_colleague_ids"
+                                    :items="colleagueOptions.filter((o) => o.value !== editing?.id)"
+                                    label="Can view PAFs raised by"
+                                    hint="View only. This user will see these colleagues' invoices and payment requests, but cannot change them."
+                                    persistent-hint
+                                    multiple
+                                    chips
+                                    closable-chips
+                                    clearable
+                                />
                             </v-col>
                         </v-row>
                     </v-form>

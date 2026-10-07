@@ -128,15 +128,31 @@ class Invoice extends Model
             return $query;
         }
 
-        if ($user->isApprover()) {
-            // approvers see their own submissions plus invoices in a PRF routed to them
-            return $query->where(function (Builder $q) use ($user) {
-                $q->where('submitted_by', $user->id)
-                    ->orWhereHas('paymentRequest.approvals', fn (Builder $a) => $a->where('approver_id', $user->id));
-            });
-        }
+        // Everyone else sees what is shared with them, and approvers also the invoices in a PRF routed
+        // to them.
+        return $query->where(function (Builder $q) use ($user) {
+            $q->sharedWith($user);
 
-        return $query->where('submitted_by', $user->id);
+            if ($user->isApprover()) {
+                $q->orWhereHas('paymentRequest.approvals', fn (Builder $a) => $a->where('approver_id', $user->id));
+            }
+        });
+    }
+
+    /**
+     * Submitted by the user, by a colleague an admin granted them (User::viewableColleagues), or —
+     * for a requester — by anyone in their own department (User::departmentColleagueIds), the
+     * department being the submitter's, not the one picked on the invoice. Read-only: no write
+     * check consults this.
+     *
+     * CR: ai/change-requests/show-paf-invoices-to-all-users-in-the-same-department.md
+     */
+    public function scopeSharedWith(Builder $query, User $user): Builder
+    {
+        return $query->where(fn (Builder $q) => $q
+            ->where('submitted_by', $user->id)
+            ->orWhereIn('submitted_by', $user->viewableColleagueIds())
+            ->when($user->departmentColleagueIds(), fn (Builder $q, $department) => $q->orWhereIn('submitted_by', $department)));
     }
 
     /** Editable while it is still in the log and not yet in a payment cycle. */

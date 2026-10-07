@@ -203,6 +203,7 @@ async function confirmDialog() {
             >
                 <template #item.submitted_at="{ item }">
                     {{ shortDate(item.submitted_at) }}
+                    <div v-if="item.submitter" class="text-caption text-medium-emphasis">{{ item.submitter.name }}</div>
                 </template>
                 <template #item.vendor_name="{ item }">
                     <router-link :to="`/invoices/${item.id}`" class="text-primary text-decoration-none font-weight-medium">

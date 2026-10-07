@@ -865,13 +865,10 @@ class InvoiceController extends Controller
 
     private function authorizeView(Request $request, Invoice $invoice): void
     {
-        $user = $request->user();
-
-        $visible = $user->canViewAllInvoices()
-            || $invoice->submitted_by === $user->id
-            || ($user->isApprover() && $invoice->paymentRequest
-                && $invoice->paymentRequest->approvals()->where('approver_id', $user->id)->exists());
-
-        abort_unless($visible, 403, 'You do not have access to this invoice.');
+        // The one visibility rule, so this cannot drift from the Invoice Log, dashboard and reports.
+        abort_unless(
+            Invoice::whereKey($invoice->id)->visibleTo($request->user())->exists(),
+            403, 'You do not have access to this invoice.',
+        );
     }
 }

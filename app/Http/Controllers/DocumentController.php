@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Invoice;
 use App\Models\InvoiceDocument;
 use App\Services\AuditLogger;
 use Illuminate\Http\Request;
@@ -40,14 +41,10 @@ class DocumentController extends Controller
 
     private function authorizeAccess(Request $request, InvoiceDocument $document): void
     {
-        $user = $request->user();
-        $invoice = $document->invoice;
+        // The download route sits outside the `auth` group, so a guest has to be turned away here.
+        abort_unless($request->user(), 401);
 
-        $visible = $user->canViewAllInvoices()
-            || $invoice->submitted_by === $user->id
-            || ($user->isApprover() && $invoice->paymentRequest
-                && $invoice->paymentRequest->approvals()->where('approver_id', $user->id)->exists());
-
-        abort_unless($visible, 403);
+        // Whoever may see the invoice may open its documents — the same rule as the Invoice Log.
+        abort_unless(Invoice::whereKey($document->invoice_id)->visibleTo($request->user())->exists(), 403);
     }
 }
