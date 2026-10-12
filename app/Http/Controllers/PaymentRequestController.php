@@ -275,6 +275,13 @@ class PaymentRequestController extends Controller
         return response()->json($paymentRequest->load('documents.uploader:id,name')->documents);
     }
 
+    public function destroyDocument(Request $request, PaymentRequestDocument $document)
+    {
+        $this->service->removeDocument($document, $request->user());
+
+        return response()->json($document->paymentRequest->load('documents.uploader:id,name')->documents);
+    }
+
     public function downloadDocument(Request $request, PaymentRequestDocument $document)
     {
         abort_unless($document->paymentRequest->documentsVisibleTo($request->user()), 403, 'You do not have access to this document.');

@@ -175,6 +175,34 @@ function download(doc) {
     window.open(`/api/documents/${doc.id}/download`, '_blank');
 }
 
+// The uploader or an admin may take a document off. While the invoice is still editable it is deleted
+// outright; once posted, and until paid, it is removed from view with the file kept and the removal
+// recorded. Mirrors DocumentController::destroy / Invoice::acceptsDocumentRemoval.
+const documentsDeletable = computed(() => ['submitted', 'query_raised'].includes(invoice.value?.status) && notInitiated.value);
+const documentsRemovable = computed(() => invoice.value?.status === 'posted' && invoice.value?.payment_status !== 'paid');
+const canRemoveDocument = (doc) => (auth.isAdmin || doc.uploaded_by === auth.user?.id)
+    && (documentsDeletable.value || documentsRemovable.value);
+const documentToRemove = ref(null);
+const removingDocument = ref(false);
+
+async function removeDocument() {
+    const doc = documentToRemove.value;
+    if (!doc) return;
+
+    removingDocument.value = true;
+    try {
+        await api.delete(`/documents/${doc.id}`);
+        notify.success(`${doc.original_name} removed.`);
+        documentToRemove.value = null;
+        // Refresh quietly (no page spinner) so the list and the history both reflect the removal.
+        invoice.value = (await api.get(`/invoices/${props.id}`)).data;
+    } catch (e) {
+        notify.error(errorMessage(e));
+    } finally {
+        removingDocument.value = false;
+    }
+}
+
 // The one thing that stays open on an advance once its payment request is approved or paid:
 // documents, and nothing else. Mirrors Invoice::acceptsLateDocuments and the controller's
 // authorization — Finance/admin, or the person who raised it.
@@ -380,7 +408,16 @@ const auditIcons = {
                                     <v-chip v-if="doc.uploaded_after_approval" size="x-small" color="warning" variant="tonal" class="mr-2">
                                         added after approval
                                     </v-chip>
-                                    <v-btn icon="mdi-download" variant="text" size="small" @click="download(doc)" />
+                                    <v-btn icon="mdi-download" variant="text" size="small" title="Download" @click="download(doc)" />
+                                    <v-btn
+                                        v-if="canRemoveDocument(doc)"
+                                        icon="mdi-delete-outline"
+                                        variant="text"
+                                        size="small"
+                                        color="error"
+                                        title="Remove"
+                                        @click="documentToRemove = doc"
+                                    />
                                 </template>
                             </v-list-item>
                         </v-list>
@@ -542,5 +579,27 @@ const auditIcons = {
                 </v-card-actions>
             </v-card>
         </v-dialog>
+            <v-dialog :model-value="!!documentToRemove" max-width="460" @update:model-value="documentToRemove = null">
+            <v-card>
+                <v-card-title class="text-subtitle-1">Remove document</v-card-title>
+                <v-card-text class="text-body-2">
+                    <template v-if="documentsDeletable">
+                        <strong>{{ documentToRemove?.original_name }}</strong> will be deleted from this invoice.
+                        This cannot be undone.
+                    </template>
+                    <template v-else>
+                        <strong>{{ documentToRemove?.original_name }}</strong> will be removed from this invoice and
+                        from any PAF it is in, and approvers will no longer see it. The file is kept for audit and the
+                        removal is recorded in the invoice's history.
+                    </template>
+                </v-card-text>
+                <v-card-actions>
+                    <v-spacer />
+                    <v-btn variant="text" @click="documentToRemove = null">Cancel</v-btn>
+                    <v-btn color="error" variant="flat" :loading="removingDocument" @click="removeDocument">Remove</v-btn>
+                </v-card-actions>
+            </v-card>
+        </v-dialog>
+
     </div>
 </template>

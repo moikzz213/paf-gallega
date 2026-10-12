@@ -219,6 +219,20 @@ class Invoice extends Model
             && in_array($this->payment_status, [self::PAY_IN_APPROVAL, self::PAY_APPROVED, self::PAY_PAID], true);
     }
 
+    /**
+     * Past the point where documents are simply deleted (isEditable), but not yet paid: a document
+     * may still be *removed* — hidden everywhere, file kept, audited — by its uploader or an admin.
+     * Covers correction after posting, correction in place, and late uploads on an advance until it
+     * is paid. See DocumentController::destroy.
+     *
+     * CR: ai/change-requests/allow-removal-of-attachments-uploaded-by-finance.md
+     */
+    public function acceptsDocumentRemoval(): bool
+    {
+        return $this->status === self::STATUS_POSTED
+            && $this->payment_status !== self::PAY_PAID;
+    }
+
     /** Eligible to be pulled into a new payment request. */
     public function isPayable(): bool
     {
