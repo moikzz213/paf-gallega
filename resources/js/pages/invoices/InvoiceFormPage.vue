@@ -269,11 +269,12 @@ function downloadDocument(doc) {
     window.open(`/api/documents/${doc.id}/download`, '_blank');
 }
 
-// Only the uploader (or an admin) may remove a document, and only while the invoice is still
-// editable — an in-place correction is held by a payment request, and a posted invoice is past the
-// point documents can be removed (DocumentController), so in both their documents stay put.
+// Only the uploader (or an admin) may remove a document. In the correction modes the invoice is
+// posted and not yet paid, so removal hides it with the file kept and recorded rather than deleting it
+// (DocumentController::destroy / Invoice::acceptsDocumentRemoval).
+const removalKeepsFile = computed(() => !!correction.value || !!postedCorrection.value);
 function canRemoveDocument(doc) {
-    return !correction.value && !postedCorrection.value && (auth.isAdmin || doc.uploaded_by === auth.user?.id);
+    return auth.isAdmin || doc.uploaded_by === auth.user?.id;
 }
 
 async function removeDocument() {
@@ -700,8 +701,15 @@ async function save() {
                 <v-card>
                     <v-card-title class="text-subtitle-1">Remove attachment</v-card-title>
                     <v-card-text class="text-body-2">
-                        <strong>{{ documentToRemove?.original_name }}</strong> will be deleted from this invoice.
-                        This cannot be undone.
+                        <template v-if="removalKeepsFile">
+                            <strong>{{ documentToRemove?.original_name }}</strong> will be removed from this invoice and
+                            from any PAF it is in. The file is kept for audit and the removal is recorded in the
+                            invoice's history.
+                        </template>
+                        <template v-else>
+                            <strong>{{ documentToRemove?.original_name }}</strong> will be deleted from this invoice.
+                            This cannot be undone.
+                        </template>
                     </v-card-text>
                     <v-card-actions>
                         <v-spacer />

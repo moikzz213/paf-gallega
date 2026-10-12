@@ -100,6 +100,9 @@ Route::prefix('api')->group(function () {
         // narrower than seeing the request (PaymentRequest::documentsVisibleTo), checked inside.
         Route::post('/payment-requests/{paymentRequest}/documents', [PaymentRequestController::class, 'uploadDocuments'])->middleware('role:finance,admin');
         Route::get('/payment-request-documents/{document}/download', [PaymentRequestController::class, 'downloadDocument']);
+        // Hides the document (file kept, audited) until the request is paid. Narrowed inside the
+        // service to the uploader or an admin.
+        Route::delete('/payment-request-documents/{document}', [PaymentRequestController::class, 'destroyDocument'])->middleware('role:finance,admin');
 
         // reports (data scoped by role visibility)
         Route::get('/reports', [ReportController::class, 'index']);

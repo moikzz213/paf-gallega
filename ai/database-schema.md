@@ -251,6 +251,11 @@ Credentials for machine callers of `GET /api/export-report` (spreadsheets, BI to
 request had been approved, so it was **not** in front of the approvers; recorded at upload
 rather than inferred from timestamps, so the record itself answers "what did the approver see?").
 Limits (config `paf.php`): 10 files, 10 MB, `pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`.
+`deleted_at` / `removed_by` (FK users, nullOnDelete) — **soft removal** (`2026_10_09_000001`,
+Eloquent `SoftDeletes`): a removed row is excluded from every relation, eager load, PAF merge, public
+view and download binding, while its file stays on disk. Set by `InvoiceDocument::removeBy` once the
+invoice is posted and until it is paid; a document on a still-editable invoice is hard-deleted
+(row and file) as before. Removed rows don't count toward the file limit.
 
 ### payment_request_documents
 
@@ -267,7 +272,9 @@ transaction; files written by a failed call are deleted) and later while the req
 `in_approval`, `approved` or `paid`. Merged into the PAF ahead of the invoices' documents.
 **Narrower visibility than the request**: `PaymentRequest::documentsVisibleTo` — admin, finance, and
 approvers on that request's chain; never submitters, because one request can group invoices from
-several departments. No delete route.
+several departments. **Soft removal** like `invoice_documents` (`deleted_at`, `removed_by`;
+`PaymentRequestService::removeDocument`, uploader or admin, while `in_approval`/`approved`) — the
+file is kept and the removal audited as `request_document_removed`.
 
 ### invoice_rejections
 

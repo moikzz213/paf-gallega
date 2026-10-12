@@ -9,6 +9,7 @@ use App\Models\Invoice;
 use App\Models\InvoiceRejection;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
+use App\Models\PaymentRequestDocument;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
@@ -317,6 +318,38 @@ class PaymentRequestService
 
             throw $e;
         }
+    }
+
+    /**
+     * Take a request-level document off the request until it is paid — hidden from the page, the
+     * PAF and the approvers' links, but never destroyed: approvers may already have relied on it,
+     * so the file is kept and the request's history records the removal.
+     *
+     * CR: ai/change-requests/allow-removal-of-attachments-uploaded-by-finance.md
+     */
+    public function removeDocument(PaymentRequestDocument $document, User $actor): void
+    {
+        $pr = $document->paymentRequest;
+
+        if (! $document->isRemovableBy($actor)) {
+            abort(403, 'Only the person who uploaded this document, or an administrator, can remove it.');
+        }
+
+        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_APPROVED], true)) {
+            throw ValidationException::withMessages([
+                'document' => "Documents can no longer be removed from {$pr->reference_no} — it is {$pr->status}.",
+            ]);
+        }
+
+        DB::transaction(function () use ($document, $pr, $actor) {
+            $document->removeBy($actor);
+
+            AuditLogger::log(
+                'request_document_removed',
+                "Document '{$document->original_name}' removed from {$pr->reference_no} (file retained)",
+                null, null, ['document_id' => $document->id, 'original_name' => $document->original_name], $pr,
+            );
+        });
     }
 
     public function approve(PaymentRequest $pr, User $actor, ?string $comments = null): PaymentRequest

@@ -59,8 +59,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
     poster. The form warns that the ERP entry must be adjusted to match (and points to Edit Posting if
     the document number itself changes). Audited as `corrected_after_posting` with old/new values;
     the submitter is emailed what changed (`InvoiceCorrectedAfterPosting`), unless they made the
-    correction themselves. New documents can be added; removing one still needs an editable
-    invoice. Raise Query stays available for issues the submitter must resolve.
+    correction themselves. New documents can be added, and the uploader (or an admin) can remove
+    one until the invoice is paid — hidden everywhere, file kept, audited (see Document removal). Raise Query stays available for issues the submitter must resolve.
     (CR `allow-finance-to-correct-posted-invoices-before-payment`)
   - **Edit Posting** — correct a mistyped `erp_doc_no` (or posting date) on an invoice that is
     already `posted`. The number is keyed by hand and is what reconciles a PAF payment to the ERP
@@ -111,7 +111,14 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   limits as invoice documents. **Visible to Finance, admins and that request's approvers only** —
   not to submitters, because one request can group invoices from several departments. That holds on
   the emailed links too: the request's own link (sent to every submitter on approval/rejection)
-  neither lists nor merges them; an approver's stage link does. No removal yet.
+  neither lists nor merges them; an approver's stage link does.
+- **Document removal** (request-level documents, and documents on posted invoices): the uploader
+  or an admin can **Remove** one, with a confirmation, until payment — request in approval or
+  approved; invoice posted and not paid (in or out of a request, advances included). Removal takes
+  it off the page, the PAF, the approvers' links and its download link, but **keeps the file** and
+  records who removed which file in the record's history (on the PRF too, for an invoice in one).
+  Paid, rejected, withdrawn and cancelled records are locked. Documents on a still-editable invoice
+  are deleted outright, as before. CR: `ai/change-requests/allow-removal-of-attachments-uploaded-by-finance.md`.
 - The payment request list shows the **vendor name** of the invoices it groups; a PRF spanning
   several vendors shows the first with a `+N more` suffix (all names in the cell tooltip), the
   same way the currency column labels mixed sets.
@@ -383,6 +390,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | Correct own invoice while its PRF is in approval (vendor locked) | ✓ (own) | ✓ (own) | (✓ wider) | (✓ wider) |
 | Attach documents to a PRF as a whole | | | ✓ | ✓ |
 | See a PRF's own documents | | ✓ (on its chain) | ✓ | ✓ |
+| Remove a document after posting, until paid (file kept) | ✓ (own uploads) | ✓ (own uploads) | ✓ (own uploads) | ✓ (any) |
 | Download PRF PAF (any status) | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
 | View (read-only) own department's invoices & PRFs | ✓ | | (sees all) | (sees all) |
