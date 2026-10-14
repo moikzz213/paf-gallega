@@ -162,6 +162,14 @@ Laravel 13 (routes/web.php, prefix "api")
   invoices, approval chain, and embedded invoice attachments (images inlined, PDFs embedded).
 - **Reports export:** `GET /api/reports/export` streams an XLSX via `maatwebsite/excel`
   (`InvoicesExport`), opened in a new tab (bypasses Axios, uses the session cookie).
+- **Currency totals:** `App\Support\CurrencyTotals` — `byCurrency()` keeps a total apart per
+  currency (dashboard cards, report summary); `toBase()` converts grouped rows to the base currency
+  for charts, leaving out and naming any currency without a rate. Nothing sums across currencies.
+- **Payment request currency:** stored on the request at creation. `paf:repair-request-currencies`
+  (preview by default, `--apply` to write) fills older requests from firm history only;
+  `paf:set-request-currency {reference} {currency} --confirmed-by=` sets a Finance-confirmed one,
+  audited as `currency_recorded`. `Money::format` / `money()` show a blank currency as blank — only
+  an *omitted* currency defaults to AED.
 - **Daily approval reminders:** `prf:send-reminders` Artisan command (scheduled daily at 09:00
   in `routes/console.php`) finds all PRFs `in_approval` where `last_reminder_sent_at` is null or
   before today, emails each pending approver, and updates `last_reminder_sent_at`. A `queried`

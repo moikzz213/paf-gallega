@@ -78,7 +78,8 @@ class PafDocumentService
             }
 
             $entry = [
-                'name' => $document->original_name,
+                // A document filed against the Freight Forwarding checklist says what it is.
+                'name' => ($document->type_label ?? null) ? "{$document->type_label}: {$document->original_name}" : $document->original_name,
                 'url' => $url,
                 'mime_type' => $document->mime_type,
                 'size' => $document->size,

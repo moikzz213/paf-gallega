@@ -414,6 +414,8 @@ class InvoiceCreditNoteTest extends TestCase
         // A rounding tail is not a credit.
         $this->assertSame('AED 0.00', Money::format(-0.001, 'AED'));
         $this->assertSame('USD (12,345.68)', Money::format(-12345.678, 'USD'));
-        $this->assertSame('AED 0.00', Money::format(null, null));
+        // A currency passed in blank is unknown and stays blank — it is never assumed to be AED.
+        // See ai/change-requests/fix-wrong-currency-on-payment-requests-and-dashboard-totals.md
+        $this->assertSame('0.00', Money::format(null, null));
     }
 }

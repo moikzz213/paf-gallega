@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../services/api';
-import { invoicesCurrency, invoicesVendor, money, shortDate, statusLabel } from '../utils/format';
+import { invoicesCurrency, invoicesVendor, money, shortDate, statusLabel, requestCurrency } from '../utils/format';
 import { useAuthStore } from '../stores/auth';
 import { useMetaStore } from '../stores/meta';
 import { useNotifyStore } from '../stores/notify';
@@ -305,7 +305,7 @@ async function submitCreate() {
                 </template>
                 <template #item.total_amount="{ item }">
                     <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">
-                        {{ money(item.total_amount, invoicesCurrency(item.invoices)) }}
+                        {{ money(item.total_amount, requestCurrency(item)) }}
                     </span>
                 </template>
                 <template #item.stage="{ item }">

@@ -6,6 +6,8 @@ import { fileSize, money } from '../../utils/format';
 import { useAuthStore } from '../../stores/auth';
 import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
+import DocumentChecklist from '../../components/DocumentChecklist.vue';
+import { missingChecklistItems, usesDocumentChecklist } from '../../utils/documentChecklist';
 
 const props = defineProps({ id: { type: String, default: null } });
 
@@ -30,6 +32,12 @@ const saving = ref(false);
 const formRef = ref(null);
 const files = ref([]);
 const existingDocuments = ref([]);
+// Freight Forwarding files its documents against a checklist instead of the single list above:
+// [{ uid, file, type, label }]. See components/DocumentChecklist.vue.
+const pendingDocuments = ref([]);
+// Set from the loaded invoice: one submitted before the checklist existed is exempt from its
+// required items (Invoice::missingChecklistItems). A new invoice always is subject to them.
+const subjectToChecklist = ref(true);
 // The document awaiting a remove confirmation, and the id currently being deleted.
 const documentToRemove = ref(null);
 const removingDocument = ref(null);
@@ -165,6 +173,38 @@ const creditOnly = computed(() => Math.round(grandTotal.value * 100) < 0);
 // Editing a line after confirming means the figures the confirmation covered have moved on.
 watch(items, () => { creditsConfirmed.value = false; }, { deep: true });
 
+const checklist = computed(() => meta.document_checklist);
+const usesChecklist = computed(() => usesDocumentChecklist(form.value.department, checklist.value));
+// Enforced on an ordinary submission or edit only: a correction adds to an invoice already in
+// Finance's hands, and the server does not re-run the check then either.
+const enforceChecklist = computed(() => usesChecklist.value && subjectToChecklist.value
+    && !correction.value && !postedCorrection.value);
+const missingDocuments = computed(() => (enforceChecklist.value
+    ? missingChecklistItems(checklist.value, existingDocuments.value, pendingDocuments.value)
+    : []));
+const documentAccept = computed(() => String(meta.upload.mimes || '')
+    .split(',').filter(Boolean).map((ext) => `.${ext.trim()}`).join(','));
+
+// Changing the department never loses a picked file: leaving Freight Forwarding moves the checklist's
+// files into the ordinary list (their items dropped); arriving there moves the ordinary list into the
+// checklist, to be filed under an item.
+watch(usesChecklist, (now, before) => {
+    if (loading.value || now === before) return;
+
+    if (!now && pendingDocuments.value.length) {
+        files.value = [...files.value, ...pendingDocuments.value.map((p) => p.file)];
+        pendingDocuments.value = [];
+        notify.error('The checklist files were moved to Supporting Documents — this department does not use the checklist.');
+    } else if (now && files.value.length) {
+        pendingDocuments.value = [
+            ...pendingDocuments.value,
+            ...files.value.map((file, i) => ({ uid: `moved-${Date.now()}-${i}`, file, type: null, label: '' })),
+        ];
+        files.value = [];
+        notify.error('File each attached document under its checklist item before submitting.');
+    }
+});
+
 function confirmCredits() {
     creditsConfirmed.value = true;
     confirmingCredits.value = false;
@@ -259,6 +299,7 @@ onMounted(async () => {
                 onItemCurrencyChange(items.value[0].currency);
             }
             existingDocuments.value = data.documents ?? [];
+            subjectToChecklist.value = !!data.subject_to_document_checklist;
         } finally {
             loading.value = false;
         }
@@ -311,6 +352,17 @@ async function save() {
         return;
     }
 
+    // Mirrors InvoiceController::validatedDocumentTypes / assertChecklistComplete; the server checks again.
+    if (usesChecklist.value) {
+        const unfiled = pendingDocuments.value.find((p) => !p.type);
+        if (unfiled) return notify.error(`Choose the checklist item '${unfiled.file.name}' belongs to.`);
+        const unnamed = pendingDocuments.value.find((p) => p.type === 'other' && !String(p.label ?? '').trim());
+        if (unnamed) return notify.error(`Give '${unnamed.file.name}' a document name — it is filed under Other.`);
+        if (missingDocuments.value.length) {
+            return notify.error(`Attach the required documents: ${missingDocuments.value.join(', ')}.`);
+        }
+    }
+
     // A credit note lowers the figure the approval thresholds are measured against, so a stray
     // minus sign is worth one deliberate confirmation before it reaches Finance.
     if (creditLines.value.length && !creditsConfirmed.value) {
@@ -338,7 +390,16 @@ async function save() {
             payload.append(`items[${idx}][tax_rate]`, item.tax_rate ?? 0);
         });
 
-        files.value.forEach((file) => payload.append('documents[]', file));
+        if (usesChecklist.value) {
+            // Indexed together, so each file arrives with its checklist item and, for Other, its name.
+            pendingDocuments.value.forEach((p, i) => {
+                payload.append(`documents[${i}]`, p.file);
+                payload.append(`document_types[${i}]`, p.type);
+                payload.append(`document_labels[${i}]`, p.type === 'other' ? String(p.label ?? '').trim() : '');
+            });
+        } else {
+            files.value.forEach((file) => payload.append('documents[]', file));
+        }
 
         const url = isEdit.value ? `/invoices/${props.id}` : '/invoices';
         const { data } = await api.post(url, payload, { headers: { 'Content-Type': 'multipart/form-data' } });
@@ -615,8 +676,34 @@ async function save() {
             </v-card>
 
             <v-card class="mb-6">
-                <v-card-title class="text-subtitle-1">Supporting Documents</v-card-title>
-                <v-card-text>
+                <v-card-title class="text-subtitle-1">
+                    {{ usesChecklist ? `${checklist.department} Document Checklist` : 'Supporting Documents' }}
+                </v-card-title>
+                <v-card-text v-if="usesChecklist">
+                    <v-alert v-if="missingDocuments.length" type="warning" variant="tonal" density="compact" class="mb-3">
+                        Still required: {{ missingDocuments.join(', ') }}.
+                    </v-alert>
+                    <v-alert v-else-if="usesChecklist && !subjectToChecklist" type="info" variant="tonal" density="compact" class="mb-3">
+                        This invoice was submitted before the checklist was introduced, so no item is required. New files
+                        are still filed under their checklist item.
+                    </v-alert>
+                    <DocumentChecklist
+                        v-model:pending="pendingDocuments"
+                        :types="checklist.types"
+                        :existing="existingDocuments"
+                        :enforce-required="enforceChecklist"
+                        :can-remove-existing="canRemoveDocument"
+                        :removing-id="removingDocument"
+                        :accept="documentAccept"
+                        :max-documents="checklist.max_documents"
+                        @remove-existing="documentToRemove = $event"
+                        @download-existing="downloadDocument"
+                    />
+                    <div class="text-caption text-medium-emphasis">
+                        {{ Math.round(meta.upload.max_document_kb / 1024) }}MB each ({{ meta.upload.mimes }})
+                    </div>
+                </v-card-text>
+                <v-card-text v-else>
                     <v-list v-if="existingDocuments.length" density="compact" class="mb-2">
                         <v-list-item
                             v-for="doc in existingDocuments"

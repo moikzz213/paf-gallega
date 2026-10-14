@@ -84,11 +84,16 @@ class InvoiceController extends Controller
         $data = $this->validated($request);
         $itemsData = $this->validatedItems($request);
         $data['currency'] = $this->currencyOf($itemsData);
+        $documentTypes = $this->validatedDocumentTypes($request, $data['department']);
+        $this->assertChecklistComplete(null, $data['department'], $documentTypes);
 
-        $invoice = DB::transaction(function () use ($request, $data, $itemsData) {
+        $invoice = DB::transaction(function () use ($request, $data, $itemsData, $documentTypes) {
             $invoice = Invoice::create([
                 ...$data,
                 'reference_no' => Invoice::nextReferenceNo(),
+                // Everything submitted from here on is held to the department's document checklist;
+                // the invoices already on record stay exempt (see Invoice::missingChecklistItems).
+                'subject_to_document_checklist' => true,
                 'status' => Invoice::STATUS_SUBMITTED,
                 'payment_status' => Invoice::PAY_NOT_INITIATED,
                 'submitted_by' => $request->user()->id,
@@ -109,7 +114,7 @@ class InvoiceController extends Controller
 
             AuditLogger::log('submitted', "Invoice {$invoice->reference_no} submitted to Finance for {$invoice->vendor_name} ({$invoice->currency} {$invoice->total_amount})".$this->creditSummary($invoice), $invoice);
 
-            $this->storeDocuments($request, $invoice);
+            $this->storeDocuments($request, $invoice, types: $documentTypes);
 
             return $invoice;
         });
@@ -175,6 +180,13 @@ class InvoiceController extends Controller
         $data = $this->validated($request, $invoice);
         $itemsData = $this->validatedItems($request);
         $data['currency'] = $this->currencyOf($itemsData);
+        $documentTypes = $this->validatedDocumentTypes($request, $data['department']);
+        $this->assertDocumentCapacity($invoice, $data['department'], count($documentTypes));
+        // Only while it is still an ordinary edit. A correction adds to an invoice already in Finance's
+        // hands, and must not be blocked by an item the submitter is no longer the one to supply.
+        if (! $inPlace && ! $afterPosting) {
+            $this->assertChecklistComplete($invoice, $data['department'], $documentTypes);
+        }
         $old = $invoice->only(array_keys($data));
         $oldTotal = (float) $invoice->total_amount;
         $oldLines = $this->lineSignature($invoice->items()->get()->toArray());
@@ -198,7 +210,7 @@ class InvoiceController extends Controller
         }
 
         $changed = [];
-        $pr = DB::transaction(function () use ($request, $invoice, $data, $itemsData, $old, $inPlace, $bySubmitter, $afterPosting, $oldTotal, $oldLines, &$changed) {
+        $pr = DB::transaction(function () use ($request, $invoice, $data, $itemsData, $documentTypes, $old, $inPlace, $bySubmitter, $afterPosting, $oldTotal, $oldLines, &$changed) {
             if ($afterPosting) {
                 // Re-read under a lock: the invoice may have been placed on a payment request since
                 // the check above, and from then on its approvals' limits apply instead.
@@ -226,7 +238,7 @@ class InvoiceController extends Controller
                 'total_amount' => $invoice->items()->sum('total_amount'),
             ]);
 
-            $this->storeDocuments($request, $invoice);
+            $this->storeDocuments($request, $invoice, types: $documentTypes);
 
             $pr = $inPlace ? $invoice->refresh()->paymentRequest : null;
             // The request total is what the thresholds were measured against, so it follows the invoice.
@@ -391,24 +403,30 @@ class InvoiceController extends Controller
                 : 'Documents can only be attached after payment on an invoice marked as an advance payment.');
         }
 
+        $max = Invoice::maxDocumentsFor($invoice->department);
+
         $request->validate([
-            'documents' => ['required', 'array', 'min:1', 'max:'.config('paf.max_documents')],
+            'documents' => ['required', 'array', 'min:1', 'max:'.$max],
             'documents.*' => ['file', 'mimes:'.config('paf.document_mimes'), 'max:'.config('paf.max_document_kb')],
         ], [
             'documents.required' => 'Choose at least one file to attach.',
         ]);
 
+        // A Freight Forwarding invoice files these against its checklist too, so every document on it
+        // says what it is.
+        $documentTypes = $this->validatedDocumentTypes($request, $invoice->department);
+
         $existing = $invoice->documents()->count();
         $incoming = count($request->file('documents', []));
-        if ($existing + $incoming > (int) config('paf.max_documents')) {
+        if ($existing + $incoming > $max) {
             throw ValidationException::withMessages([
-                'documents' => 'This invoice already holds '.$existing.' document(s); the limit is '.config('paf.max_documents').'.',
+                'documents' => 'This invoice already holds '.$existing.' document(s); the limit is '.$max.'.',
             ]);
         }
 
         // A document arriving after the chain signed was not in front of the approvers, and the
         // record has to be able to say so — see InvoiceDocument::uploaded_after_approval.
-        $this->storeDocuments($request, $invoice, late: ! $invoice->isEditable());
+        $this->storeDocuments($request, $invoice, late: ! $invoice->isEditable(), types: $documentTypes);
 
         return response()->json($invoice->refresh()->load('documents.uploader:id,name'));
     }
@@ -727,7 +745,7 @@ class InvoiceController extends Controller
             'payment_method' => ['required', Rule::in(array_keys(config('paf.payment_methods')))],
             'priority' => ['required', Rule::in(config('paf.priorities'))],
             'description' => ['nullable', 'string', 'max:5000'],
-            'documents' => ['nullable', 'array', 'max:'.config('paf.max_documents')],
+            'documents' => ['nullable', 'array', 'max:'.Invoice::maxDocumentsFor($request->input('department'))],
             'documents.*' => ['file', 'mimes:'.config('paf.document_mimes'), 'max:'.config('paf.max_document_kb')],
         ]);
 
@@ -838,12 +856,107 @@ class InvoiceController extends Controller
         }
     }
 
-    private function storeDocuments(Request $request, Invoice $invoice, bool $late = false): void
+    /**
+     * The checklist item each uploaded file is filed under, by the file's index in `documents`.
+     *
+     * For a Freight Forwarding invoice every file needs an item, and an "Other" file needs a name.
+     * For any other department the types are ignored and the files are stored untyped, exactly as
+     * before the checklist existed.
+     *
+     * @return array<int|string, array{type: string|null, label: string|null}>
+     */
+    private function validatedDocumentTypes(Request $request, ?string $department): array
     {
-        foreach ($request->file('documents', []) as $file) {
+        $files = $request->file('documents', []);
+        $untyped = array_map(fn () => ['type' => null, 'label' => null], $files);
+
+        if (! Invoice::usesDocumentChecklist($department)) {
+            return $untyped;
+        }
+
+        $request->validate([
+            'document_types' => ['nullable', 'array'],
+            'document_types.*' => ['nullable', 'string', Rule::in(array_keys(config('paf.document_checklist.types')))],
+            'document_labels' => ['nullable', 'array'],
+            'document_labels.*' => ['nullable', 'string', 'max:150'],
+        ]);
+
+        $types = $request->input('document_types', []);
+        $labels = $request->input('document_labels', []);
+        $errors = [];
+        $resolved = [];
+
+        foreach ($files as $index => $file) {
+            $type = $types[$index] ?? null;
+            $label = trim((string) ($labels[$index] ?? '')) ?: null;
+            $name = $file->getClientOriginalName();
+
+            if (! $type) {
+                $errors["document_types.{$index}"] = "Choose the checklist item '{$name}' belongs to.";
+            } elseif ($type === 'other' && ! $label) {
+                $errors["document_labels.{$index}"] = "Give '{$name}' a document name — it is filed under Other.";
+            }
+
+            $resolved[$index] = ['type' => $type, 'label' => $type === 'other' ? $label : null];
+        }
+
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * A Freight Forwarding invoice cannot be submitted, or saved while still editable, without a file
+     * under each required checklist item. Invoices submitted before the checklist are exempt — see
+     * Invoice::missingChecklistItems.
+     *
+     * @param  array<int|string, array{type: string|null, label: string|null}>  $documentTypes
+     */
+    private function assertChecklistComplete(?Invoice $invoice, ?string $department, array $documentTypes): void
+    {
+        $missing = Invoice::missingChecklistItems($invoice, $department, array_column($documentTypes, 'type'));
+
+        if ($missing) {
+            throw ValidationException::withMessages([
+                'documents' => 'Attach the required '.config('paf.document_checklist.department').' documents: '.implode(', ', $missing).'.',
+            ]);
+        }
+    }
+
+    /**
+     * A Freight Forwarding invoice may hold more documents than other departments', so its limit
+     * counts what is already stored, not only this upload. Other departments keep their existing
+     * per-upload limit, unchanged.
+     */
+    private function assertDocumentCapacity(Invoice $invoice, ?string $department, int $incoming): void
+    {
+        if (! Invoice::usesDocumentChecklist($department)) {
+            return;
+        }
+
+        $existing = $invoice->documents()->count();
+        $max = Invoice::maxDocumentsFor($department);
+
+        if ($existing + $incoming > $max) {
+            throw ValidationException::withMessages([
+                'documents' => "This invoice already holds {$existing} document(s); the limit is {$max}.",
+            ]);
+        }
+    }
+
+    /**
+     * @param  array<int|string, array{type: string|null, label: string|null}>  $types  by file index (validatedDocumentTypes)
+     */
+    private function storeDocuments(Request $request, Invoice $invoice, bool $late = false, array $types = []): void
+    {
+        foreach ($request->file('documents', []) as $index => $file) {
             $path = $file->store("invoices/{$invoice->id}", 'local');
 
-            $invoice->documents()->create([
+            $document = $invoice->documents()->create([
+                'document_type' => $types[$index]['type'] ?? null,
+                'document_label' => $types[$index]['label'] ?? null,
                 'uploaded_by' => $request->user()->id,
                 'uploaded_after_approval' => $late,
                 'original_name' => $file->getClientOriginalName(),
@@ -856,7 +969,9 @@ class InvoiceController extends Controller
             // signed, which is what an auditor asking "what did the approver see?" needs to find.
             AuditLogger::log(
                 $late ? 'document_uploaded_after_approval' : 'document_uploaded',
-                "Document '{$file->getClientOriginalName()}' attached to {$invoice->reference_no}"
+                "Document '{$file->getClientOriginalName()}'"
+                    .($document->type_label ? " ({$document->type_label})" : '')
+                    ." attached to {$invoice->reference_no}"
                     .($late ? ' after approval' : ''),
                 $invoice, null, null, $late ? $invoice->paymentRequest : null,
             );

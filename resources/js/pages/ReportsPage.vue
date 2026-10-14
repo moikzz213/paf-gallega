@@ -1,14 +1,14 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../services/api';
-import { money, shortDate, STATUS_META, statusLabel } from '../utils/format';
+import { money, shortDate, STATUS_META, statusLabel, moneyByCurrency } from '../utils/format';
 import { useMetaStore } from '../stores/meta';
 import StatusChip from '../components/StatusChip.vue';
 
 const meta = useMetaStore();
 const loading = ref(false);
 const summary = ref([]);
-const totals = ref({ count: 0, amount: 0 });
+const totals = ref({ count: 0, amounts: [] });
 const rows = ref([]);
 const rowsTotal = ref(0);
 const options = reactive({ page: 1, itemsPerPage: 25 });
@@ -146,7 +146,7 @@ const summaryCards = computed(() =>
         status: s.status,
         label: statusLabel(s.status),
         count: s.count,
-        amount: Number(s.amount ?? 0),
+        amounts: s.amounts ?? [],
         color: STATUS_META[s.status]?.color ?? '#898781',
     }))
 );
@@ -195,7 +195,8 @@ onMounted(() => meta.load());
                 <v-card class="pa-3">
                     <div class="text-h5 font-weight-bold">{{ totals.count }}</div>
                     <div class="text-body-2 text-medium-emphasis">Matching requests</div>
-                    <div class="text-caption text-medium-emphasis">{{ money(totals.amount) }}</div>
+                    <!-- One total per currency — never a sum across currencies. -->
+                    <div class="text-caption text-medium-emphasis">{{ moneyByCurrency(totals.amounts) }}</div>
                 </v-card>
             </v-col>
             <v-col v-for="card in summaryCards" :key="card.status" cols="12" sm="6" md="3">
@@ -205,7 +206,7 @@ onMounted(() => meta.load());
                         <div class="text-h5 font-weight-bold">{{ card.count }}</div>
                     </div>
                     <div class="text-body-2 text-medium-emphasis">{{ card.label }}</div>
-                    <div class="text-caption text-medium-emphasis">{{ money(card.amount) }}</div>
+                    <div class="text-caption text-medium-emphasis">{{ moneyByCurrency(card.amounts) }}</div>
                 </v-card>
             </v-col>
         </v-row>

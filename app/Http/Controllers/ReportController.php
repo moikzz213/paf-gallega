@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Exports\InvoicesExport;
 use App\Services\AuditLogger;
+use App\Support\CurrencyTotals;
 use App\Support\InvoiceReport;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\Request;
@@ -16,14 +17,27 @@ class ReportController extends Controller
     {
         $query = $this->filteredQuery($request);
 
+        // Amounts kept apart per currency — adding them together labelled one currency is no total
+        // at all (see CurrencyTotals).
         $summary = (clone $query)
-            ->select('status', DB::raw('count(*) as count'), DB::raw('sum(total_amount) as amount'))
+            ->reorder()
+            ->select('status', 'currency', DB::raw('count(*) as count'), DB::raw('sum(total_amount) as amount'))
+            ->groupBy('status', 'currency')
+            ->get()
             ->groupBy('status')
-            ->get();
+            ->map(fn ($rows, $status) => [
+                'status' => $status,
+                'count' => (int) $rows->sum('count'),
+                'amounts' => $rows
+                    ->map(fn ($row) => ['currency' => (string) $row->currency, 'count' => (int) $row->count, 'amount' => round((float) $row->amount, 2)])
+                    ->sortBy([['count', 'desc'], ['amount', 'desc']])
+                    ->values(),
+            ])
+            ->values();
 
         $totals = [
             'count' => (clone $query)->count(),
-            'amount' => (float) (clone $query)->sum('total_amount'),
+            'amounts' => CurrencyTotals::byCurrency($query),
         ];
 
         $rows = $query

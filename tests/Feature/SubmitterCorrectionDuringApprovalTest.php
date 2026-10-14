@@ -220,10 +220,13 @@ class SubmitterCorrectionDuringApprovalTest extends TestCase
     {
         $this->actingAs($this->submitter)->post("/api/invoices/{$this->invoice->id}", $this->payload() + [
             'documents' => [UploadedFile::fake()->create('corrected-invoice.pdf', 20, 'application/pdf')],
+            // This invoice is Freight Forwarding's, so the file is filed under its checklist item.
+            'document_types' => ['vendor_invoice'],
         ])->assertOk();
 
         $document = $this->invoice->documents()->sole();
         $this->assertSame('corrected-invoice.pdf', $document->original_name);
+        $this->assertSame('vendor_invoice', $document->document_type);
         // The chain has not signed yet, so this was in front of the approvers still to act.
         $this->assertFalse($document->uploaded_after_approval);
     }

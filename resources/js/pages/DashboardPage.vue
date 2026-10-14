@@ -82,9 +82,10 @@ const cards = computed(() => {
     const within = periodLabel.value;
     return [
         { title: 'Total Invoices', value: c.total_invoices, caption: `submitted · ${within}`, icon: 'mdi-file-document-multiple-outline', color: '#256abf' },
-        { title: 'Awaiting Posting', value: c.awaiting_posting.count, caption: `${money(c.awaiting_posting.amount)} · ${within}`, icon: 'mdi-timer-sand', color: '#2a78d6' },
-        { title: 'In Approval', value: c.in_approval.count, caption: `${money(c.in_approval.amount)} · ${within}`, icon: 'mdi-clock-outline', color: '#eda100' },
-        { title: 'Paid', value: c.paid.count, caption: `${money(c.paid.amount)} · ${within}`, icon: 'mdi-check-circle-outline', color: '#008300' },
+        // One total per currency — never a sum across currencies (CurrencyTotals on the server).
+        { title: 'Awaiting Posting', value: c.awaiting_posting.count, caption: within, amounts: c.awaiting_posting.amounts, icon: 'mdi-timer-sand', color: '#2a78d6' },
+        { title: 'In Approval', value: c.in_approval.count, caption: within, amounts: c.in_approval.amounts, icon: 'mdi-clock-outline', color: '#eda100' },
+        { title: 'Paid', value: c.paid.count, caption: within, amounts: c.paid.amounts, icon: 'mdi-check-circle-outline', color: '#008300' },
     ];
 });
 
@@ -145,7 +146,8 @@ const businessUnitData = computed(() => ({
 
 const moneyTooltip = {
     callbacks: {
-        label: (ctx) => ` ${ctx.dataset.label ? ctx.dataset.label + ': ' : ''}${money(ctx.parsed.x ?? ctx.parsed.y ?? ctx.parsed)}`,
+        // Chart amounts are converted to the base currency at the configured rates.
+        label: (ctx) => ` ${ctx.dataset.label ? ctx.dataset.label + ': ' : ''}${money(ctx.parsed.x ?? ctx.parsed.y ?? ctx.parsed, dash.value?.chart_currency || 'AED')}`,
     },
 };
 
@@ -258,6 +260,12 @@ const recentHeaders = [
                 </template>
             </v-alert>
 
+            <v-alert v-if="dash.unconverted_currencies?.length" type="warning" variant="tonal" density="compact" class="mb-4">
+                The charts below are in {{ dash.chart_currency }} at the configured exchange rates. They leave out
+                {{ dash.unconverted_currencies.join(', ') }}, which has no rate — set one under Master Data → Currencies.
+                The cards still include every currency.
+            </v-alert>
+
             <v-row>
                 <v-col v-for="card in cards" :key="card.title" cols="12" sm="6" lg="3">
                     <v-card class="pa-1">
@@ -268,6 +276,9 @@ const recentHeaders = [
                             <div>
                                 <div class="text-h4 font-weight-bold">{{ card.value }}</div>
                                 <div class="text-body-2 text-medium-emphasis">{{ card.title }}</div>
+                                <div v-for="a in card.amounts ?? []" :key="a.currency" class="text-caption">
+                                    {{ money(a.amount, a.currency) }}
+                                </div>
                                 <div class="text-caption text-medium-emphasis">{{ card.caption }}</div>
                             </div>
                         </v-card-text>
@@ -299,7 +310,7 @@ const recentHeaders = [
                 <v-col cols="12" md="7">
                     <v-card>
                         <v-card-title class="text-subtitle-1 d-flex align-center">
-                            Monthly Flow — Submitted vs Paid (AED)
+                            Monthly Flow — Submitted vs Paid ({{ dash.chart_currency || 'AED' }} equivalent)
                             <v-spacer />
                             <span class="text-caption text-medium-emphasis font-weight-regular">{{ periodLabel }}</span>
                         </v-card-title>
@@ -325,7 +336,7 @@ const recentHeaders = [
                 <v-col cols="12" md="6">
                     <v-card>
                         <v-card-title class="text-subtitle-1 d-flex align-center">
-                            Top Vendors by Spend
+                            Top Vendors by Spend ({{ dash.chart_currency || 'AED' }} equivalent)
                             <v-spacer />
                             <span class="text-caption text-medium-emphasis font-weight-regular">by invoice date · {{ periodLabel }}</span>
                         </v-card-title>
@@ -337,7 +348,7 @@ const recentHeaders = [
                 <v-col cols="12" md="6">
                     <v-card>
                         <v-card-title class="text-subtitle-1 d-flex align-center">
-                            Spend by Business Unit
+                            Spend by Business Unit ({{ dash.chart_currency || 'AED' }} equivalent)
                             <v-spacer />
                             <span class="text-caption text-medium-emphasis font-weight-regular">by invoice date · {{ periodLabel }}</span>
                         </v-card-title>

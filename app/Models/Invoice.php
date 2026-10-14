@@ -46,7 +46,7 @@ class Invoice extends Model
         'business_unit', 'department', 'location', 'payment_method',
         'priority', 'is_advance_payment', 'description', 'status', 'submitted_by', 'submitted_at',
         'posting_date', 'erp_doc_no', 'finance_remarks', 'posted_by', 'posted_at',
-        'payment_status', 'payment_request_id',
+        'payment_status', 'payment_request_id', 'subject_to_document_checklist',
     ];
 
     protected function casts(): array
@@ -54,6 +54,7 @@ class Invoice extends Model
         return [
             'is_advance_payment' => 'boolean',
             'invoice_no_exempt' => 'boolean',
+            'subject_to_document_checklist' => 'boolean',
             'invoice_date' => 'date:Y-m-d',
             'due_date' => 'date:Y-m-d',
             'posting_date' => 'date:Y-m-d',
@@ -99,6 +100,59 @@ class Invoice extends Model
     public function documents()
     {
         return $this->hasMany(InvoiceDocument::class);
+    }
+
+    /**
+     * Whether a department files its documents against the checklist (Freight Forwarding). Static so
+     * the form's department can be tested before the invoice exists or before a change is saved.
+     *
+     * CR: ai/change-requests/add-freight-forwarding-document-checklist-to-invoice-submission.md
+     */
+    public static function usesDocumentChecklist(?string $department): bool
+    {
+        return $department !== null
+            && strcasecmp(trim($department), (string) config('paf.document_checklist.department')) === 0;
+    }
+
+    /** The most documents an invoice in this department may hold. */
+    public static function maxDocumentsFor(?string $department): int
+    {
+        return self::usesDocumentChecklist($department)
+            ? (int) config('paf.document_checklist.max_documents')
+            : (int) config('paf.max_documents');
+    }
+
+    /**
+     * The required checklist items that hold no document, as their labels. Counts what is already
+     * stored and the types arriving with this save. Empty for any other department, and for an
+     * invoice submitted before the checklist existed — those are exempt, so correcting one is never
+     * blocked by a rule it was not submitted under.
+     *
+     * @param  array<int, string|null>  $incomingTypes
+     * @return array<int, string>
+     */
+    public static function missingChecklistItems(?self $invoice, ?string $department, array $incomingTypes): array
+    {
+        if (! self::usesDocumentChecklist($department)) {
+            return [];
+        }
+
+        if ($invoice && ! $invoice->subject_to_document_checklist) {
+            return [];
+        }
+
+        $present = collect($incomingTypes)
+            ->merge($invoice ? $invoice->documents()->pluck('document_type') : [])
+            ->filter()
+            ->unique();
+
+        $types = config('paf.document_checklist.types');
+
+        return collect(config('paf.document_checklist.required'))
+            ->reject(fn ($type) => $present->contains($type))
+            ->map(fn ($type) => $types[$type] ?? $type)
+            ->values()
+            ->all();
     }
 
     public function items()

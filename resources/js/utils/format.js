@@ -5,10 +5,27 @@
  */
 export function money(value, currency = 'AED') {
     const amount = Math.round(Number(value ?? 0) * 100) / 100;
-    const code = currency || 'AED';
     const figure = Math.abs(amount).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const shown = amount < 0 ? `(${figure})` : figure;
+    // Only an omitted currency defaults to AED. One passed in as null or '' is unknown and stays
+    // blank — mirrors App\Support\Money::format.
+    const code = String(currency ?? '').trim();
 
-    return amount < 0 ? `${code} (${figure})` : `${code} ${figure}`;
+    return code ? `${code} ${shown}` : shown;
+}
+
+/**
+ * The currency a payment request was raised in, as the server reports it (stored since the currency
+ * fix, else its invoices'). '' when unknown — shown blank, never as AED.
+ */
+export function requestCurrency(pr) {
+    return pr?.currency ?? invoicesCurrency(pr?.invoices) ?? '';
+}
+
+/** "USD 1,000.00 · AED 3,000.00" — a total kept apart per currency, as the server sends it. */
+export function moneyByCurrency(amounts) {
+    const list = (amounts ?? []).filter((a) => a && Number(a.amount) !== 0);
+    return list.length ? list.map((a) => money(a.amount, a.currency ?? '')).join(' · ') : money(0);
 }
 
 /**

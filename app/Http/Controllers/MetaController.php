@@ -43,6 +43,17 @@ class MetaController extends Controller
                 'max_document_kb' => config('paf.max_document_kb'),
                 'mimes' => config('paf.document_mimes'),
             ],
+            // Freight Forwarding's supporting-document checklist — see config/paf.php.
+            'document_checklist' => [
+                'department' => config('paf.document_checklist.department'),
+                'max_documents' => config('paf.document_checklist.max_documents'),
+                'types' => collect(config('paf.document_checklist.types'))
+                    ->map(fn ($label, $key) => [
+                        'value' => $key,
+                        'title' => $label,
+                        'required' => in_array($key, config('paf.document_checklist.required'), true),
+                    ])->values(),
+            ],
         ]);
     }
 

@@ -211,6 +211,8 @@ class PaymentRequestService
                 'status' => PaymentRequest::STATUS_IN_APPROVAL,
                 'current_stage' => 1,
                 'total_amount' => $invoices->sum('total_amount'),
+                // Recorded, not derived: it has to survive the invoices leaving the request.
+                'currency' => $invoices->pluck('currency')->filter()->first(),
                 'sent_at' => now(),
                 'last_reminder_sent_at' => now(),
             ]);
