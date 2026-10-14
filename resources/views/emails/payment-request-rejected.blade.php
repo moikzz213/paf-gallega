@@ -48,7 +48,7 @@
             <div class="detail-row"><span class="label">Reference:</span> {{ $paymentRequest->reference_no }}</div>
             <div class="detail-row">
                 <span class="label">Total Amount:</span>
-                <span class="amount">{{ \App\Support\Money::format($paymentRequest->total_amount, $paymentRequest->currency) }}</span>
+                <span class="amount">{{ \App\Support\Money::format($paymentRequest->total_amount, $totalCurrency) }}</span>
             </div>
             <div class="detail-row">
                 <span class="label">Rejected on:</span>

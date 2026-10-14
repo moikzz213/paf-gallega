@@ -2,6 +2,11 @@
 
 namespace Tests\Feature;
 
+use App\Mail\PaymentRequestApproved;
+use App\Mail\PaymentRequestQueryRaised;
+use App\Mail\PaymentRequestRejected;
+use App\Mail\PaymentRequestReminder;
+use App\Mail\PaymentRequestSubmitted;
 use App\Models\AuditLog;
 use App\Models\Currency;
 use App\Models\Invoice;
@@ -103,6 +108,64 @@ class PaymentRequestCurrencyTest extends TestCase
 
         $page = $this->get("/prf/view/{$pr->id}/{$pr->view_token}")->assertOk();
         $page->assertSee('USD 7,400.00')->assertDontSee('AED 7,400.00');
+    }
+
+    /**
+     * Every email that states a request's amount, and the emailed approval page, in the request's
+     * own currency — for a USD request, nothing anywhere may read AED.
+     */
+    public function test_emails_and_the_approval_page_show_the_request_currency(): void
+    {
+        $pr = $this->raise($this->invoice('USD', 7654.50))->refresh();
+        $approval = $pr->approvals()->first();
+
+        $query = $pr->queries()->create([
+            'payment_request_approval_id' => $approval->id, 'sequence' => 1, 'stage_label' => 'Manager',
+            'raised_by' => $this->approver->id, 'question' => 'PO?', 'raised_at' => now(),
+        ]);
+
+        $mails = [
+            'approval required' => new PaymentRequestSubmitted($pr, $approval),
+            'reminder' => new PaymentRequestReminder($pr),
+            'approval query' => new PaymentRequestQueryRaised($pr, $query),
+            'fully approved' => new PaymentRequestApproved($pr),
+        ];
+
+        foreach ($mails as $name => $mail) {
+            // Through the queue round trip, as a worker renders it.
+            $mail = unserialize(serialize($mail));
+            $html = $mail->render();
+
+            $this->assertStringContainsString('USD 7,654.50', $html, "{$name} email");
+            $this->assertStringNotContainsString('AED', $html, "{$name} email");
+            $this->assertStringContainsString('USD 7,654.50', $mail->envelope()->subject, "{$name} subject");
+        }
+
+        $token = $approval->view_token;
+        $this->get("/prf/view/{$pr->id}/{$token}")->assertOk()
+            ->assertSee('USD 7,654.50')->assertDontSee('AED 7,654.50');
+    }
+
+    /**
+     * The production report: a rejection notice rendered after its invoices had been returned showed
+     * "AED 22,875.00" above invoice lines in USD. A notice still queued for a request with no recorded
+     * currency now takes it from the lines it captured.
+     */
+    public function test_a_queued_rejection_notice_shows_the_total_in_the_invoices_currency(): void
+    {
+        $pr = $this->legacyEmptyRequest(PaymentRequest::STATUS_REJECTED);
+        $pr->update(['total_amount' => 22875, 'rejection_reason' => 'customer payment proof is required', 'rejected_at' => now()]);
+        $this->assertSame('', $pr->refresh()->currency, 'no recorded currency and no invoices left');
+
+        $mail = unserialize(serialize(new PaymentRequestRejected($pr, "Freight - FILENDERS - USD 22,875.00 - {$pr->reference_no}", [[
+            'reference_no' => 'INV-2026-01463', 'vendor_name' => 'FILENDERS LOJISTIK', 'invoice_no' => 'F-1',
+            'total_amount' => 22875, 'currency' => 'USD',
+        ]])));
+        $html = $mail->render();
+
+        $this->assertStringContainsString('USD 22,875.00', $html);
+        $this->assertStringNotContainsString('AED 22,875.00', $html);
+        $this->assertStringNotContainsString('AED', $html);
     }
 
     public function test_an_unknown_currency_is_blank_never_aed(): void

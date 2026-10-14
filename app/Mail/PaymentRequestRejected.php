@@ -53,6 +53,28 @@ class PaymentRequestRejected extends Mailable implements ShouldQueue
     {
         return new Content(
             view: 'emails.payment-request-rejected',
+            with: ['totalCurrency' => $this->totalCurrency()],
         );
+    }
+
+    /**
+     * The currency of the total. The request's own where it is recorded; otherwise the one its
+     * invoice lines were captured in — read from the request alone, a notice rendered after the
+     * invoices had been returned found none and printed the total as AED (a USD 22,875 request
+     * showed "AED 22,875.00" above invoice lines in USD). Blank, never AED, if neither says.
+     */
+    public function totalCurrency(): string
+    {
+        if ($this->paymentRequest->currency !== '') {
+            return $this->paymentRequest->currency;
+        }
+
+        $codes = collect($this->invoiceLines)->pluck('currency')->filter()->unique();
+
+        return match ($codes->count()) {
+            0 => '',
+            1 => (string) $codes->first(),
+            default => 'MULTI-CURRENCY',
+        };
     }
 }
