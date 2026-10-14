@@ -21,6 +21,8 @@ export const useMetaStore = defineStore('meta', {
         vendors: [],
         customers: [],
         upload: { max_documents: 10, max_document_kb: 10240, mimes: '' },
+        // Freight Forwarding's supporting-document checklist: { department, max_documents, types[] }.
+        document_checklist: { department: null, max_documents: 30, types: [] },
         loaded: false,
         approversLoaded: false,
         vendorsLoaded: false,

@@ -170,7 +170,9 @@ Notes on behaviour, because they bound the risk:
 
 **Domain lists** are env-driven via `config/paf.php`: `PAF_BUSINESS_UNITS`, `PAF_DEPARTMENTS`,
 `PAF_LOCATIONS`, `PAF_CURRENCIES`, `PAF_PRIORITIES`, `PAF_PAYMENT_METHODS` (key:label pairs),
-`PAF_MAX_DOCUMENTS`, `PAF_MAX_DOCUMENT_KB`, `PAF_DOCUMENT_MIMES`, `PAF_PDF_REPAIR`,
+`PAF_MAX_DOCUMENTS`, `PAF_MAX_DOCUMENT_KB`, `PAF_DOCUMENT_MIMES`, `PAF_CHECKLIST_DEPARTMENT` (the
+department that uses the document checklist, default `Freight Forwarding` — must match the
+department master-data name), `PAF_CHECKLIST_MAX_DOCUMENTS` (default 30), `PAF_PDF_REPAIR`,
 `PAF_QPDF_PATH`, `PAF_PDF_REPAIR_TIMEOUT` — all comma-separated with
 sensible defaults, so the app runs without them. If you run `php artisan config:cache`, re-cache
 after changing any `PAF_*` value.

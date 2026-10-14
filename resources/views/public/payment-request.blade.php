@@ -317,7 +317,7 @@
                             <span class="doc-icon">&#128196;</span>
                             <div>
                                 <a href="{{ route('payment-request.public.document', ['id' => $paymentRequest->id, 'token' => $token, 'document' => $doc->id]) }}">{{ $doc->original_name }}</a>
-                                <div style="font-size:11px;color:#999;">{{ $invoice->reference_no }} &middot; {{ $doc->mime_type }}</div>
+                                <div style="font-size:11px;color:#999;">{{ $invoice->reference_no }}@if($doc->type_label) &middot; <strong style="color:#555;">{{ $doc->type_label }}</strong>@endif &middot; {{ $doc->mime_type }}</div>
                             </div>
                             <span class="doc-size">{{ round($doc->size / 1024, 1) }} KB</span>
                         </li>

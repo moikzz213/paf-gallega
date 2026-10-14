@@ -16,6 +16,15 @@ class DocumentController extends Controller
 
         abort_unless(Storage::disk('local')->exists($document->file_path), 404, 'File not found on disk.');
 
+        // `?inline=1` opens it in the browser tab instead of saving it — the "View" action. Same file,
+        // same access rule. nosniff keeps the browser to the stored type, so an uploaded text file is
+        // shown as text and never interpreted as a page.
+        if ($request->boolean('inline')) {
+            return Storage::disk('local')->response($document->file_path, $document->original_name, [
+                'X-Content-Type-Options' => 'nosniff',
+            ]);
+        }
+
         return Storage::disk('local')->download($document->file_path, $document->original_name);
     }
 
@@ -29,7 +38,7 @@ class DocumentController extends Controller
         // Still editable: nobody downstream has relied on it yet, so it is deleted outright, as before.
         if ($invoice->isEditable()) {
             Storage::disk('local')->delete($document->file_path);
-            AuditLogger::log('document_deleted', "Document '{$document->original_name}' removed from {$invoice->reference_no}", $invoice);
+            AuditLogger::log('document_deleted', "Document '{$document->original_name}'".$this->typeSuffix($document)." removed from {$invoice->reference_no}", $invoice);
             $document->forceDelete();
 
             return response()->json(['message' => 'Deleted']);
@@ -46,12 +55,18 @@ class DocumentController extends Controller
         $document->removeBy($user);
         AuditLogger::log(
             'document_removed',
-            "Document '{$document->original_name}' removed from {$invoice->reference_no} (file retained)",
+            "Document '{$document->original_name}'".$this->typeSuffix($document)." removed from {$invoice->reference_no} (file retained)",
             $invoice, null, ['document_id' => $document->id, 'original_name' => $document->original_name],
             $invoice->paymentRequest,
         );
 
         return response()->json(['message' => 'Removed']);
+    }
+
+    /** " (Job Sheet)" for a document filed against the checklist; nothing otherwise. */
+    private function typeSuffix(InvoiceDocument $document): string
+    {
+        return $document->type_label ? " ({$document->type_label})" : '';
     }
 
     private function authorizeAccess(Request $request, InvoiceDocument $document): void

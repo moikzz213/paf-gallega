@@ -62,4 +62,25 @@ return [
     'max_document_kb' => (int) env('PAF_MAX_DOCUMENT_KB', 10240),
     'document_mimes' => env('PAF_DOCUMENT_MIMES', 'pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt'),
 
+    // Freight Forwarding files its supporting documents against a checklist, and the items marked
+    // required must each hold at least one file before an invoice can be submitted. Applies to the
+    // department picked on the invoice, and only to invoices submitted since the checklist went live
+    // (invoices.subject_to_document_checklist). The keys are stored on invoice_documents.document_type.
+    // See ai/change-requests/add-freight-forwarding-document-checklist-to-invoice-submission.md
+    'document_checklist' => [
+        'department' => env('PAF_CHECKLIST_DEPARTMENT', 'Freight Forwarding'),
+        'max_documents' => (int) env('PAF_CHECKLIST_MAX_DOCUMENTS', 30),
+        'types' => [
+            'vendor_invoice' => 'Vendor Invoice',
+            'job_sheet' => 'Job Sheet',
+            'job_order' => 'Job Order / Checklist',
+            'buy_rate' => 'Buy Rate',
+            'sell_rate' => 'Sell Rate',
+            'finance_approval' => 'Finance Approval',
+            'margin_approval' => 'Approval Email for Margin Less Than 10%',
+            'other' => 'Other',
+        ],
+        'required' => ['vendor_invoice', 'job_sheet', 'job_order', 'buy_rate', 'sell_rate', 'finance_approval'],
+    ],
+
 ];

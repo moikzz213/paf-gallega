@@ -122,6 +122,7 @@ Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `INV-{year
 (sum of items), `tax_amount` (sum of items), `total_amount` (sum of items),
 `business_unit`, `department` (idx), `location`, `payment_method`, `priority`, `description`.
 
+| `subject_to_document_checklist` | boolean, default false | Set on every invoice submitted since the Freight Forwarding checklist went live (`2026_10_14_000002`). Existing rows stay false, which **exempts** them from the checklist's required items, so correcting one is never blocked by a rule it was not submitted under. CR `ai/change-requests/add-freight-forwarding-document-checklist-to-invoice-submission.md` |
 | `is_advance_payment` | boolean, default false, idx | Money paid before the business has what it paid for — a deposit or part-payment against an order. Set on create and while the invoice is editable; **frozen once a payment request holds it**, because it is part of what the approvers were shown and it is what opens the late-upload route (`Invoice::acceptsLateDocuments`). Existing rows default to false and are **not** backfilled: nothing on record reliably identifies which were advances, and a guessed flag is worse than none. Shown on the invoice, the log, the approval page and the PAF |
 
 Lifecycle & posting columns:
@@ -275,7 +276,14 @@ Credentials for machine callers of `GET /api/export-report` (spreadsheets, BI to
 `uploaded_after_approval` (boolean, default false — the file was attached after the payment
 request had been approved, so it was **not** in front of the approvers; recorded at upload
 rather than inferred from timestamps, so the record itself answers "what did the approver see?").
-Limits (config `paf.php`): 10 files, 10 MB, `pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`.
+`document_type` (string(50), nullable) — the Freight Forwarding **checklist item** the file was filed
+under, a key of `config('paf.document_checklist.types')` (`vendor_invoice`, `job_sheet`, `job_order`,
+`buy_rate`, `sell_rate`, `finance_approval`, `margin_approval`, `other`); `document_label`
+(string(150), nullable) — the name given to an `other` file (`2026_10_14_000002`). Both null for any
+other department's file and for every document that predates the checklist ("Unclassified"). The
+model appends `type_label` ("Job Sheet", "Other — {label}", or null).
+Limits (config `paf.php`): 10 files (**30** for Freight Forwarding, counting those already stored),
+10 MB, `pdf,jpg,jpeg,png,webp,doc,docx,xls,xlsx,csv,txt`.
 `deleted_at` / `removed_by` (FK users, nullOnDelete) — **soft removal** (`2026_10_09_000001`,
 Eloquent `SoftDeletes`): a removed row is excluded from every relation, eager load, PAF merge, public
 view and download binding, while its file stays on disk. Set by `InvoiceDocument::removeBy` once the

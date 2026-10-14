@@ -25,6 +25,24 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   (`money()` in resources/js/utils/format.js, `App\Support\Money::format` for the PDF, the public
   view and the emails),
   payment method, priority, description, supporting documents (≤10 files, ≤10 MB each).
+- **Freight Forwarding document checklist.** When **Freight Forwarding** is the submitting department,
+  the Supporting Documents box is replaced by a checklist: Vendor Invoice, Job Sheet, Job Order /
+  Checklist, Buy Rate, Sell Rate, Finance Approval, Approval Email for Margin Less Than 10%, and Other.
+  Files are attached under their item, each item takes several ("+ Add"), and an **Other** file needs
+  a document name. Each file can be **viewed** (new tab), downloaded or removed before submitting.
+  The first six items are **required** — the form and the server both refuse the submission and name
+  what is missing; the margin email and Other are optional. Up to **30** files. Changing the
+  department never loses a picked file: leaving Freight Forwarding moves the checklist's files into
+  the ordinary list (their items dropped), and arriving there asks for each file to be filed.
+  - The type shows on the invoice page (a chip, with a **View** button), on the emailed approval page,
+    and in the PAF (the merged or listed file is named "Job Sheet: file.pdf"); it is in the audit trail
+    with each upload and removal.
+  - **Invoices submitted before the checklist** (`subject_to_document_checklist = false`) are exempt
+    from the required items; their documents show as **Unclassified**, unchanged. New files on them
+    are still filed under an item.
+  - Finance corrections, submitter corrections during approval and late uploads on an advance file
+    their new documents under an item too, but do not re-run the required-items check.
+  - Other departments are unchanged. CR: `ai/change-requests/add-freight-forwarding-document-checklist-to-invoice-submission.md`.
 - System reference `INV-{year}-{00001}`; submitted immediately (status `submitted`).
 - The **vendor's invoice number is unique for that vendor**, which is the control against recording
   the same vendor document twice and paying it twice. A repeat is declined at entry with a message

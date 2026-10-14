@@ -3,13 +3,16 @@ import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../../services/api';
 import { dateTime, fileSize, money, shortDate, PRIORITY_META } from '../../utils/format';
+import { usesDocumentChecklist, viewStoredDocument } from '../../utils/documentChecklist';
 import { useAuthStore } from '../../stores/auth';
+import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
 import StatusChip from '../../components/StatusChip.vue';
 
 const props = defineProps({ id: { type: String, required: true } });
 
 const auth = useAuthStore();
+const meta = useMetaStore();
 const notify = useNotifyStore();
 const router = useRouter();
 
@@ -17,6 +20,9 @@ const invoice = ref(null);
 const loading = ref(true);
 const acting = ref(false);
 const lateFiles = ref([]);
+// A Freight Forwarding invoice files a late upload under a checklist item too.
+const lateType = ref(null);
+const lateLabel = ref('');
 const uploading = ref(false);
 
 const dialog = ref({ show: false, kind: null, erp_doc_no: '', posting_date: '', finance_remarks: '', reason: '' });
@@ -34,7 +40,8 @@ async function load() {
     }
 }
 
-onMounted(load);
+// The checklist's document types come from the meta payload.
+onMounted(() => Promise.all([load(), meta.load()]));
 
 const isOwner = computed(() => invoice.value?.submitted_by === auth.user?.id);
 const notInitiated = computed(() => invoice.value?.payment_status === 'not_initiated');
@@ -212,13 +219,25 @@ const canAttachLate = computed(() =>
     && ['in_approval', 'approved_for_payment', 'paid'].includes(invoice.value?.payment_status)
     && (auth.canProcessPayments || isOwner.value));
 
+const usesChecklist = computed(() => usesDocumentChecklist(invoice.value?.department, meta.document_checklist));
+
 async function uploadLateDocuments() {
     if (!lateFiles.value.length) return;
+    if (usesChecklist.value && !lateType.value) return notify.error('Choose the checklist item these files belong to.');
+    if (usesChecklist.value && lateType.value === 'other' && !lateLabel.value.trim()) {
+        return notify.error('Give the document a name — it is filed under Other.');
+    }
 
     uploading.value = true;
     try {
         const payload = new FormData();
-        lateFiles.value.forEach((file) => payload.append('documents[]', file));
+        lateFiles.value.forEach((file, i) => {
+            payload.append(`documents[${i}]`, file);
+            if (usesChecklist.value) {
+                payload.append(`document_types[${i}]`, lateType.value);
+                payload.append(`document_labels[${i}]`, lateType.value === 'other' ? lateLabel.value.trim() : '');
+            }
+        });
 
         const { data } = await api.post(`/invoices/${props.id}/documents`, payload, {
             headers: { 'Content-Type': 'multipart/form-data' },
@@ -228,6 +247,8 @@ async function uploadLateDocuments() {
         // too, and it is on screen right below.
         invoice.value = { ...invoice.value, documents: data.documents };
         lateFiles.value = [];
+        lateType.value = null;
+        lateLabel.value = '';
         notify.success(`${data.documents.length} document(s) attached.`);
         await load();
     } catch (e) {
@@ -401,13 +422,21 @@ const auditIcons = {
                                 :key="doc.id"
                                 :title="doc.original_name"
                                 :subtitle="`${fileSize(doc.size)} · uploaded by ${doc.uploader?.name} · ${dateTime(doc.created_at)}`"
-                                prepend-icon="mdi-file-outline"
                             >
+                                <template #prepend>
+                                    <v-icon icon="mdi-file-outline" />
+                                </template>
+                                <div v-if="doc.type_label || usesChecklist" class="mt-1">
+                                    <v-chip size="x-small" :color="doc.type_label ? 'primary' : undefined" variant="tonal">
+                                        {{ doc.type_label || 'Unclassified' }}
+                                    </v-chip>
+                                </div>
                                 <template #append>
                                     <!-- What the approvers actually saw matters when reading this list back. -->
                                     <v-chip v-if="doc.uploaded_after_approval" size="x-small" color="warning" variant="tonal" class="mr-2">
                                         added after approval
                                     </v-chip>
+                                    <v-btn icon="mdi-eye-outline" variant="text" size="small" title="View" @click="viewStoredDocument(doc)" />
                                     <v-btn icon="mdi-download" variant="text" size="small" title="Download" @click="download(doc)" />
                                     <v-btn
                                         v-if="canRemoveDocument(doc)"
@@ -444,6 +473,29 @@ const auditIcons = {
                                 hide-details="auto"
                                 :disabled="uploading"
                             />
+                            <div v-if="usesChecklist" class="d-flex ga-2 mt-3 flex-wrap">
+                                <v-select
+                                    v-model="lateType"
+                                    :items="meta.document_checklist.types"
+                                    item-title="title"
+                                    item-value="value"
+                                    label="Checklist item *"
+                                    variant="outlined"
+                                    density="compact"
+                                    hide-details
+                                    style="min-width: 260px"
+                                />
+                                <v-text-field
+                                    v-if="lateType === 'other'"
+                                    v-model="lateLabel"
+                                    label="Document name *"
+                                    variant="outlined"
+                                    density="compact"
+                                    hide-details
+                                    maxlength="150"
+                                    style="min-width: 220px"
+                                />
+                            </div>
                             <div class="d-flex justify-end mt-3">
                                 <v-btn
                                     color="primary"
