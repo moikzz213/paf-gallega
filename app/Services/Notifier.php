@@ -45,4 +45,37 @@ class Notifier
             return false;
         }
     }
+
+    /**
+     * Hand one mailable to the queue for several people at once: a single email, every recipient in
+     * BCC, so nobody sees anyone else's address. Addressed "To" the system's own sender mailbox,
+     * which is what the recipients see in that field. Duplicates and blanks are dropped first.
+     *
+     * @param  iterable<int, string|null>  $emails
+     */
+    public static function sendBcc(iterable $emails, Mailable $mailable, string $context): bool
+    {
+        $emails = collect($emails)->filter()->map(fn ($e) => strtolower(trim($e)))->unique()->values()->all();
+
+        if (! $emails) {
+            Log::warning("Notification skipped ({$context}): no recipients with an email address.");
+
+            return false;
+        }
+
+        try {
+            $from = config('mail.from.address');
+            $pending = $from ? Mail::to($from)->bcc($emails) : Mail::bcc($emails);
+            $pending->send($mailable);
+
+            return true;
+        } catch (Throwable $e) {
+            Log::error("Notification failed ({$context}) to ".count($emails)." BCC recipient(s): {$e->getMessage()}", [
+                'mailable' => $mailable::class,
+                'exception' => $e,
+            ]);
+
+            return false;
+        }
+    }
 }

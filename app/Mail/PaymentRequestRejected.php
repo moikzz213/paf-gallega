@@ -13,6 +13,10 @@ use Illuminate\Queue\SerializesModels;
 /**
  * Tells the requestor(s) that a payment request was rejected, and why.
  *
+ * No longer sent: approvers raise an Approval Query instead of rejecting (see
+ * PaymentRequestQueryRaised). Kept only so a rejection notice still sitting in the queue at the
+ * time of that release can be delivered; remove it once the queue has drained (technical debt).
+ *
  * Unlike the approved mailable this cannot read the request's invoices: rejection returns them to
  * the Invoice Log by clearing `payment_request_id`, so by the time the queued job re-fetches the
  * model the relation is empty and `purpose` / `vendor_label` — both derived from it — have

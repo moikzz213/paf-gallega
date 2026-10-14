@@ -214,7 +214,7 @@ onMounted(async () => {
             const submitterCorrectable = !financeCorrectable
                 && data.submitted_by === auth.user?.id
                 && data.payment_status === 'in_approval'
-                && data.payment_request?.status === 'in_approval'
+                && ['in_approval', 'queried'].includes(data.payment_request?.status)
                 && data.status !== 'cancelled';
             // Posted but not yet in a payment cycle: Finance/admin may correct it outright, and it
             // stays posted. Mirrors Invoice::isCorrectableAfterPosting.

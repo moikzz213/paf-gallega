@@ -38,8 +38,9 @@ Laravel 13 (routes/web.php, prefix "api")
 - **Services** — the domain logic layer:
   - `PaymentRequestService` — the workflow engine for PRFs. `create()` builds the ordered chain
     (from level defaults + ad-hoc stages) and reserves the invoices; `approve()` advances
-    `current_stage` or finalizes; `reject()` frees the invoices; `markPaid()`. All in DB
-    transactions. Invoice posting/query lives in `InvoiceController`.
+    `current_stage` or finalizes; `query()` holds the PRF at its stage (`queried`) and
+    `resubmit()` resumes it there (these replaced `reject()`); `markPaid()`. All in DB
+    transactions; notifications go out after the commit. Invoice posting/query lives in `InvoiceController`.
   - `PdfRepairService` — rewrites a vendor PDF that FPDI's free parser refuses (permissions-only
     encryption, or PDF 1.5+ object/cross-reference streams) into one it can read, by shelling out to
     `qpdf`. Called **only** from `PdfMergeService`'s existing failure handler, so a document that
@@ -150,8 +151,12 @@ Laravel 13 (routes/web.php, prefix "api")
   while its PRF is `in_approval` → same path as Finance's in-place correction, plus a vendor lock and
   a locked re-check of the PRF status; audited as `corrected_during_approval`, mailed to the PRF
   creator after commit.
-- **Approve/reject:** `POST /api/payment-requests/{id}/approve|reject` → advances `current_stage`
-  / finalizes to `approved` (invoices `approved_for_payment`), or rejects and frees the invoices.
+- **Approve/query:** `POST /api/payment-requests/{id}/approve|query` → advances `current_stage`
+  / finalizes to `approved` (invoices `approved_for_payment`), or puts the PRF on hold (`queried`)
+  at the same stage with a `payment_request_queries` row. `POST …/resubmit` (submitter, Finance or
+  admin) answers it and returns the PRF to `in_approval` at that stage. The query notice is one
+  email with every recipient in BCC (`Notifier::sendBcc`), the first notification sent that way.
+  There is no reject route any more.
 - **Pay:** `POST /api/payment-requests/{id}/mark-paid` (finance/admin) → PRF & invoices `paid`.
 - **PDF export:** `GET /api/payment-requests/{id}/pdf` → downloads a PDF with PRF details, all
   invoices, approval chain, and embedded invoice attachments (images inlined, PDFs embedded).
@@ -159,9 +164,14 @@ Laravel 13 (routes/web.php, prefix "api")
   (`InvoicesExport`), opened in a new tab (bypasses Axios, uses the session cookie).
 - **Daily approval reminders:** `prf:send-reminders` Artisan command (scheduled daily at 09:00
   in `routes/console.php`) finds all PRFs `in_approval` where `last_reminder_sent_at` is null or
-  before today, emails each pending approver, and updates `last_reminder_sent_at`.
+  before today, emails each pending approver, and updates `last_reminder_sent_at`. A `queried`
+  PRF is skipped.
+- **Approval query reminders:** `prf:send-query-reminders` (also daily at 09:00) emails each open
+  query's answerers — invoice submitters and the PRF creator, one BCC email — once its last reminder
+  (or the query itself) is from before yesterday, i.e. every two days, and stamps
+  `payment_request_queries.last_reminder_sent_at`. Approvers are not reminded.
 - **Public PRF view & action:** `GET /prf/view/{id}/{token}` — token-gated page (no auth
   required) showing PRF details, invoices, and attachments. Accepts either the PRF's `view_token`
-  (view-only) or an approval stage's `view_token` (can approve/reject). Each approval stage has
+  (view-only) or an approval stage's `view_token` (can approve/query). Each approval stage has
   its own unique token. After approval, the old token becomes view-only and a new email with the
   next approver's token is sent. After final approval, all tokens grant view-only access.

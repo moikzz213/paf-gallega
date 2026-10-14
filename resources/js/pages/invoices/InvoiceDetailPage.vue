@@ -46,7 +46,7 @@ const inPaymentCycle = computed(() => ['in_approval', 'approved_for_payment'].in
 // the option closes once the chain signs. Mirrors Invoice::isCorrectableBySubmitter.
 const canSubmitterCorrect = computed(() => isOwner.value
     && invoice.value?.payment_status === 'in_approval'
-    && invoice.value?.payment_request?.status === 'in_approval'
+    && ['in_approval', 'queried'].includes(invoice.value?.payment_request?.status)
     && invoice.value?.status !== 'cancelled');
 const canCorrectInPlace = computed(() => (auth.canProcessPayments && inPaymentCycle.value && invoice.value?.status !== 'cancelled')
     || canSubmitterCorrect.value);

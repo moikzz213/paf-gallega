@@ -88,7 +88,10 @@ Route::prefix('api')->group(function () {
         Route::post('/payment-requests', [PaymentRequestController::class, 'store'])->middleware('role:finance,admin');
         Route::get('/payment-requests/{paymentRequest}', [PaymentRequestController::class, 'show']);
         Route::post('/payment-requests/{paymentRequest}/approve', [PaymentRequestController::class, 'approve']);
-        Route::post('/payment-requests/{paymentRequest}/reject', [PaymentRequestController::class, 'reject']);
+        // Approval Query (replaced reject): the approver asks, and the request waits at their stage.
+        Route::post('/payment-requests/{paymentRequest}/query', [PaymentRequestController::class, 'query']);
+        // Answering it is open to the invoice submitter, Finance and admin — checked in the service.
+        Route::post('/payment-requests/{paymentRequest}/resubmit', [PaymentRequestController::class, 'resubmit']);
         Route::post('/payment-requests/{paymentRequest}/mark-paid', [PaymentRequestController::class, 'markPaid'])->middleware('role:finance,admin');
         // Correct a mistyped payment reference after the payment is recorded. Narrowed inside the
         // service to the user who recorded it, or an admin.
@@ -149,8 +152,8 @@ Route::post('/prf/view/{id}/{token}/approve', [PublicPaymentRequestController::c
     ->name('payment-request.public.approve')
     ->where('id', '[0-9]+')
     ->where('token', '[a-zA-Z0-9]+');
-Route::post('/prf/view/{id}/{token}/reject', [PublicPaymentRequestController::class, 'reject'])
-    ->name('payment-request.public.reject')
+Route::post('/prf/view/{id}/{token}/query', [PublicPaymentRequestController::class, 'query'])
+    ->name('payment-request.public.query')
     ->where('id', '[0-9]+')
     ->where('token', '[a-zA-Z0-9]+');
 // The PAF sheet with its supporting documents merged in, served inline so the approval page can
@@ -165,7 +168,7 @@ Route::get('/prf/view/{id}/{token}/document/{document}', [PublicPaymentRequestCo
     ->where('token', '[a-zA-Z0-9]+')
     ->where('document', '[0-9]+');
 // A document attached to the request as a whole. Approval-stage tokens only: the request's own
-// view token also reaches every invoice submitter (approved/rejected emails), who may not see these.
+// view token also reaches every invoice submitter (approved emails), who may not see these.
 Route::get('/prf/view/{id}/{token}/request-document/{document}', [PublicPaymentRequestController::class, 'downloadRequestDocument'])
     ->name('payment-request.public.request-document')
     ->where('id', '[0-9]+')

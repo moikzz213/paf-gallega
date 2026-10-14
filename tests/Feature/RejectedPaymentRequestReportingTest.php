@@ -2,15 +2,15 @@
 
 namespace Tests\Feature;
 
-use App\Mail\PaymentRequestRejected;
 use App\Models\ApprovalLevel;
 use App\Models\Invoice;
+use App\Models\InvoiceRejection;
 use App\Models\PaymentRequest;
+use App\Models\PaymentRequestApproval;
 use App\Models\User;
 use App\Services\PaymentRequestService;
 use App\Support\InvoiceReport;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Facades\Mail;
 use Tests\TestCase;
 
 /**
@@ -20,6 +20,10 @@ use Tests\TestCase;
  * link the report has — so the reference, the rejection reason and every approver comment
  * disappeared at the moment of rejection, and re-submitting the corrected invoices then reused the
  * column for the new request. `invoice_rejections` keeps the history out of that column's way.
+ *
+ * Approvers no longer reject — they raise an approval query (ApprovalQueryTest) — so rejections are
+ * history only. `rejectAsHistory` writes one exactly as the retired rejection did, and the report has
+ * to go on reading those records.
  */
 class RejectedPaymentRequestReportingTest extends TestCase
 {
@@ -67,6 +71,30 @@ class RejectedPaymentRequestReportingTest extends TestCase
         return compact('invoice', 'pr', 'l1', 'finance', 'requester');
     }
 
+    /** What the retired rejection left behind: the request rejected, its invoices detached and remembered. */
+    private function rejectAsHistory(PaymentRequest $pr, User $approver, string $reason): void
+    {
+        $pr->approvals()->where('sequence', $pr->current_stage)->update([
+            'status' => PaymentRequestApproval::STATUS_REJECTED,
+            'approver_id' => $approver->id,
+            'comments' => $reason,
+            'acted_at' => now(),
+        ]);
+
+        $pr->update([
+            'status' => PaymentRequest::STATUS_REJECTED,
+            'current_stage' => null,
+            'rejected_at' => now(),
+            'rejection_reason' => $reason,
+        ]);
+
+        foreach ($pr->invoices()->pluck('id') as $invoiceId) {
+            InvoiceRejection::create(['invoice_id' => $invoiceId, 'payment_request_id' => $pr->id, 'rejected_at' => now()]);
+        }
+
+        $pr->invoices()->update(['payment_status' => Invoice::PAY_NOT_INITIATED, 'payment_request_id' => null]);
+    }
+
     /** The report row as the Reports page, the Excel download and the export API all produce it. */
     private function row(Invoice $invoice): array
     {
@@ -77,7 +105,7 @@ class RejectedPaymentRequestReportingTest extends TestCase
     {
         ['invoice' => $invoice, 'pr' => $pr, 'l1' => $l1] = $this->requestInApproval();
 
-        app(PaymentRequestService::class)->reject($pr, $l1, 'Vendor bank details are wrong');
+        $this->rejectAsHistory($pr, $l1, 'Vendor bank details are wrong');
 
         $row = $this->row($invoice);
 
@@ -91,7 +119,7 @@ class RejectedPaymentRequestReportingTest extends TestCase
     {
         ['invoice' => $invoice, 'pr' => $pr, 'l1' => $l1, 'finance' => $finance] = $this->requestInApproval();
 
-        app(PaymentRequestService::class)->reject($pr, $l1, 'Missing purchase order');
+        $this->rejectAsHistory($pr, $l1, 'Missing purchase order');
 
         // Finance corrects and re-initiates — the step that used to overwrite the only link back.
         $second = app(PaymentRequestService::class)->create([$invoice->id], $finance, [
@@ -109,12 +137,12 @@ class RejectedPaymentRequestReportingTest extends TestCase
     {
         ['invoice' => $invoice, 'pr' => $first, 'l1' => $l1, 'finance' => $finance] = $this->requestInApproval();
 
-        app(PaymentRequestService::class)->reject($first, $l1, 'Wrong cost centre');
+        $this->rejectAsHistory($first, $l1, 'Wrong cost centre');
 
         $second = app(PaymentRequestService::class)->create([$invoice->id], $finance, [
             ['approver_id' => $l1->id, 'label' => 'Manager', 'level' => 1, 'is_adhoc' => false],
         ]);
-        app(PaymentRequestService::class)->reject($second, $l1, 'Still wrong');
+        $this->rejectAsHistory($second, $l1, 'Still wrong');
 
         $row = $this->row($invoice);
 
@@ -125,28 +153,23 @@ class RejectedPaymentRequestReportingTest extends TestCase
         $this->assertStringContainsString("[{$second->reference_no}] Rejected: Still wrong", $row['remarks']);
     }
 
-    public function test_rejecting_via_the_public_link_records_the_same_history(): void
+    public function test_the_public_link_can_no_longer_reject(): void
     {
-        ['invoice' => $invoice, 'pr' => $pr] = $this->requestInApproval();
+        ['pr' => $pr] = $this->requestInApproval();
         $token = $pr->approvals()->where('sequence', 1)->value('view_token');
 
-        Mail::fake();
+        $this->post("/prf/view/{$pr->id}/{$token}/reject", ['comments' => 'Duplicate submission']);
 
-        $this->post("/prf/view/{$pr->id}/{$token}/reject", ['comments' => 'Duplicate submission'])
-            ->assertRedirect();
-
-        $row = $this->row($invoice);
-
-        $this->assertStringContainsString($pr->reference_no, $row['rejected_payment_requests']);
-        $this->assertStringContainsString('Duplicate submission', $row['remarks']);
+        $this->assertSame(PaymentRequest::STATUS_IN_APPROVAL, $pr->refresh()->status);
+        $this->assertSame(0, InvoiceRejection::count());
     }
 
-    /** The blocking regression: rejection must still hand the invoices back to Finance. */
+    /** An invoice returned by a historical rejection stays available for a new request. */
     public function test_a_rejected_invoice_is_still_available_for_a_new_request(): void
     {
         ['invoice' => $invoice, 'pr' => $pr, 'l1' => $l1, 'finance' => $finance] = $this->requestInApproval();
 
-        app(PaymentRequestService::class)->reject($pr, $l1, 'Correct and resubmit');
+        $this->rejectAsHistory($pr, $l1, 'Correct and resubmit');
 
         $invoice->refresh();
 
@@ -176,66 +199,6 @@ class RejectedPaymentRequestReportingTest extends TestCase
     }
 
     /**
-     * The notice goes to the requestor side and stops there: whoever raised the request and
-     * whoever submitted its invoices. It briefly also went to the approval chain and the whole
-     * Finance role, which is the volume this pins shut.
-     */
-    public function test_the_rejection_notice_reaches_only_the_requestor_and_the_invoice_submitter(): void
-    {
-        ['pr' => $pr, 'l1' => $l1, 'finance' => $finance, 'requester' => $requester] = $this->requestInApproval();
-        $otherFinance = $this->user(User::ROLE_FINANCE);
-
-        Mail::fake();
-
-        app(PaymentRequestService::class)->reject($pr, $l1, 'Vendor bank details are wrong');
-
-        // $finance raised the request; $requester submitted its invoice.
-        foreach ([$finance, $requester] as $recipient) {
-            Mail::assertQueued(
-                PaymentRequestRejected::class,
-                fn ($mail) => $mail->hasTo($recipient->email),
-            );
-        }
-
-        // The rejecting approver and Finance users with no hand in this request are not mailed.
-        foreach ([$l1, $otherFinance] as $bystander) {
-            Mail::assertNotQueued(
-                PaymentRequestRejected::class,
-                fn ($mail) => $mail->hasTo($bystander->email),
-            );
-        }
-
-        $this->assertCount(2, Mail::queued(PaymentRequestRejected::class));
-    }
-
-    /**
-     * The two roles the notice addresses are held by one person often enough to matter: Finance
-     * raising a request over an invoice they posted themselves is routine.
-     */
-    public function test_someone_who_both_raised_the_request_and_submitted_its_invoice_is_mailed_once(): void
-    {
-        ApprovalLevel::create(['level' => 1, 'name' => 'Manager', 'min_amount' => 0, 'is_active' => true]);
-
-        $finance = $this->user(User::ROLE_FINANCE);
-        $l1 = $this->user(User::ROLE_APPROVER, ['approval_level' => 1]);
-        $invoice = $this->invoice($finance);
-
-        $pr = app(PaymentRequestService::class)->create([$invoice->id], $finance, [
-            ['approver_id' => $l1->id, 'label' => 'Manager', 'level' => 1, 'is_adhoc' => false],
-        ]);
-
-        Mail::fake();
-
-        app(PaymentRequestService::class)->reject($pr, $l1, 'Correct and resubmit');
-
-        $this->assertCount(
-            1,
-            Mail::queued(PaymentRequestRejected::class, fn ($mail) => $mail->hasTo($finance->email)),
-        );
-        $this->assertCount(1, Mail::queued(PaymentRequestRejected::class));
-    }
-
-    /**
      * The filter offers every status the client knows about, but only ever compared them against
      * `invoices.status` — so picking a PRF status returned an empty report rather than the rows.
      */
@@ -244,7 +207,7 @@ class RejectedPaymentRequestReportingTest extends TestCase
         ['invoice' => $invoice, 'pr' => $pr, 'l1' => $l1, 'finance' => $finance, 'requester' => $requester] = $this->requestInApproval();
         $untouched = $this->invoice($requester);
 
-        app(PaymentRequestService::class)->reject($pr, $l1, 'Vendor bank details are wrong');
+        $this->rejectAsHistory($pr, $l1, 'Vendor bank details are wrong');
 
         // Finance, not the approver: rejection detaches the invoice, which correctly takes it back
         // out of an approver's scope. This filter is for the people who report on rejections.
@@ -258,7 +221,7 @@ class RejectedPaymentRequestReportingTest extends TestCase
     {
         ['invoice' => $invoice, 'pr' => $pr, 'l1' => $l1, 'finance' => $finance] = $this->requestInApproval();
 
-        app(PaymentRequestService::class)->reject($pr, $l1, 'Missing purchase order');
+        $this->rejectAsHistory($pr, $l1, 'Missing purchase order');
         app(PaymentRequestService::class)->create([$invoice->id], $finance, [
             ['approver_id' => $l1->id, 'label' => 'Manager', 'level' => 1, 'is_adhoc' => false],
         ]);
@@ -294,7 +257,7 @@ class RejectedPaymentRequestReportingTest extends TestCase
         ['invoice' => $invoice, 'pr' => $pr, 'l1' => $l1, 'finance' => $finance, 'requester' => $requester] = $this->requestInApproval();
         $other = $this->invoice($requester);
 
-        app(PaymentRequestService::class)->reject($pr, $l1, 'Correct and resubmit');
+        $this->rejectAsHistory($pr, $l1, 'Correct and resubmit');
 
         // An invoice status OR'd with a PRF status, as the multi-select sends them.
         $found = InvoiceReport::query($finance, [

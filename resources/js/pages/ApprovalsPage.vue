@@ -66,14 +66,17 @@ function openDialog(pr, kind) {
 
 async function confirmDialog() {
     const { kind, pr, comments } = dialog.value;
-    if (kind === 'reject' && !comments.trim()) {
-        notify.error('A reason is required to reject.');
+    if (kind === 'query' && !comments.trim()) {
+        notify.error('A question is required to raise a query.');
         return;
     }
     acting.value = true;
     try {
-        await api.post(`/payment-requests/${pr.id}/${kind}`, { comments });
-        notify.success(`${pr.reference_no} ${kind === 'approve' ? 'approved' : 'rejected'}.`);
+        // A query puts the request on hold at this stage; it comes back here once answered.
+        await api.post(`/payment-requests/${pr.id}/${kind}`, kind === 'query' ? { question: comments } : { comments });
+        notify.success(kind === 'approve'
+            ? `${pr.reference_no} approved.`
+            : `Query sent — ${pr.reference_no} is on hold until it is answered and resubmitted to you.`);
         dialog.value.show = false;
         await load();
     } catch (e) {
@@ -119,7 +122,7 @@ async function confirmDialog() {
                 <template #item.sent_at="{ item }">{{ dateTime(item.sent_at) }}</template>
                 <template #item.actions="{ item }">
                     <v-btn color="success" size="small" variant="flat" class="mr-2" @click="openDialog(item, 'approve')">Approve</v-btn>
-                    <v-btn color="error" size="small" variant="tonal" @click="openDialog(item, 'reject')">Reject</v-btn>
+                    <v-btn color="warning" size="small" variant="tonal" @click="openDialog(item, 'query')">Query</v-btn>
                 </template>
             </v-data-table-server>
         </v-card>
@@ -127,7 +130,7 @@ async function confirmDialog() {
         <v-dialog v-model="dialog.show" max-width="1100">
             <v-card>
                 <v-card-title>
-                    {{ dialog.kind === 'approve' ? 'Approve' : 'Reject' }} {{ dialog.pr?.reference_no }}
+                    {{ dialog.kind === 'approve' ? 'Approve' : 'Raise an Approval Query on' }} {{ dialog.pr?.reference_no }}
                 </v-card-title>
                 <v-card-text>
                     <div class="text-body-2 mb-3">
@@ -158,9 +161,14 @@ async function confirmDialog() {
                             </tbody>
                         </v-table>
                     </div>
+                    <v-alert v-if="dialog.kind === 'query'" type="info" variant="tonal" density="compact" class="mb-4">
+                        The request is put on hold at your stage — not rejected. The submitter, Finance or an
+                        administrator answers your query and resubmits it, and it comes back to you with the
+                        approvals already given still in place.
+                    </v-alert>
                     <v-textarea
                         v-model="dialog.comments"
-                        :label="dialog.kind === 'reject' ? 'Reason (required)' : 'Comments (optional)'"
+                        :label="dialog.kind === 'query' ? 'Your question (required)' : 'Comments (optional)'"
                         rows="3"
                         autofocus
                     />
@@ -168,8 +176,8 @@ async function confirmDialog() {
                 <v-card-actions>
                     <v-spacer />
                     <v-btn variant="text" @click="dialog.show = false">Cancel</v-btn>
-                    <v-btn :color="dialog.kind === 'approve' ? 'success' : 'error'" variant="flat" :loading="acting" @click="confirmDialog">
-                        {{ dialog.kind === 'approve' ? 'Approve' : 'Reject' }}
+                    <v-btn :color="dialog.kind === 'approve' ? 'success' : 'warning'" variant="flat" :loading="acting" @click="confirmDialog">
+                        {{ dialog.kind === 'approve' ? 'Approve' : 'Send Query' }}
                     </v-btn>
                 </v-card-actions>
             </v-card>

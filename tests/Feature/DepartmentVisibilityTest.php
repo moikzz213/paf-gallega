@@ -197,7 +197,7 @@ class DepartmentVisibilityTest extends TestCase
         ])->assertForbidden();
         $this->postJson("/api/invoices/{$editable->id}/post", ['erp_doc_no' => '1', 'posting_date' => now()->toDateString()])->assertForbidden();
         $this->postJson("/api/payment-requests/{$this->pr->id}/approve")->assertForbidden();
-        $this->postJson("/api/payment-requests/{$this->pr->id}/reject", ['comments' => 'no'])->assertForbidden();
+        $this->postJson("/api/payment-requests/{$this->pr->id}/query", ['question' => 'no'])->assertForbidden();
 
         $this->assertSame(Invoice::STATUS_SUBMITTED, $editable->fresh()->status);
         $this->assertNull($editable->fresh()->description);

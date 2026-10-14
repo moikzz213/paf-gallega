@@ -30,6 +30,7 @@
         .badge-approved { background: #e8f5e9; color: #2e7d32; }
         .badge-rejected { background: #fce4ec; color: #c62828; }
         .badge-in_approval { background: #e3f2fd; color: #1565c0; }
+        .badge-queried { background: #fff4e0; color: #8a5200; }
         .badge-paid { background: #e8f5e9; color: #2e7d32; }
         .chain { list-style: none; }
         .chain li { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f0f0f0; }
@@ -68,7 +69,7 @@
         .btn { display: inline-block; padding: 12px 32px; border: none; border-radius: 6px; font-size: 15px; font-weight: 600; cursor: pointer; text-decoration: none; transition: opacity 0.2s; }
         .btn:hover { opacity: 0.85; }
         .btn-approve { background: #2e7d32; color: #fff; }
-        .btn-reject { background: #c62828; color: #fff; }
+        .btn-query { background: #b26a00; color: #fff; }
         .btn-cancel { background: #757575; color: #fff; }
 
         /* Flash messages */
@@ -76,13 +77,23 @@
         .alert-success { background: #e8f5e9; color: #2e7d32; border: 1px solid #a5d6a7; }
         .alert-error { background: #fce4ec; color: #c62828; border: 1px solid #ef9a9a; }
 
-        /* Reject modal */
+        /* Approval query — the request is on hold, not ended */
+        .query-note { padding: 12px 16px; margin-bottom: 20px; border: 1px solid #b26a00;
+                      background: #fff4e0; color: #8a5200; border-radius: 4px; font-size: 13px; }
+        .query-note .q { white-space: pre-line; margin-top: 4px; color: #333; }
+        .query-history { list-style: none; }
+        .query-history li { padding: 12px 0; border-bottom: 1px solid #f0f0f0; font-size: 13px; }
+        .query-history li:last-child { border-bottom: none; }
+        .query-history .meta { font-size: 12px; color: #888; }
+        .query-history .text { white-space: pre-line; margin: 2px 0 6px; }
+
+        /* Query modal */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 100; align-items: center; justify-content: center; }
         .modal-overlay.active { display: flex; }
         .modal { background: #fff; border-radius: 8px; padding: 24px; width: 90%; max-width: 480px; box-shadow: 0 8px 32px rgba(0,0,0,0.2); }
-        .modal h3 { margin-bottom: 12px; color: #c62828; }
+        .modal h3 { margin-bottom: 12px; color: #8a5200; }
         .modal textarea { width: 100%; padding: 10px; border: 1px solid #ddd; border-radius: 4px; font-size: 14px; font-family: inherit; resize: vertical; min-height: 80px; }
-        .modal textarea:focus { outline: none; border-color: #c62828; }
+        .modal textarea:focus { outline: none; border-color: #b26a00; }
         .modal .error-text { color: #c62828; font-size: 12px; margin-top: 4px; display: none; }
         .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; }
         .doc-list { list-style: none; padding: 0; }
@@ -114,6 +125,19 @@
             {{ $paymentRequest->invoices->where('is_advance_payment', true)->count() }} of
             {{ $paymentRequest->invoices->count() }} invoice(s) on this request are paid before the
             goods or services are delivered.
+        </div>
+        @endif
+
+        @php
+            $openQuery = $paymentRequest->queries->firstWhere('resubmitted_at', null);
+        @endphp
+        @if($paymentRequest->status === 'queried' && $openQuery)
+        <div class="query-note">
+            <strong>On hold — approval query.</strong>
+            {{ $openQuery->raiser?->name ?? 'An approver' }} raised a query at Stage {{ $openQuery->sequence }}: {{ $openQuery->stage_label }}
+            on {{ $openQuery->raised_at?->format('d M Y, h:i A') }}. The request returns to that stage once the
+            submitter, Finance or an administrator answers it and resubmits it in the application.
+            <div class="q">"{{ $openQuery->question }}"</div>
         </div>
         @endif
 
@@ -156,7 +180,7 @@
                     @csrf
                     <button type="submit" class="btn btn-approve" onclick="return confirm('Are you sure you want to approve this payment request?')">Approve</button>
                 </form>
-                <button type="button" class="btn btn-reject" onclick="openRejectModal()">Reject</button>
+                <button type="button" class="btn btn-query" onclick="openQueryModal()">Query</button>
             </div>
             @else
             <h3>Awaiting Approval</h3>
@@ -164,6 +188,28 @@
                and is awaiting action from <strong>{{ $currentApprover?->name ?? 'Unknown' }}</strong>.</p>
             <p style="margin-top:8px;color:#888;">You can view the details below but cannot take action on this link.</p>
             @endif
+        </div>
+        @endif
+
+        @if($paymentRequest->queries->isNotEmpty())
+        <div class="card">
+            <div class="card-header">Approval Queries</div>
+            <div class="card-body">
+                <ul class="query-history">
+                    @foreach($paymentRequest->queries as $q)
+                    <li>
+                        <div class="meta">Stage {{ $q->sequence }}: {{ $q->stage_label }} &middot; asked by {{ $q->raiser?->name ?? '—' }} on {{ $q->raised_at?->format('d M Y, h:i A') }}</div>
+                        <div class="text">{{ $q->question }}</div>
+                        @if($q->resubmitted_at)
+                        <div class="meta">Answered by {{ $q->resubmitter?->name ?? '—' }} on {{ $q->resubmitted_at->format('d M Y, h:i A') }}</div>
+                        <div class="text">{{ $q->response }}</div>
+                        @else
+                        <div class="meta"><strong>Awaiting an answer.</strong></div>
+                        @endif
+                    </li>
+                    @endforeach
+                </ul>
+            </div>
         </div>
         @endif
 
@@ -313,37 +359,38 @@
         Invoice Payment Approval Platform
     </div>
 
-    {{-- Reject Modal --}}
-    <div class="modal-overlay" id="rejectModal">
+    {{-- Query Modal --}}
+    <div class="modal-overlay" id="queryModal">
         <div class="modal">
-            <h3>Reject Payment Request</h3>
-            <p style="color:#555; margin-bottom:12px;">Please provide a reason for rejecting this payment request.</p>
-            <form method="POST" action="{{ route('payment-request.public.reject', ['id' => $paymentRequest->id, 'token' => $token]) }}" id="rejectForm">
+            <h3>Raise an Approval Query</h3>
+            <p style="color:#555; margin-bottom:12px;">Ask for the clarification, information or correction you need. The
+               request is put on hold at your stage — not rejected — and comes back to you once it is answered.</p>
+            <form method="POST" action="{{ route('payment-request.public.query', ['id' => $paymentRequest->id, 'token' => $token]) }}" id="queryForm">
                 @csrf
-                <textarea name="comments" id="rejectComments" placeholder="Rejection reason (required)" maxlength="2000"></textarea>
-                <div class="error-text" id="rejectError">Rejection reason is required.</div>
+                <textarea name="question" id="queryText" placeholder="Your question (required)" maxlength="2000"></textarea>
+                <div class="error-text" id="queryError">A question is required.</div>
                 <div class="modal-actions">
-                    <button type="button" class="btn btn-cancel" onclick="closeRejectModal()">Cancel</button>
-                    <button type="submit" class="btn btn-reject" onclick="return validateReject()">Reject</button>
+                    <button type="button" class="btn btn-cancel" onclick="closeQueryModal()">Cancel</button>
+                    <button type="submit" class="btn btn-query" onclick="return validateQuery()">Send Query</button>
                 </div>
             </form>
         </div>
     </div>
 
     <script>
-        function openRejectModal() {
-            document.getElementById('rejectModal').classList.add('active');
-            document.getElementById('rejectComments').focus();
+        function openQueryModal() {
+            document.getElementById('queryModal').classList.add('active');
+            document.getElementById('queryText').focus();
         }
-        function closeRejectModal() {
-            document.getElementById('rejectModal').classList.remove('active');
-            document.getElementById('rejectComments').value = '';
-            document.getElementById('rejectError').style.display = 'none';
+        function closeQueryModal() {
+            document.getElementById('queryModal').classList.remove('active');
+            document.getElementById('queryText').value = '';
+            document.getElementById('queryError').style.display = 'none';
         }
-        function validateReject() {
-            var val = document.getElementById('rejectComments').value.trim();
+        function validateQuery() {
+            var val = document.getElementById('queryText').value.trim();
             if (!val) {
-                document.getElementById('rejectError').style.display = 'block';
+                document.getElementById('queryError').style.display = 'block';
                 return false;
             }
             return true;

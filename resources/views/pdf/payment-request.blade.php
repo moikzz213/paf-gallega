@@ -84,6 +84,9 @@
         .corrected-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #1565c0;
                             background: #e3f2fd; color: #0d47a1; font-size: 7px; font-weight: bold;
                             text-align: center; }
+        /* Approval queries asked on this request, and the answers that resumed it. */
+        .query-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #b26a00;
+                        background: #fff4e0; color: #8a5200; font-size: 7px; text-align: left; }
     </style>
 </head>
 <body>
@@ -178,11 +181,13 @@
         $draftNotice = match ($paymentRequest->status) {
             'rejected' => 'REJECTED — this payment request was not approved and must not be paid.',
             'withdrawn' => 'WITHDRAWN — this payment request was pulled back and must not be paid.',
+            'queried' => 'ON HOLD — APPROVAL QUERY. This form is on hold for an approval query and is not an authorisation to pay.',
             default => 'DRAFT — NOT YET APPROVED. This form is still in the approval chain and is not an authorisation to pay.',
         };
         $draftStamp = match ($paymentRequest->status) {
             'rejected' => 'REJECTED',
             'withdrawn' => 'WITHDRAWN',
+            'queried' => 'ON HOLD — QUERY',
             default => 'PENDING APPROVAL',
         };
     @endphp
@@ -208,6 +213,21 @@
             CORRECTED DURING APPROVAL —
             @foreach($paymentRequest->corrections as $correction)
                 {{ $correction->invoice?->reference_no ?? 'an invoice' }} by {{ $correction->user?->name ?? 'its submitter' }} on {{ $correction->created_at?->format('d M Y H:i') }}@if(! $loop->last); @endif
+            @endforeach
+        </div>
+        @endif
+
+        @if($paymentRequest->queries->isNotEmpty())
+        <div class="query-banner">
+            <strong>APPROVAL QUERIES</strong>
+            @foreach($paymentRequest->queries as $q)
+                <div>Stage {{ $q->sequence }} ({{ $q->stage_label }}) — {{ $q->raiser?->name ?? 'approver' }}, {{ $q->raised_at?->format('d M Y H:i') }}: "{{ $q->question }}"
+                    @if($q->resubmitted_at)
+                        — answered by {{ $q->resubmitter?->name ?? '—' }}, {{ $q->resubmitted_at->format('d M Y H:i') }}: "{{ $q->response }}"
+                    @else
+                        — <strong>awaiting an answer</strong>
+                    @endif
+                </div>
             @endforeach
         </div>
         @endif

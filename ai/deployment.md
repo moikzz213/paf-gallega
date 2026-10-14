@@ -46,7 +46,8 @@ Run it under a supervisor (systemd/Supervisor on Linux, a Windows service or Tas
 config, run `php artisan queue:restart` — a long-running worker holds the old config in memory.
 Inspect failures with `php artisan queue:failed`, re-run them with `php artisan queue:retry all`.
 
-**2. Scheduler** — `routes/console.php` schedules `prf:send-reminders` daily at 09:00
+**2. Scheduler** — `routes/console.php` schedules `prf:send-reminders` and
+`prf:send-query-reminders` (unanswered approval queries, every two days per query) daily at 09:00
 (`config('app.timezone')` is `Asia/Dubai`, hardcoded, so 09:00 means 09:00 Dubai in every
 environment). Laravel's schedule only advances when something calls `schedule:run` **every minute**:
 

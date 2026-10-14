@@ -309,7 +309,7 @@ async function submitCreate() {
                     </span>
                 </template>
                 <template #item.stage="{ item }">
-                    <template v-if="item.status === 'in_approval'">
+                    <template v-if="['in_approval', 'queried'].includes(item.status)">
                         {{ item.current_stage }} / {{ item.approvals?.length }}
                         <div v-if="item.approvals?.find(a => a.sequence === item.current_stage)?.approver?.name" class="text-caption text-medium-emphasis">
                             {{ item.approvals.find(a => a.sequence === item.current_stage).approver.name }}

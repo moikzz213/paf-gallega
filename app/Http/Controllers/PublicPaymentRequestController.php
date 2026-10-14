@@ -91,60 +91,35 @@ class PublicPaymentRequestController extends Controller
             ->with('success', 'Payment request has been approved successfully.');
     }
 
-    public function reject(Request $request, string $id, string $token)
+    /**
+     * Raise an Approval Query from the emailed link — the approver's alternative to approving, in
+     * place of the rejection this link used to offer. Goes through the same service method as the
+     * in-app route, so the hold, the audit entry and the single BCC notice cannot drift between them.
+     */
+    public function query(Request $request, string $id, string $token)
     {
         $pr = $this->resolvePr($id, $token);
 
         if (! $this->canAct($pr, $token)) {
             return redirect()->route('payment-request.public', ['id' => $pr->id, 'token' => $token])
-                ->with('error', 'This link is no longer valid for rejection. Please check your email for the updated link.');
+                ->with('error', 'This link can no longer raise a query. Please check your email for the updated link.');
         }
 
-        $approval = $this->getActionableApproval($pr, $token);
-        $approver = $approval?->approver;
+        $approver = $this->getActionableApproval($pr, $token)?->approver;
 
         if (! $approver) {
             return redirect()->route('payment-request.public', ['id' => $pr->id, 'token' => $token])
                 ->with('error', 'No approver is assigned for the current stage.');
         }
 
-        $request->validate([
-            'comments' => 'required|string|max:2000',
+        $data = $request->validate([
+            'question' => 'required|string|max:2000',
         ]);
 
-        $snapshot = null;
-
-        DB::transaction(function () use ($pr, $approval, $approver, $request, &$snapshot) {
-            $approval->update([
-                'status' => PaymentRequestApproval::STATUS_REJECTED,
-                'comments' => $request->input('comments'),
-                'acted_at' => now(),
-            ]);
-
-            $stage = $approval->sequence;
-
-            $pr->update([
-                'status' => PaymentRequest::STATUS_REJECTED,
-                'current_stage' => null,
-                'rejected_at' => now(),
-                'rejection_reason' => $request->input('comments'),
-            ]);
-
-            // Captured before the detach below empties the invoice relation the notice reads from.
-            $snapshot = $this->service->rejectionSnapshot($pr);
-
-            $this->service->returnInvoicesToFinance($pr);
-
-            AuditLogger::log('rejected', "Payment request {$pr->reference_no} rejected at stage {$stage} via public link by {$approver->name}. Invoices returned to Finance.", null, null, null, $pr);
-        });
-
-        $pr->refresh();
-
-        // Same notice as the in-app path, sent after the commit, so the two cannot drift.
-        $this->service->notifyRejected($pr, $snapshot, $approver->name, $approval->label);
+        $this->service->query($pr, $approver, $data['question']);
 
         return redirect()->route('payment-request.public', ['id' => $pr->id, 'token' => $token])
-            ->with('success', 'Payment request has been rejected.');
+            ->with('success', 'Your query has been sent. The payment request is on hold until it is answered and resubmitted to you.');
     }
 
     public function downloadDocument(string $prfId, string $token, InvoiceDocument $document)
@@ -163,7 +138,7 @@ class PublicPaymentRequestController extends Controller
 
     /**
      * A document attached to the request as a whole. Only on an approval-stage token: the request's
-     * own view token is also emailed to every invoice submitter on approval or rejection, and they
+     * own view token is also emailed to every invoice submitter on approval, and they
      * may not see these (PaymentRequest::documentsVisibleTo).
      */
     public function downloadRequestDocument(string $prfId, string $token, PaymentRequestDocument $document)
@@ -184,7 +159,7 @@ class PublicPaymentRequestController extends Controller
 
     /**
      * The PAF itself, streamed inline so the approval page can show it beside the Approve and
-     * Reject buttons instead of asking the approver to download it first.
+     * Query buttons instead of asking the approver to download it first.
      *
      * Reachable on exactly the same terms as the page it is embedded in: `resolvePr` refuses any
      * token that is neither the request's own view token nor one of its approval stages'.
@@ -241,6 +216,7 @@ class PublicPaymentRequestController extends Controller
             'approvals.approver',
             'documents',
             'corrections.user:id,name', 'corrections.invoice:id,reference_no',
+            'queries.raiser:id,name', 'queries.resubmitter:id,name',
         ])->find($id);
 
         if (! $pr) {

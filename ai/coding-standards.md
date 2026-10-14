@@ -29,7 +29,9 @@ Conventions observed in this codebase. Follow them so new code reads like the ex
 - **Transactions:** wrap multi-write workflow operations in `DB::transaction(...)` (see
   `ApprovalService`).
 - **Audit everything state-changing:** call `AuditLogger::log($action, $description, $invoice,
-  $old, $new)` on create/update/submit/approve/reject/schedule/pay/delete and admin mutations.
+  $old, $new)` on create/update/submit/approve/query/resubmit/schedule/pay/delete and admin mutations.
+- **One email, many recipients:** when a notice goes to a group, use `Notifier::sendBcc` — a single
+  email with every recipient in BCC — rather than one `Notifier::send` per person.
 - **Money:** `decimal(15,2)` columns, cast `decimal:2`. Compute `total_amount` server-side.
 - **Eloquent:** eager-load with column selection (`with('submitter:id,name')`) to keep payloads
   lean, as existing controllers do. Use query scopes for reusable filters.

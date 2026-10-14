@@ -59,6 +59,14 @@ class DashboardController extends Controller
             $myQueue = PaymentRequest::where('status', PaymentRequest::STATUS_IN_APPROVAL)->count();
         }
 
+        // Payment requests on hold for an approval query that this user can answer — Finance and admins
+        // any, everyone else those holding an invoice they submitted. Live, like the queue above.
+        $queriedQuery = PaymentRequest::where('status', PaymentRequest::STATUS_QUERIED);
+        if (! $user->isAdmin() && ! $user->isFinance()) {
+            $queriedQuery->whereHas('invoices', fn ($i) => $i->where('submitted_by', $user->id));
+        }
+        $awaitingAnswer = $queriedQuery->count();
+
         $statusDistribution = $submitted()
             ->select('status', DB::raw('count(*) as count'), DB::raw('sum(total_amount) as amount'))
             ->groupBy('status')
@@ -103,6 +111,7 @@ class DashboardController extends Controller
             'period' => $period->toArray(),
             'cards' => $cards,
             'my_queue' => $myQueue,
+            'awaiting_query_answer' => $awaitingAnswer,
             'status_distribution' => $statusDistribution,
             'monthly' => $monthly,
             'top_vendors' => $topVendors,

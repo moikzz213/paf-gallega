@@ -244,6 +244,19 @@ const recentHeaders = [
                     <v-btn color="warning" variant="flat" size="small" to="/approvals">Review now</v-btn>
                 </template>
             </v-alert>
+            <v-alert
+                v-if="dash.awaiting_query_answer > 0"
+                type="info"
+                variant="tonal"
+                class="mb-6"
+                icon="mdi-help-circle-outline"
+            >
+                <strong>{{ dash.awaiting_query_answer }}</strong> payment request{{ dash.awaiting_query_answer > 1 ? 's are' : ' is' }}
+                on hold for an approval query you can answer.
+                <template #append>
+                    <v-btn color="info" variant="flat" size="small" to="/payment-requests">View requests</v-btn>
+                </template>
+            </v-alert>
 
             <v-row>
                 <v-col v-for="card in cards" :key="card.title" cols="12" sm="6" lg="3">

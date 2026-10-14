@@ -175,11 +175,11 @@ correction is recorded only in `audit_logs` (`corrected_during_approval`, agains
 | `reference_no` | string, **unique** | `PAF-{year}-00001` (`PRF-{year}-` before Aug 2026) |
 | `view_token` | string(64), **unique** | random token for public read-only link |
 | `created_by` | FK users | Finance user who initiated |
-| `status` | string, default `draft` | `draft \| in_approval \| approved \| rejected \| withdrawn \| paid` (idx) |
+| `status` | string, default `draft` | `draft \| in_approval \| queried \| approved \| rejected \| withdrawn \| paid` (idx). `queried` = on hold at `current_stage` for an open approval query (`payment_request_queries`). `rejected` is **historical only** — approvers raise a query instead, so nothing enters it any more |
 | `current_stage` | uint, nullable | sequence of the stage awaiting action |
 | `total_amount` | decimal(15,2) | sum of member invoices; enforced **> 0** at creation and on an in-place correction, so a credit-only invoice must be grouped with the charge it offsets (a non-positive total matches no `approval_levels.min_amount` and could be routed to nobody) |
 | `sent_at`, `approved_at`, `rejected_at` | timestamp, nullable | |
-| `rejection_reason` | text, nullable | |
+| `rejection_reason` | text, nullable | historical rejections only |
 | `withdrawn_at` | timestamp, nullable | set when Finance pulls an **approved** PRF back before payment |
 | `withdrawn_by` | FK users, nullable | finance/admin actor who withdrew it |
 | `withdrawal_reason` | text, nullable | kept apart from `rejection_reason` so an approver's rejection and a post-approval withdrawal stay distinguishable |
@@ -202,13 +202,38 @@ One row per chain stage, sequence-ordered.
 | `level` | tinyint, nullable | source approval level; null for ad-hoc |
 | `label` | string | the job description shown against this stage everywhere the chain is rendered (screen, PAF PDF, public link). Snapshotted at creation from the **approver's `job_title`**, falling back to the approval level's `name`; ad-hoc stages use the typed label, else the approver's job title. A later job change never rewrites a recorded approval |
 | `is_adhoc` | boolean | added beyond the amount-based levels |
-| `status` | string, default `pending` | `pending \| approved \| rejected` |
+| `status` | string, default `pending` | `pending \| approved \| rejected` (`rejected` historical only). A queried stage stays `pending` with its approver |
 | `approver_id` | FK users, nullable | the assigned approver (and actor) |
 | `comments` | text, nullable | |
 | `acted_at` | timestamp, nullable | |
 | timestamps | | |
 
 **Unique:** `(payment_request_id, sequence)`.
+
+### payment_request_queries
+
+An approver's **Approval Query** on a payment request and the answer that resubmitted it — the
+replacement for rejection (`ai/change-requests/replace-reject-with-query-in-payment-approval.md`). One row per query; a
+request queried twice keeps both. **Open** while `resubmitted_at` is null, and the PRF is then
+`queried`.
+
+| Column | Type | Notes |
+|--------|------|-------|
+| `id` | bigint PK | |
+| `payment_request_id` | FK, **cascade delete** | |
+| `payment_request_approval_id` | FK, **cascade delete** | the stage that asked |
+| `sequence` | uint | snapshot of that stage's position — drives the notification audience |
+| `stage_label` | string | snapshot of that stage's label |
+| `raised_by` | FK users | the approver (or admin) who asked |
+| `question` | text | |
+| `raised_at` | timestamp | |
+| `resubmitted_by` | FK users, nullable | submitter, Finance or admin who answered |
+| `response` | text, nullable | required to resubmit |
+| `resubmitted_at` | timestamp, nullable | null = open |
+| `last_reminder_sent_at` | timestamp, nullable | last two-day reminder (`prf:send-query-reminders`) |
+| timestamps | | |
+
+**Index:** `(payment_request_id, resubmitted_at)`.
 
 ### invoice_items
 

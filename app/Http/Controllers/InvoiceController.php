@@ -212,7 +212,7 @@ class InvoiceController extends Controller
                 // Re-read under a lock: the chain may have signed off between the check above and
                 // this write, and the submitter's window closes the moment it does.
                 $locked = PaymentRequest::whereKey($invoice->payment_request_id)->lockForUpdate()->first();
-                if ($locked?->status !== PaymentRequest::STATUS_IN_APPROVAL) {
+                if (! in_array($locked?->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_QUERIED], true)) {
                     abort(422, 'The payment request holding this invoice has just been approved, so it can no longer be corrected here. Ask Finance if something needs to change.');
                 }
             }
@@ -594,7 +594,7 @@ class InvoiceController extends Controller
         // outside the payment cycle can be corrected. Querying one that is already in a payment
         // request used to leave it unqueriable *and* uneditable, with no way back.
         if ($invoice->payment_status !== Invoice::PAY_NOT_INITIATED) {
-            abort(422, 'This invoice is already in a payment request. Reject that request (or withdraw it, if it is already approved) to return the invoice, then raise the query.');
+            abort(422, 'This invoice is already in a payment request. Release it from that request (or withdraw the request, if it is already approved) to return the invoice, then raise the query.');
         }
 
         $data = $request->validate(['finance_remarks' => ['required', 'string', 'max:2000']]);
