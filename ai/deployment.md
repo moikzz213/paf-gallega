@@ -46,6 +46,18 @@ Run it under a supervisor (systemd/Supervisor on Linux, a Windows service or Tas
 config, run `php artisan queue:restart` — a long-running worker holds the old config in memory.
 Inspect failures with `php artisan queue:failed`, re-run them with `php artisan queue:retry all`.
 
+**Payment request currencies (one-off, after the `2026_10_14_000003` migration).** Back up the
+database, then preview and apply the repair:
+
+```bash
+php artisan paf:repair-request-currencies
+php artisan paf:repair-request-currencies --apply
+```
+
+Keep the output: it lists every request given a currency and the evidence used, and the requests left
+blank. Hand the blank list to Finance; set each confirmed one with
+`php artisan paf:set-request-currency PAF-2026-00009 USD --confirmed-by="Name, Finance"`.
+
 **2. Scheduler** — `routes/console.php` schedules `prf:send-reminders` and
 `prf:send-query-reminders` (unanswered approval queries, every two days per query) daily at 09:00
 (`config('app.timezone')` is `Asia/Dubai`, hardcoded, so 09:00 means 09:00 Dubai in every

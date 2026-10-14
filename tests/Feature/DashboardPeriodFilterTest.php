@@ -115,7 +115,7 @@ class DashboardPeriodFilterTest extends TestCase
         $res = $this->dashboard(['from' => '2026-04', 'to' => '2026-04'])->assertOk();
 
         $this->assertSame(1, $res->json('cards.paid.count'));
-        $this->assertEquals(100, $res->json('cards.paid.amount'));
+        $this->assertEquals(100, $res->json('cards.paid.amounts.0.amount'));
         $this->assertSame(0, $res->json('cards.total_invoices'));
     }
 
@@ -216,7 +216,7 @@ class DashboardPeriodFilterTest extends TestCase
         $res = $this->dashboard(['from' => '2020-01', 'to' => '2020-03'])->assertOk();
 
         $this->assertSame(0, $res->json('cards.total_invoices'));
-        $this->assertEquals(0, $res->json('cards.awaiting_posting.amount'));
+        $this->assertSame([], $res->json('cards.awaiting_posting.amounts'));
         $this->assertSame([], $res->json('top_vendors'));
         $this->assertSame([], $res->json('recent'));
     }

@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../services/api';
-import { dateTime, fileSize, invoicesCurrency, money, shortDate } from '../utils/format';
+import { dateTime, fileSize, money, shortDate, requestCurrency } from '../utils/format';
 import { useAuthStore } from '../stores/auth';
 import { useNotifyStore } from '../stores/notify';
 import StatusChip from '../components/StatusChip.vue';
@@ -94,8 +94,9 @@ async function removeDocument() {
 
 const currentStep = computed(() => pr.value?.approvals?.find((s) => s.sequence === pr.value?.current_stage));
 
-// The request itself stores no currency — it takes it from the invoices it groups.
-const currency = computed(() => invoicesCurrency(pr.value?.invoices));
+// The currency the request was raised in — recorded on it, so it survives its invoices being
+// returned. Blank when it is not known; never assumed to be AED.
+const currency = computed(() => requestCurrency(pr.value));
 
 const canAct = computed(() => {
     if (pr.value?.status !== 'in_approval') return false;

@@ -5,6 +5,22 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
 > None recorded yet — this file was created during LIFT project initialization
 > (see [../decisions/ADR-001-project-initialization.md](../decisions/ADR-001-project-initialization.md)).
 
+## [2026-10-14] Payment requests showed AED once their invoices were returned; dashboard totals mixed currencies
+
+- **Symptom:** a USD request ("raised in USD") showed as AED on the Payment Requests page, the request
+  page, the emailed approval page and the PAF once it was rejected or withdrawn — e.g. PAF-2026-00239
+  (USD 7,400) and PAF-2026-00120 (OMR 19,500 shown as AED 19,500). Dashboard cards and charts, and the
+  report summary, summed amounts across currencies and labelled the result AED.
+- **Cause:** a request stored no currency and derived it from the invoices it held; rejection,
+  withdrawal and release detach them, the derived currency became empty, and `money()` /
+  `Money::format` substituted AED. The dashboard and report summed `total_amount` with no grouping.
+- **Fix:** `payment_requests.currency`, set at creation; `paf:repair-request-currencies` for older
+  requests (unprovable ones left blank) and `paf:set-request-currency` for Finance-confirmed ones; a
+  blank currency renders blank; dashboard cards and report totals per currency, charts in AED
+  equivalent at configured rates (`CurrencyTotals`). CR `ai/change-requests/fix-wrong-currency-on-payment-requests-and-dashboard-totals.md`.
+- **Verified:** `tests/Feature/PaymentRequestCurrencyTest.php`; repair previewed against the
+  development database (217 recordable, 34 left blank); full suite.
+
 ## [2026-10-06] Invoice document download returned a server error to a guest
 
 - **Symptom:** `GET /api/documents/{id}/download` without a session answered `500` instead of

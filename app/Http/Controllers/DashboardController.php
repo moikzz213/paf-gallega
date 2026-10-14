@@ -2,8 +2,10 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Currency;
 use App\Models\Invoice;
 use App\Models\PaymentRequest;
+use App\Support\CurrencyTotals;
 use App\Support\DashboardPeriod;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -29,19 +31,20 @@ class DashboardController extends Controller
             ->where('payment_status', Invoice::PAY_PAID)
             ->whereHas('paymentRequest', fn ($p) => $period->apply($p, 'paid_at'));
 
+        // One total per currency: a sum across currencies is no amount at all (see CurrencyTotals).
         $cards = [
             'total_invoices' => $submitted()->count(),
             'awaiting_posting' => [
                 'count' => $submitted()->where('status', Invoice::STATUS_SUBMITTED)->count(),
-                'amount' => (float) $submitted()->where('status', Invoice::STATUS_SUBMITTED)->sum('total_amount'),
+                'amounts' => CurrencyTotals::byCurrency($submitted()->where('status', Invoice::STATUS_SUBMITTED)),
             ],
             'in_approval' => [
                 'count' => $submitted()->where('payment_status', Invoice::PAY_IN_APPROVAL)->count(),
-                'amount' => (float) $submitted()->where('payment_status', Invoice::PAY_IN_APPROVAL)->sum('total_amount'),
+                'amounts' => CurrencyTotals::byCurrency($submitted()->where('payment_status', Invoice::PAY_IN_APPROVAL)),
             ],
             'paid' => [
                 'count' => $paid()->count(),
-                'amount' => (float) $paid()->sum('total_amount'),
+                'amounts' => CurrencyTotals::byCurrency($paid()),
             ],
         ];
 
@@ -67,10 +70,27 @@ class DashboardController extends Controller
         }
         $awaitingAnswer = $queriedQuery->count();
 
+        // Counts only — the chart is of how many, and an amount here would mix currencies.
         $statusDistribution = $submitted()
-            ->select('status', DB::raw('count(*) as count'), DB::raw('sum(total_amount) as amount'))
+            ->select('status', DB::raw('count(*) as count'))
             ->groupBy('status')
             ->get();
+
+        // The charts need one number per bar, so their amounts are converted to the base currency at
+        // the configured rates and labelled as such. A currency with no rate is left out and named.
+        $unrated = [];
+        // A closure, not an arrow function: it has to add to $unrated, which an arrow fn would copy.
+        $toBase = function ($query, string $key) use (&$unrated) {
+            return CurrencyTotals::toBase(
+                $query->select(array_unique([$key, 'currency']))->addSelect(DB::raw('sum(total_amount) as amount'))
+                    ->groupBy(array_unique([$key, 'currency']))->get(),
+                $key,
+                $unrated,
+            );
+        };
+
+        // One base-currency figure for a whole set of invoices.
+        $baseSum = fn ($query) => (float) $toBase($query, 'currency')->sum();
 
         // submitted vs paid amounts, one bar per month of the selected period
         $monthly = [];
@@ -78,28 +98,23 @@ class DashboardController extends Controller
             $to = $from->endOfMonth();
             $monthly[] = [
                 'month' => $from->format('M Y'),
-                'submitted' => (float) $visible()->whereBetween('submitted_at', [$from, $to])->sum('total_amount'),
-                'paid' => (float) $visible()
+                'submitted' => $baseSum($visible()->whereBetween('submitted_at', [$from, $to])),
+                'paid' => $baseSum($visible()
                     ->where('payment_status', Invoice::PAY_PAID)
-                    ->whereHas('paymentRequest', fn ($p) => $p->whereBetween('paid_at', [$from, $to]))
-                    ->sum('total_amount'),
+                    ->whereHas('paymentRequest', fn ($p) => $p->whereBetween('paid_at', [$from, $to]))),
             ];
         }
 
-        $topVendors = $dated()
-            ->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->select('vendor_name', DB::raw('count(*) as count'), DB::raw('sum(total_amount) as amount'))
-            ->groupBy('vendor_name')
-            ->orderByDesc('amount')
-            ->limit(5)
-            ->get();
+        $topVendors = $toBase($dated()->where('status', '!=', Invoice::STATUS_CANCELLED), 'vendor_name')
+            ->sortDesc()
+            ->take(5)
+            ->map(fn ($amount, $vendor) => ['vendor_name' => $vendor, 'amount' => $amount])
+            ->values();
 
-        $byBusinessUnit = $dated()
-            ->where('status', '!=', Invoice::STATUS_CANCELLED)
-            ->select('business_unit', DB::raw('sum(total_amount) as amount'))
-            ->groupBy('business_unit')
-            ->orderByDesc('amount')
-            ->get();
+        $byBusinessUnit = $toBase($dated()->where('status', '!=', Invoice::STATUS_CANCELLED), 'business_unit')
+            ->sortDesc()
+            ->map(fn ($amount, $unit) => ['business_unit' => $unit, 'amount' => $amount])
+            ->values();
 
         $recent = $submitted()
             ->with('submitter:id,name')
@@ -115,6 +130,9 @@ class DashboardController extends Controller
             'status_distribution' => $statusDistribution,
             'monthly' => $monthly,
             'top_vendors' => $topVendors,
+            // The currency the chart amounts are expressed in, and any left out for want of a rate.
+            'chart_currency' => Currency::base(),
+            'unconverted_currencies' => array_values($unrated),
             'by_business_unit' => $byBusinessUnit,
             'recent' => $recent,
         ]);

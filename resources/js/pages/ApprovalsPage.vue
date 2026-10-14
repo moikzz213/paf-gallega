@@ -2,7 +2,7 @@
 import { computed, onMounted, reactive, ref } from 'vue';
 import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../services/api';
-import { invoicesCurrency, money, dateTime } from '../utils/format';
+import { money, dateTime, requestCurrency } from '../utils/format';
 import { useNotifyStore } from '../stores/notify';
 
 const notify = useNotifyStore();
@@ -115,7 +115,7 @@ async function confirmDialog() {
                 <template #item.invoices="{ item }">{{ item.invoices?.length ?? 0 }} invoice(s)</template>
                 <template #item.total_amount="{ item }">
                     <span style="font-variant-numeric: tabular-nums" class="font-weight-medium">
-                        {{ money(item.total_amount, invoicesCurrency(item.invoices)) }}
+                        {{ money(item.total_amount, requestCurrency(item)) }}
                     </span>
                 </template>
                 <template #item.stage="{ item }">{{ stageLabel(item) }}</template>
@@ -135,7 +135,7 @@ async function confirmDialog() {
                 <v-card-text>
                     <div class="text-body-2 mb-3">
                         {{ dialog.pr?.invoices?.length }} invoice(s) —
-                        <strong>{{ money(dialog.pr?.total_amount, invoicesCurrency(dialog.pr?.invoices)) }}</strong>
+                        <strong>{{ money(dialog.pr?.total_amount, requestCurrency(dialog.pr)) }}</strong>
                     </div>
                     <div class="overflow-x-auto mb-4">
                         <v-table density="compact">

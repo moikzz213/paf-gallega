@@ -94,7 +94,6 @@
         $companyLogo = base64_encode(file_get_contents(public_path('images/gallega-global-logistics-logo.png')));
         $invoices = $paymentRequest->invoices;
         $approvals = $paymentRequest->approvals;
-        $currencies = $invoices->pluck('currency')->filter()->unique()->values();
         $displayCurrency = $paymentRequest->currency;
         $departments = $invoices->pluck('department')->filter()->unique()->implode(', ');
         $requesters = $invoices->pluck('submitter.name')->filter()->unique()->implode(', ');
@@ -106,7 +105,10 @@
         $comments = $paymentRequest->rejection_reason
             ?: $approvals->pluck('comments')->filter()->implode(' | ');
         $amountWords = 'Amount shown numerically';
-        if ($currencies->count() === 1 && class_exists(NumberFormatter::class)) {
+        // The request's own currency, so a rejected or withdrawn request — which no longer holds its
+        // invoices — still reads in the currency it was raised in. Blank when it is not known.
+        $singleCurrency = $displayCurrency !== '' && $displayCurrency !== 'MULTI-CURRENCY';
+        if ($singleCurrency && class_exists(NumberFormatter::class)) {
             $formatter = new NumberFormatter('en', NumberFormatter::SPELLOUT);
             $whole = (int) floor((float) $paymentRequest->total_amount);
             $fraction = (int) round((((float) $paymentRequest->total_amount) - $whole) * 100);
@@ -298,7 +300,7 @@
                     <th>DATE OF EXPENSE</th>
                     <th>AMOUNT</th>
                     <th>VAT</th>
-                    <th>AMOUNT IN {{ $displayCurrency }}</th>
+                    <th>AMOUNT{{ $displayCurrency !== '' ? ' IN '.$displayCurrency : '' }}</th>
                 </tr>
             </thead>
             <tbody>

@@ -178,6 +178,7 @@ correction is recorded only in `audit_logs` (`corrected_during_approval`, agains
 | `created_by` | FK users | Finance user who initiated |
 | `status` | string, default `draft` | `draft \| in_approval \| queried \| approved \| rejected \| withdrawn \| paid` (idx). `queried` = on hold at `current_stage` for an open approval query (`payment_request_queries`). `rejected` is **historical only** — approvers raise a query instead, so nothing enters it any more |
 | `current_stage` | uint, nullable | sequence of the stage awaiting action |
+| `currency` | string(10), nullable | the currency the request was raised in, **recorded at creation** (`2026_10_14_000003`) so it survives its invoices leaving it (rejection, withdrawal, release). Null on requests raised before it until `paf:repair-request-currencies` fills what history proves; the rest stay null (shown blank — never assumed AED) until set with `paf:set-request-currency`. `PaymentRequest::getCurrencyAttribute` reads it, falling back to the held invoices' currency, else `''`. CR `ai/change-requests/fix-wrong-currency-on-payment-requests-and-dashboard-totals.md` |
 | `total_amount` | decimal(15,2) | sum of member invoices; enforced **> 0** at creation and on an in-place correction, so a credit-only invoice must be grouped with the charge it offsets (a non-positive total matches no `approval_levels.min_amount` and could be routed to nobody) |
 | `sent_at`, `approved_at`, `rejected_at` | timestamp, nullable | |
 | `rejection_reason` | text, nullable | historical rejections only |

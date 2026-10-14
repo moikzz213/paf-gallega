@@ -44,7 +44,7 @@ class PaymentRequest extends Model
     ];
 
     protected $fillable = [
-        'reference_no', 'view_token', 'created_by', 'status', 'current_stage', 'total_amount',
+        'reference_no', 'view_token', 'created_by', 'status', 'current_stage', 'total_amount', 'currency',
         'sent_at', 'approved_at', 'rejected_at', 'rejection_reason',
         'withdrawn_at', 'withdrawn_by', 'withdrawal_reason',
         'paid_at', 'payment_reference', 'paid_by', 'last_reminder_sent_at',
@@ -74,12 +74,22 @@ class PaymentRequest extends Model
     }
 
     /**
-     * A request stores no currency of its own — it carries the one its invoices are in.
-     * Creation refuses to mix currencies, so this is a single code for anything created since;
-     * older mixed requests are labelled rather than mislabelled with one of their currencies.
+     * The currency the request was raised in.
+     *
+     * Recorded at creation since the currency fix. A request raised before it, and not yet repaired
+     * by `paf:repair-request-currencies`, carries the one its invoices are in — a mixed set is
+     * labelled rather than mislabelled with one of its currencies. With neither (its invoices all
+     * gone and nothing proving what they were), it is blank: never assumed to be AED, which is
+     * what it used to show.
+     *
+     * CR: ai/change-requests/fix-wrong-currency-on-payment-requests-and-dashboard-totals.md
      */
-    public function getCurrencyAttribute(): string
+    public function getCurrencyAttribute(?string $value): string
     {
+        if (filled($value)) {
+            return $value;
+        }
+
         $codes = $this->invoices->pluck('currency')->filter()->unique();
 
         if ($codes->isEmpty()) {

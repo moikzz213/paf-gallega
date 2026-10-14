@@ -15,9 +15,13 @@ class Money
     public static function format(float|string|null $value, ?string $currency = 'AED'): string
     {
         $amount = round((float) ($value ?? 0), 2);
-        $code = $currency ?: 'AED';
         $figure = number_format(abs($amount), 2);
+        $figure = $amount < 0 ? "({$figure})" : $figure;
 
-        return $amount < 0 ? "{$code} ({$figure})" : "{$code} {$figure}";
+        // A currency passed in blank is unknown, and stays blank. Substituting AED here is what
+        // labelled a USD payment request as AED once its invoices had been returned.
+        $code = trim((string) $currency);
+
+        return $code === '' ? $figure : "{$code} {$figure}";
     }
 }

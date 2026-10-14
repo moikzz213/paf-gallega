@@ -137,6 +137,14 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   records who removed which file in the record's history (on the PRF too, for an invoice in one).
   Paid, rejected, withdrawn and cancelled records are locked. Documents on a still-editable invoice
   are deleted outright, as before. CR: `ai/change-requests/allow-removal-of-attachments-uploaded-by-finance.md`.
+- **A request keeps the currency it was raised in.** It is recorded when the request is created, so
+  a rejected or withdrawn request — whose invoices have gone back to the Invoice Log — still shows its
+  own currency on the list, the request page, the emails, the emailed approval page and the PAF.
+  Before this it borrowed the currency from the invoices it held and, with none left, showed AED.
+  Older requests were filled in from their history by `paf:repair-request-currencies`; a currency
+  history cannot prove is left **blank** (the amount shows without a code, never as AED) until
+  Finance confirms it and it is set with `paf:set-request-currency`. CR:
+  `ai/change-requests/fix-wrong-currency-on-payment-requests-and-dashboard-totals.md`.
 - The payment request list shows the **vendor name** of the invoices it groups; a PRF spanning
   several vendors shows the first with a `+N more` suffix (all names in the cell tooltip), the
   same way the currency column labels mixed sets.
@@ -356,11 +364,17 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   different totals here and on the Reports page, which anchors everything on `invoice_date`.
 - **The approver "queue waiting" alert is never period-filtered.** It is a live work queue; hiding a
   pending approval behind a date range would mean real work going unseen.
+- **No total mixes currencies.** The Awaiting Posting, In Approval and Paid cards list **one total
+  per currency** under the count. The three charts need a single figure per bar, so they are shown
+  as an **AED equivalent** at the exchange rates in Master Data → Currencies, and say so in their
+  titles; a currency with no rate is left out of them and named in a warning above the cards. Before
+  this, every amount was summed across currencies and labelled AED. CR:
+  `ai/change-requests/fix-wrong-currency-on-payment-requests-and-dashboard-totals.md`.
 
 ## 8. Reports & Excel export
 
 - Filterable report (status, department, business unit, vendor, date range) with per-status summary
-  and a paginated table. The table and the export both show the invoice's **job numbers** (they
+  and a paginated table. The summary totals are **per currency** — never a sum across currencies. The table and the export both show the invoice's **job numbers** (they
   live on the invoice lines, so an invoice's distinct job numbers are joined with `, `).
   **Export to Excel** (25-column XLSX incl. job no., ERP posting + PRF payment
   columns); exports are audit-logged.
