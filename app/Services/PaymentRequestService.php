@@ -3,15 +3,16 @@
 namespace App\Services;
 
 use App\Mail\PaymentRequestApproved;
-use App\Mail\PaymentRequestRejected;
+use App\Mail\PaymentRequestQueryRaised;
 use App\Mail\PaymentRequestSubmitted;
 use App\Models\Invoice;
-use App\Models\InvoiceRejection;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestApproval;
 use App\Models\PaymentRequestDocument;
+use App\Models\PaymentRequestQuery;
 use App\Models\User;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
@@ -260,8 +261,8 @@ class PaymentRequestService
      * Attach supporting documents to the request as a whole — evidence for the payment rather than
      * for one invoice, merged into the PAF alongside the invoices' own documents.
      *
-     * Open while the request is in approval, approved or paid (a rejected or withdrawn request is
-     * finished with). A document arriving once the chain has signed was not in front of the
+     * Open while the request is in approval (or on hold for an approval query), approved or paid (a
+     * rejected or withdrawn request is finished with). A document arriving once the chain has signed was not in front of the
      * approvers, and is recorded as such, the same way a late invoice document is.
      *
      * If storing any file fails, the files already written by this call are removed before the error
@@ -275,7 +276,7 @@ class PaymentRequestService
             return;
         }
 
-        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_APPROVED, PaymentRequest::STATUS_PAID], true)) {
+        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_QUERIED, PaymentRequest::STATUS_APPROVED, PaymentRequest::STATUS_PAID], true)) {
             throw ValidationException::withMessages([
                 'documents' => "Documents can no longer be attached to {$pr->reference_no} — it is {$pr->status}.",
             ]);
@@ -289,7 +290,9 @@ class PaymentRequestService
             ]);
         }
 
-        $late = $pr->status !== PaymentRequest::STATUS_IN_APPROVAL;
+        // A document added to answer an approval query is in front of the approvers when the request
+        // comes back to them, so it is not late.
+        $late = ! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_QUERIED], true);
         $stored = [];
 
         try {
@@ -335,7 +338,7 @@ class PaymentRequestService
             abort(403, 'Only the person who uploaded this document, or an administrator, can remove it.');
         }
 
-        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_APPROVED], true)) {
+        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_QUERIED, PaymentRequest::STATUS_APPROVED], true)) {
             throw ValidationException::withMessages([
                 'document' => "Documents can no longer be removed from {$pr->reference_no} — it is {$pr->status}.",
             ]);
@@ -443,150 +446,182 @@ class PaymentRequestService
     }
 
     /**
-     * Everything the rejection notice needs that rejection itself destroys.
+     * An approver asks a question instead of deciding: the request goes on hold at their stage.
      *
-     * Rejection clears `payment_request_id` on the invoices, and the recipients, the subject
-     * summary and the invoice list are all read from that relation — so they have to be captured
-     * while it still holds, before the detach. Public because the public-link path performs its own
-     * rejection and has the same ordering problem.
+     * This is what replaced rejection. Nothing is ended — the invoices stay on the request, the
+     * approvals already given stand, and the stage stays pending with its approver — so once the
+     * query is answered the request carries on from here rather than starting over. While it is
+     * `queried`, `assertActionable` turns away every approval, on both routes.
      *
-     * @return array{recipients: array<int, string>, summary: string, invoiceLines: array<int, array<string, mixed>>}
+     * CR: ai/change-requests/replace-reject-with-query-in-payment-approval.md
      */
-    public function rejectionSnapshot(PaymentRequest $pr): array
-    {
-        // A deliberate `load`, not `loadMissing`: the public-link path arrives with `submitter`
-        // already eager-loaded as `id,name` only, and reusing that silently drops every invoice
-        // submitter from the recipient list. Re-reading costs one query and cannot be short-changed.
-        $pr->load('creator', 'invoices.submitter', 'invoices.items');
-
-        return [
-            'recipients' => collect([$pr->creator?->email])
-                ->merge($pr->invoices->map(fn ($inv) => $inv->submitter?->email))
-                ->filter()
-                ->unique()
-                ->values()
-                ->all(),
-            'summary' => $pr->subjectSummary(),
-            'invoiceLines' => $pr->invoices->map(fn ($inv) => [
-                'reference_no' => (string) $inv->reference_no,
-                'vendor_name' => (string) $inv->vendor_name,
-                'invoice_no' => (string) $inv->invoice_no,
-                'total_amount' => $inv->total_amount,
-                'currency' => (string) $inv->currency,
-            ])->all(),
-        ];
-    }
-
-    /**
-     * Return a rejected request's invoices to Finance, remembering first that they were on it.
-     *
-     * The order matters and is the whole point: `payment_request_id` is the report's only link to
-     * the request, so it has to be copied into `invoice_rejections` before it is cleared — and a
-     * row there survives the re-submission that overwrites the column again. Shared by the in-app
-     * and public-link rejection paths so the two cannot record different history.
-     */
-    public function returnInvoicesToFinance(PaymentRequest $pr): void
-    {
-        $now = now();
-
-        $rows = $pr->invoices()->pluck('id')->map(fn ($invoiceId) => [
-            'invoice_id' => $invoiceId,
-            'payment_request_id' => $pr->id,
-            'rejected_at' => $now,
-            'created_at' => $now,
-            'updated_at' => $now,
-        ])->all();
-
-        if ($rows) {
-            InvoiceRejection::insert($rows);
-        }
-
-        $pr->invoices()->update([
-            'payment_status' => Invoice::PAY_NOT_INITIATED,
-            'payment_request_id' => null,
-        ]);
-    }
-
-    /**
-     * Tell the requestor side that a request was rejected and why — the PRF creator and everyone
-     * who submitted one of its invoices, and nobody else.
-     *
-     * Rejection used to be silent: the invoices dropped back to "not initiated" with no signal, so
-     * the people who had to act on the rejection reason only found it by reopening the request.
-     * The notice briefly went wider, to the approval chain and the whole Finance role, which is the
-     * volume concern raised as known issue #17; the audience is now the people the rejection is
-     * addressed to. Approvers see the outcome on the request itself, and Finance find the returned
-     * invoices in the Invoice Log and the rejection in the report, so neither depends on the mail.
-     *
-     * @param  array{recipients: array<int, string>, summary: string, invoiceLines: array<int, array<string, mixed>>}  $snapshot  from `rejectionSnapshot`, taken before the invoices were detached
-     */
-    public function notifyRejected(PaymentRequest $pr, array $snapshot, ?string $rejectedBy = null, ?string $stageLabel = null): void
-    {
-        foreach ($snapshot['recipients'] as $email) {
-            Notifier::send(
-                $email,
-                new PaymentRequestRejected($pr, $snapshot['summary'], $snapshot['invoiceLines'], $rejectedBy, $stageLabel),
-                "{$pr->reference_no} rejected",
-            );
-        }
-    }
-
-    public function reject(PaymentRequest $pr, User $actor, string $comments): PaymentRequest
+    public function query(PaymentRequest $pr, User $actor, string $question): PaymentRequest
     {
         $this->assertActionable($pr, $actor);
 
-        // The notification is sent by this method rather than by the callers (as approval's is),
-        // because it depends on state only this method can capture in time — see rejectionSnapshot.
-        [$pr, $snapshot, $stageLabel] = DB::transaction(function () use ($pr, $actor, $comments) {
-            $stageRow = $pr->approvals()->where('sequence', $pr->current_stage)->first();
+        [$pr, $query] = DB::transaction(function () use ($pr, $actor, $question) {
+            $stage = $pr->currentApproval();
 
-            $pr->approvals()->where('sequence', $pr->current_stage)->update([
-                'status' => PaymentRequestApproval::STATUS_REJECTED,
-                'approver_id' => $actor->id,
-                'comments' => $comments,
-                'acted_at' => now(),
+            $query = $pr->queries()->create([
+                'payment_request_approval_id' => $stage->id,
+                'sequence' => $stage->sequence,
+                'stage_label' => $stage->label,
+                'raised_by' => $actor->id,
+                'question' => $question,
+                'raised_at' => now(),
             ]);
 
-            $stage = $pr->current_stage;
+            $pr->update(['status' => PaymentRequest::STATUS_QUERIED]);
 
-            $pr->update([
-                'status' => PaymentRequest::STATUS_REJECTED,
-                'current_stage' => null,
-                'rejected_at' => now(),
-                'rejection_reason' => $comments,
-            ]);
+            AuditLogger::log(
+                'approval_query_raised',
+                "Approval query raised on {$pr->reference_no} at stage {$stage->sequence} ({$stage->label}) by {$actor->name}: {$question}",
+                null, null, null, $pr,
+            );
 
-            $snapshot = $this->rejectionSnapshot($pr);
-
-            // Return the invoices to the pool so Finance can re-initiate after correction, keeping
-            // a record that they were on this request so the report can still show the rejection.
-            $this->returnInvoicesToFinance($pr);
-
-            AuditLogger::log('rejected', "Payment request {$pr->reference_no} rejected at stage {$stage}. Invoices returned to Finance.", null, null, null, $pr);
-
-            return [$pr->refresh(), $snapshot, $stageRow?->label];
+            return [$pr->refresh(), $query];
         });
 
-        $this->notifyRejected($pr, $snapshot, $actor->name, $stageLabel);
+        // After the commit, like every other notice: a mail failure cannot undo a recorded query.
+        $this->notifyQueryRaised($pr, $query);
 
         return $pr;
+    }
+
+    /**
+     * Answer the open query and send the request back to the approver who asked.
+     *
+     * The stage they asked from is still pending and still `current_stage`, so it simply becomes
+     * actionable again; the approvals before it were never touched. Any correction made while the
+     * request was on hold went through the in-approval correction rules, which cannot raise the total
+     * or change the currency, so those approvals still cover what is being paid.
+     */
+    public function resubmit(PaymentRequest $pr, User $actor, string $response): PaymentRequest
+    {
+        if ($pr->status !== PaymentRequest::STATUS_QUERIED) {
+            throw ValidationException::withMessages(['status' => 'This payment request has no open approval query to answer.']);
+        }
+
+        if (! $pr->canBeResubmittedBy($actor)) {
+            abort(403, 'Only the invoice submitter, Finance or an administrator can answer this approval query.');
+        }
+
+        $pr = DB::transaction(function () use ($pr, $actor, $response) {
+            $query = $pr->openQuery();
+
+            $query?->update([
+                'resubmitted_by' => $actor->id,
+                'response' => $response,
+                'resubmitted_at' => now(),
+            ]);
+
+            // The approver is told below, so the daily reminder starts counting from now.
+            $pr->update([
+                'status' => PaymentRequest::STATUS_IN_APPROVAL,
+                'last_reminder_sent_at' => now(),
+            ]);
+
+            AuditLogger::log(
+                'approval_query_resubmitted',
+                "Approval query on {$pr->reference_no} answered by {$actor->name} and resubmitted to stage {$pr->current_stage}"
+                    .($query ? " ({$query->stage_label})" : '').": {$response}",
+                null, null, null, $pr,
+            );
+
+            return $pr->refresh();
+        });
+
+        $this->notifyNextApprover($pr, $pr->currentApproval());
+
+        return $pr;
+    }
+
+    /**
+     * One email for the whole query, every recipient in BCC. Who gets it depends on the stage that
+     * asked — see queryRecipients.
+     */
+    public function notifyQueryRaised(PaymentRequest $pr, PaymentRequestQuery $query): bool
+    {
+        return Notifier::sendBcc(
+            $this->queryRecipients($pr, $query)->pluck('email'),
+            new PaymentRequestQueryRaised($pr, $query),
+            "approval query on {$pr->reference_no}",
+        );
+    }
+
+    /**
+     * Who is told that a query was raised, by the position of the stage that asked:
+     *
+     *  - always: the invoice submitter(s) and the Finance user who raised the request;
+     *  - stage 2 and later: every approver before that stage;
+     *  - stage 4 and later: the approver at that stage as well.
+     *
+     * "Stage" is the position in this request's chain, ad-hoc stages included. A person who
+     * qualifies twice is listed once, and deactivated accounts are left out (and logged).
+     *
+     * @return Collection<int, User>
+     */
+    public function queryRecipients(PaymentRequest $pr, PaymentRequestQuery $query)
+    {
+        $pr->load('creator', 'invoices.submitter', 'approvals.approver');
+
+        $stage = $query->sequence;
+
+        $users = $this->answerers($pr)
+            ->merge($stage >= 2
+                ? $pr->approvals->where('sequence', '<', $stage)->map(fn ($a) => $a->approver)
+                : [])
+            ->merge($stage >= 4
+                ? $pr->approvals->where('sequence', $stage)->map(fn ($a) => $a->approver)
+                : []);
+
+        return $this->activeRecipients($users, "approval query on {$pr->reference_no}");
+    }
+
+    /**
+     * The people who can answer a query and are expected to: the invoice submitter(s) and the Finance
+     * user who raised the request. They are the only ones reminded while it is unanswered.
+     *
+     * @return Collection<int, User>
+     */
+    public function queryReminderRecipients(PaymentRequest $pr)
+    {
+        $pr->load('creator', 'invoices.submitter');
+
+        return $this->activeRecipients($this->answerers($pr), "approval query reminder for {$pr->reference_no}");
+    }
+
+    private function answerers(PaymentRequest $pr)
+    {
+        return collect([$pr->creator])->merge($pr->invoices->map(fn ($inv) => $inv->submitter));
+    }
+
+    private function activeRecipients($users, string $context)
+    {
+        $users = collect($users)->filter()->unique('id')->values();
+
+        foreach ($users->reject(fn (User $u) => $u->is_active) as $inactive) {
+            Log::info("Notification recipient left out ({$context}): {$inactive->name} is deactivated.");
+        }
+
+        return $users->filter(fn (User $u) => $u->is_active)->values();
     }
 
     /**
      * Pull a fully approved request back out of the payment cycle, returning its invoices to the
      * Invoice Log so they can be corrected and re-approved.
      *
-     * Rejection is the equivalent exit while a request is still in approval, but it stops being
-     * available the moment the last stage approves — which left an approved-but-unpaid request with
-     * no way back. Withdrawal does not reuse the approvals: the corrected invoices go through a
+     * While a request is still in approval (or on hold for an approval query) the exit is releasing
+     * its invoices — releasing the last one withdraws the request. Approvers no longer reject, so
+     * there is no whole-request exit before approval. Withdrawal does not reuse the approvals: the corrected invoices go through a
      * fresh chain, because a correction that changes the amount (or its currency) changes which
      * thresholds apply, and the recorded approvals only ever covered the old figure.
      */
     public function withdraw(PaymentRequest $pr, User $actor, string $reason): PaymentRequest
     {
-        if ($pr->status === PaymentRequest::STATUS_IN_APPROVAL) {
+        if (in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_QUERIED], true)) {
             throw ValidationException::withMessages([
-                'status' => 'This request is still in approval — reject it instead, which returns its invoices the same way.',
+                'status' => 'This request is still in approval — release its invoices instead. Releasing the last one withdraws the request.',
             ]);
         }
 
@@ -653,9 +688,9 @@ class PaymentRequestService
             ]);
         }
 
-        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_APPROVED], true)) {
+        if (! in_array($pr->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_QUERIED, PaymentRequest::STATUS_APPROVED], true)) {
             throw ValidationException::withMessages([
-                'status' => 'Only an in-approval or approved payment request can have an invoice released.',
+                'status' => 'Only an in-approval, queried or approved payment request can have an invoice released.',
             ]);
         }
 
@@ -769,6 +804,12 @@ class PaymentRequestService
 
     private function assertActionable(PaymentRequest $pr, User $actor): void
     {
+        // A queried request is on hold for everyone, the approver who asked included, until the
+        // submitter, Finance or an admin answers and resubmits it.
+        if ($pr->status === PaymentRequest::STATUS_QUERIED) {
+            throw ValidationException::withMessages(['status' => 'This payment request is on hold for an approval query. It can be approved once the query is answered and the request is resubmitted.']);
+        }
+
         if ($pr->status !== PaymentRequest::STATUS_IN_APPROVAL) {
             throw ValidationException::withMessages(['status' => 'This payment request is not awaiting approval.']);
         }
@@ -776,7 +817,7 @@ class PaymentRequestService
         // Creation refuses to put the creator on the chain; this closes the same door at action time,
         // for chains built before that rule and for the admin override below.
         if ($pr->created_by === $actor->id) {
-            abort(403, 'You created this payment request, so you cannot approve or reject it.');
+            abort(403, 'You created this payment request, so you cannot approve or query it.');
         }
 
         $stage = $pr->approvals()->where('sequence', $pr->current_stage)->first();

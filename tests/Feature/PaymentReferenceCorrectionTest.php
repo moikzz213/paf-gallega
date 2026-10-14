@@ -260,8 +260,8 @@ class PaymentReferenceCorrectionTest extends TestCase
         $this->assertNull($pr->refresh()->payment_reference);
     }
 
-    /** A rejected or withdrawn request never had a payment either. */
-    public function test_a_rejected_request_has_no_reference_to_correct(): void
+    /** A queried or withdrawn request has no payment either. */
+    public function test_a_queried_request_has_no_reference_to_correct(): void
     {
         $finance = $this->user(User::ROLE_FINANCE);
         $approver = $this->user(User::ROLE_APPROVER, ['approval_level' => 1]);
@@ -274,7 +274,7 @@ class PaymentReferenceCorrectionTest extends TestCase
         $pr = PaymentRequest::latest('id')->first();
 
         $this->actingAs($approver)
-            ->postJson("/api/payment-requests/{$pr->id}/reject", ['comments' => 'Wrong period'])
+            ->postJson("/api/payment-requests/{$pr->id}/query", ['question' => 'Wrong period?'])
             ->assertOk();
 
         $this->actingAs($finance)

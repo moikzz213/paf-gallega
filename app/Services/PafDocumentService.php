@@ -38,6 +38,7 @@ class PafDocumentService
             'invoices.items',
             'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
             'corrections.user:id,name', 'corrections.invoice:id,reference_no',
+            'queries.raiser:id,name', 'queries.resubmitter:id,name',
             'documents',
         ]);
 

@@ -75,9 +75,11 @@ export const STATUS_META = {
     approved_for_payment: { label: 'Approved for Payment', color: '#1baf7a', icon: 'mdi-cash-check' },
     paid: { label: 'Paid', color: '#008300', icon: 'mdi-check-circle' },
 
-    // Payment-request status (draft/approved/rejected in addition to the shared ones)
+    // Payment-request status (draft/queried/approved/rejected in addition to the shared ones).
+    // `rejected` is historical only — approvers raise an approval query instead.
     draft: { label: 'Draft', color: '#898781', icon: 'mdi-pencil-outline' },
     approved: { label: 'Approved', color: '#1baf7a', icon: 'mdi-thumb-up-outline' },
+    queried: { label: 'Approval Query', color: '#b26a00', icon: 'mdi-help-circle-outline' },
     rejected: { label: 'Rejected', color: '#e34948', icon: 'mdi-close-circle-outline' },
     withdrawn: { label: 'Withdrawn', color: '#eb6834', icon: 'mdi-undo-variant' },
 };

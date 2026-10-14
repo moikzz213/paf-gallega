@@ -15,7 +15,7 @@ Four roles:
 
 - **Requester** — submits vendor invoices, attaches invoice copies, tracks status.
 - **Finance** — posts invoices to ERP or raises queries; creates payment requests; marks paid.
-- **Approver** — approves/rejects the payment-request stages assigned to them.
+- **Approver** — approves the payment-request stages assigned to them, or raises an approval query.
 - **Admin** — manages users and approval levels, views the audit log; sees everything.
 
 Flow: **Submit Invoice → Invoice Log (post to ERP / raise query) → Payment Request (group posted

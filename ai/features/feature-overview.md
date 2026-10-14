@@ -49,8 +49,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
     **Resend Notification** action on the invoice sends it again — the recovery for a rotated SMTP
     password, which used to swallow the notification with no way to retrigger it.
     Only available while the invoice is **outside a payment cycle** (`not_initiated`): a query asks
-    for a correction, and an invoice held by a PRF cannot be edited. Return it first (reject the PRF,
-    or withdraw it if already approved).
+    for a correction, and an invoice held by a PRF cannot be edited. Return it first (release it
+    from the PRF, or withdraw the PRF if already approved).
   - **Correct** (posted, not yet in a PRF) — Finance/admin correct the invoice directly instead of
     querying it back to the submitter. Covers invoices returned from a rejected, withdrawn or released
     PRF, which come back `posted`. No approval exists yet, so nothing is locked: vendor, currency,
@@ -110,7 +110,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   paid; one added after the final approval is marked "added after approval". Same file types and
   limits as invoice documents. **Visible to Finance, admins and that request's approvers only** —
   not to submitters, because one request can group invoices from several departments. That holds on
-  the emailed links too: the request's own link (sent to every submitter on approval/rejection)
+  the emailed links too: the request's own link (sent to every submitter on approval)
   neither lists nor merges them; an approver's stage link does.
 - **Document removal** (request-level documents, and documents on posted invoices): the uploader
   or an admin can **Remove** one, with a confirmation, until payment — request in approval or
@@ -123,7 +123,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   several vendors shows the first with a `+N more` suffix (all names in the cell tooltip), the
   same way the currency column labels mixed sets.
 - An **email notification** is sent to the stage-1 approver when the PRF is created.
-  The email includes a **unique token-gated link** (no login required) to view and approve/reject
+  The email includes a **unique token-gated link** (no login required) to view and approve/query
   the PRF. Each approval stage has its own token — after approval, the old token becomes
   view-only and the next approver receives their own link via email. Approval and reminder emails
   show each invoice submitter and the invoice-line job no., customer, description, and
@@ -136,7 +136,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   request; the vendor is the single vendor, or the first with a `+N more` suffix for a request
   spanning several.
 - The token-gated page **shows the PAF itself**, with its supporting documents merged in, directly
-  above the Approve and Reject buttons — the approver decides against the form rather than against a
+  above the Approve and Query buttons — the approver decides against the form rather than against a
   summary. The individual attachment links stay below it as a fallback.
 - A **daily reminder email** is sent to each approver with a pending PRF (scheduled at 09:00
   via `prf:send-reminders` Artisan command).
@@ -176,7 +176,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   already given are kept and the PRF **stays with its current approver**; the request is marked
   **Corrected during approval** (on the request page, the token-gated approval page and the PAF),
   and the Finance user who raised it is emailed so the ERP posting can be checked. The option
-  **closes once the PRF is fully approved** (and stays closed when paid, rejected or withdrawn);
+  stays open while the PRF is on hold for an **approval query** (often what asks for the
+  correction), **closes once the PRF is fully approved** (and stays closed when paid, rejected or withdrawn);
   after that a change goes through Finance. Finance's own corrections are unchanged — and still not
   vendor-locked (known issue #20, by decision).
 - **Releasing a single invoice (Finance/Admin only).** When one invoice in a PRF is wrong and the
@@ -192,10 +193,10 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   the record — but stamped `WITHDRAWN` and marked as not payable. The recorded approvals
   are kept as history but never reused — a correction that changes the amount or currency changes
   which thresholds apply, so the corrected invoices go through a **new PRF with a fresh chain**.
-  While a PRF is still `in_approval` the exit is an approver **rejection**, not withdrawal; once
-  `paid` there is deliberately no exit. Approvers cannot withdraw — it reverses their own approval.
-- Getting a returned invoice editable again takes **both** steps, in order: return it (reject or
-  withdraw the PRF), *then* raise the query — a returned invoice is still `posted`, and only
+  While a PRF is still `in_approval` or `queried` the exit is **releasing its invoices** (releasing
+  the last one withdraws it) — approvers no longer reject; once `paid` there is deliberately no exit. Approvers cannot withdraw — it reverses their own approval.
+- Getting a returned invoice editable again takes **both** steps, in order: return it (release it,
+  or withdraw the PRF), *then* raise the query — a returned invoice is still `posted`, and only
   `query_raised`/`submitted` invoices are editable.
 
 ## 5. Payment Approval (Approver / Admin / nominated Finance)
@@ -225,13 +226,38 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   is built, so a later promotion never rewrites an approval that already happened — which means
   existing requests keep the labels they were created with.
 - **Nobody approves their own request.** The creator cannot be placed on the chain of a PRF they
-  create, and cannot approve or reject it afterwards — including admins on their own requests, who
+  create, and cannot approve or query it afterwards — including admins on their own requests, who
   otherwise may act on any stage. This matters now that creating and approving can be the same role.
 - **Approve** → advances to the next stage, or finalizes the PRF to `approved` (invoices →
   `approved_for_payment`). On **final approval**, the requestors are emailed
   (`PaymentRequestApproved` → the PRF creator + every invoice submitter), from both the in-app and
   public-link approval paths.
-- **Reject** → PRF `rejected`; its invoices are returned to the eligible pool for re-initiation,
+- **Approval Query (replaced Reject).** An approver who needs clarification, more information or a
+  correction raises a **Query** with a required question — in the app (Approvals page, request page)
+  or from the emailed link. The PRF becomes `queried` and stays **on hold at that stage**: nothing is
+  ended, the invoices stay on it, the approvals already given stand, and the stage stays pending with
+  its approver. While it is queried **nobody can approve it** (the asking approver and admins
+  included, on both routes) and it leaves the approvals queue; the daily approval reminder skips it.
+  Only the **submitter of an invoice on it, Finance and admins** can work on it — correcting invoices
+  within the in-approval rules, attaching documents — and **Answer & Resubmit** with a required
+  response. It then returns to the **same stage**, and that approver gets the usual approval email
+  with their link. A request can be queried more than once; every question and answer is kept and
+  shown on the request page, the emailed link and the PAF (`APPROVAL QUERIES` banner, `ON HOLD —
+  QUERY` watermark), and audited as `approval_query_raised` / `approval_query_resubmitted`.
+  - **Notification — one email, BCC.** Raising a query sends a single `PaymentRequestQueryRaised`
+    email, addressed to the system sender with every recipient in BCC. The **invoice submitter(s)**
+    and the **Finance user who raised the PRF** always receive it; a query at stage 2 or later adds
+    every earlier approver; at stage 4 or later the asking approver is copied too. "Stage" is the
+    position in the chain, ad-hoc stages included. Someone in two roles is listed once; deactivated
+    users are left out (and logged).
+  - **Reminder every two days.** While a query is unanswered, `prf:send-query-reminders` (daily at
+    09:00) re-sends it as a reminder — one BCC email — to the invoice submitter(s) and the Finance
+    user who raised the PRF only, two days after the query and every two days after that, until it
+    is resubmitted.
+  - **Dashboard:** anyone who can answer sees "N payment requests on hold for an approval query".
+  - CR: `ai/change-requests/replace-reject-with-query-in-payment-approval.md`; ADR-004.
+- **Reject (historical).** Requests rejected before the Approval Query existed stay `rejected`. Their
+  invoices were returned to the eligible pool for re-initiation,
   and an `invoice_rejections` row records that each one was on this PRF — the report reads the
   rejected PAF back through it, since the invoice's own `payment_request_id` is cleared here and
   reused by whatever PRF the corrected invoice goes onto next. The requestor side is emailed
@@ -270,8 +296,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   the request is created** rather than only once it is fully approved — the PAF is the document the
   approval chain is signing, so it has to exist while that chain is running. It is rendered on
   demand by `PafDocumentService` and never stored, so it always reflects the approvals reached so
-  far. Anything short of `approved`/`paid` carries a red `PENDING APPROVAL` watermark (or `REJECTED` /
-  `WITHDRAWN`) and a banner saying it is not an authorisation to pay, so a draft in circulation
+  far. Anything short of `approved`/`paid` carries a red `PENDING APPROVAL` watermark (or
+  `ON HOLD — QUERY` / `REJECTED` / `WITHDRAWN`) and a banner saying it is not an authorisation to pay, so a draft in circulation
   cannot be mistaken for a signed one. The button reads "Download PAF (draft)" until then.
 - The document is a landscape
   Payment Approval Form matching the company PAF layout, including the Gallega logo and aligned
@@ -380,7 +406,8 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | Correct posting details (ERP doc no.) | | | ✓ (only what they posted) | ✓ (any) |
 | Correct a payment reference | | | ✓ (only what they paid) | ✓ (any) |
 | Create payment request | | | ✓ | ✓ |
-| Approve / reject a PRF stage | | ✓ (assigned) | ✓ (assigned, needs a level) | ✓ |
+| Approve / query a PRF stage | | ✓ (assigned) | ✓ (assigned, needs a level) | ✓ |
+| Answer an approval query & resubmit | ✓ (own invoice on it) | ✓ (own invoice on it) | ✓ | ✓ |
 | …but never on a PRF they created | — | — | — | — |
 | Mark PRF paid | | | ✓ | ✓ |
 | Withdraw an approved PRF | | | ✓ | ✓ |

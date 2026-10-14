@@ -111,7 +111,7 @@ class DynamicApprovalTest extends TestCase
         $this->assertSame(Invoice::PAY_APPROVED, $inv->refresh()->payment_status);
     }
 
-    public function test_reject_returns_invoices_to_the_pool(): void
+    public function test_query_holds_the_request_and_keeps_its_invoices(): void
     {
         $this->levels();
         $finance = $this->user(User::ROLE_FINANCE);
@@ -124,12 +124,15 @@ class DynamicApprovalTest extends TestCase
         ])->assertCreated();
         $pr = PaymentRequest::first();
 
-        $this->actingAs($a1)->postJson("/api/payment-requests/{$pr->id}/reject", ['comments' => 'No PO'])->assertOk();
+        $this->actingAs($a1)->postJson("/api/payment-requests/{$pr->id}/query", ['question' => 'No PO?'])->assertOk();
 
-        $this->assertSame(PaymentRequest::STATUS_REJECTED, $pr->refresh()->status);
+        $this->assertSame(PaymentRequest::STATUS_QUERIED, $pr->refresh()->status);
+        $this->assertSame(1, $pr->current_stage);
         $inv->refresh();
-        $this->assertSame(Invoice::PAY_NOT_INITIATED, $inv->payment_status);
-        $this->assertNull($inv->payment_request_id);
+        $this->assertSame(Invoice::PAY_IN_APPROVAL, $inv->payment_status);
+        $this->assertSame($pr->id, $inv->payment_request_id);
+        // The rejection route is gone.
+        $this->actingAs($a1)->postJson("/api/payment-requests/{$pr->id}/reject", ['comments' => 'No PO'])->assertNotFound();
     }
 
     public function test_default_approver_prefills_when_not_specified(): void

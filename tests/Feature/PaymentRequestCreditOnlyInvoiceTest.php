@@ -609,8 +609,8 @@ class PaymentRequestCreditOnlyInvoiceTest extends TestCase
         $this->assertSame('12500.00', PaymentRequest::first()->total_amount);
     }
 
-    /** REG-08 — rejection returns a credit-only invoice to the log like any other. */
-    public function test_rejecting_a_netted_request_returns_the_credit_to_the_log(): void
+    /** REG-08 — withdrawal returns a credit-only invoice to the log like any other. */
+    public function test_withdrawing_a_netted_request_returns_the_credit_to_the_log(): void
     {
         $this->levels();
         $a1 = $this->user(User::ROLE_APPROVER, ['approval_level' => 1]);
@@ -618,13 +618,16 @@ class PaymentRequestCreditOnlyInvoiceTest extends TestCase
         $charge = $this->postedInvoice(20000);
         $credit = $this->postedInvoice(-5000);
 
-        $this->actingAs($this->user(User::ROLE_FINANCE))->postJson('/api/payment-requests', [
+        $finance = $this->user(User::ROLE_FINANCE);
+        $this->actingAs($finance)->postJson('/api/payment-requests', [
             'invoice_ids' => [$charge->id, $credit->id],
             'approvers' => [1 => $a1->id],
         ])->assertCreated();
 
-        $this->actingAs($a1)
-            ->postJson('/api/payment-requests/'.PaymentRequest::first()->id.'/reject', ['comments' => 'Wrong period'])
+        $pr = PaymentRequest::first();
+        $this->actingAs($a1)->postJson("/api/payment-requests/{$pr->id}/approve", [])->assertOk();
+        $this->actingAs($finance)
+            ->postJson("/api/payment-requests/{$pr->id}/withdraw", ['reason' => 'Wrong period'])
             ->assertOk();
 
         $this->assertNull($credit->refresh()->payment_request_id);

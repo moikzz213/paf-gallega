@@ -179,7 +179,7 @@ class ApprovalChainNotificationTest extends TestCase
 
         // Whatever happens next must not be able to invalidate a notification already dispatched.
         $this->actingAs($l2)
-            ->postJson("/api/payment-requests/{$pr->id}/reject", ['comments' => 'No longer needed'])
+            ->postJson("/api/payment-requests/{$pr->id}/approve", [])
             ->assertOk();
 
         $this->assertNull($pr->refresh()->current_stage, 'the chain has moved on');
@@ -214,14 +214,14 @@ class ApprovalChainNotificationTest extends TestCase
         Mail::assertNotQueued(PaymentRequestSubmitted::class);
     }
 
-    public function test_rejecting_notifies_no_further_approver(): void
+    public function test_querying_notifies_no_further_approver(): void
     {
         ['pr' => $pr, 'l1' => $l1, 'l2' => $l2] = $this->twoStageChain();
 
         Mail::fake();
 
         $this->actingAs($l1)
-            ->postJson("/api/payment-requests/{$pr->id}/reject", ['comments' => 'wrong vendor'])
+            ->postJson("/api/payment-requests/{$pr->id}/query", ['question' => 'wrong vendor?'])
             ->assertOk();
 
         Mail::assertNotQueued(PaymentRequestSubmitted::class, fn ($m) => $m->hasTo($l2->email));

@@ -190,7 +190,7 @@ class FinanceApproverTest extends TestCase
         $invoice->update(['payment_request_id' => $pr->id, 'payment_status' => Invoice::PAY_IN_APPROVAL]);
 
         $this->actingAs($creator)->postJson("/api/payment-requests/{$pr->id}/approve", [])->assertForbidden();
-        $this->actingAs($creator)->postJson("/api/payment-requests/{$pr->id}/reject", ['comments' => 'mine'])->assertForbidden();
+        $this->actingAs($creator)->postJson("/api/payment-requests/{$pr->id}/query", ['question' => 'mine'])->assertForbidden();
 
         $this->assertSame(PaymentRequest::STATUS_IN_APPROVAL, $pr->refresh()->status);
     }

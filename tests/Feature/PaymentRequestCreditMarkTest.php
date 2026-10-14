@@ -454,9 +454,11 @@ class PaymentRequestCreditMarkTest extends TestCase
             ->assertStatus(422)
             ->assertJsonValidationErrors('invoice');
 
-        // And rejection returns it to the log as the credit note it now is.
-        $this->actingAs($a1)
-            ->postJson('/api/payment-requests/'.PaymentRequest::first()->id.'/reject', ['comments' => 'Wrong period'])
+        // And withdrawing the request returns it to the log as the credit note it now is.
+        $pr = PaymentRequest::first();
+        $this->actingAs($a1)->postJson("/api/payment-requests/{$pr->id}/approve", [])->assertOk();
+        $this->actingAs($finance)
+            ->postJson("/api/payment-requests/{$pr->id}/withdraw", ['reason' => 'Wrong period'])
             ->assertOk();
 
         $this->assertSame('-5000.00', $credit->refresh()->total_amount);

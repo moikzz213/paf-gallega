@@ -68,6 +68,11 @@ Structural/maintainability items (distinct from behavioral gaps in
   its own side, so it cannot write to an invoice that is already on a request. The fix is for creation
   to `lockForUpdate` the invoices inside its transaction and re-run `isPayable()` there.
 
+- **`PaymentRequestRejected` is no longer sent but still exists.** Rejection was replaced by the
+  approval query (ADR-004). The mailable and its view are kept only so rejection notices still queued
+  at the time of that release can deliver. Remove both once the queue has drained (`jobs` /
+  `failed_jobs` hold no `PaymentRequestRejected`).
+
 ## Product-model note
 
 - The **demo's fixed 8-stage chain** was intentionally **not** adopted; the app uses a dynamic

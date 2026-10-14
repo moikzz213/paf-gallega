@@ -124,6 +124,7 @@ class PaymentRequestController extends Controller
             'approvals.approver:id,name',
             'auditLogs.user:id,name',
             'corrections.user:id,name', 'corrections.invoice:id,reference_no',
+            'queries.raiser:id,name', 'queries.resubmitter:id,name',
         ]);
 
         // Request-level documents are narrower than the request itself: left off entirely, rather
@@ -201,12 +202,33 @@ class PaymentRequestController extends Controller
         return response()->json($pr->load('approvals.approver:id,name'));
     }
 
-    public function reject(Request $request, PaymentRequest $paymentRequest)
+    /**
+     * Raise an Approval Query: the request goes on hold at the current stage instead of being ended.
+     * Same actors as approval — the assigned approver, or an admin. This replaced rejection.
+     */
+    public function query(Request $request, PaymentRequest $paymentRequest)
     {
-        $data = $request->validate(['comments' => ['required', 'string', 'max:2000']]);
-        $pr = $this->service->reject($paymentRequest, $request->user(), $data['comments']);
+        $data = $request->validate(['question' => ['required', 'string', 'max:2000']]);
+        $pr = $this->service->query($paymentRequest, $request->user(), $data['question']);
 
-        return response()->json($pr->load('approvals.approver:id,name'));
+        return response()->json($pr->load('approvals.approver:id,name', 'queries.raiser:id,name'));
+    }
+
+    /**
+     * Answer the open Approval Query and send the request back to the approver who asked. The
+     * submitter of an invoice on it, Finance or an admin — checked in the service.
+     */
+    public function resubmit(Request $request, PaymentRequest $paymentRequest)
+    {
+        abort_unless(
+            PaymentRequest::whereKey($paymentRequest->id)->visibleTo($request->user())->exists(),
+            403, 'You do not have access to this payment request.'
+        );
+
+        $data = $request->validate(['response' => ['required', 'string', 'max:2000']]);
+        $pr = $this->service->resubmit($paymentRequest, $request->user(), $data['response']);
+
+        return response()->json($pr->load('approvals.approver:id,name', 'queries.raiser:id,name', 'queries.resubmitter:id,name'));
     }
 
     /**

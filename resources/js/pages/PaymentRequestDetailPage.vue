@@ -39,7 +39,7 @@ const showDocuments = computed(() => Array.isArray(pr.value?.documents));
 // Finance may keep adding them after creation — while in approval, approved or paid. Mirrors
 // PaymentRequestService::attachDocuments.
 const canAttachDocuments = computed(() => auth.canProcessPayments
-    && ['in_approval', 'approved', 'paid'].includes(pr.value?.status));
+    && ['in_approval', 'queried', 'approved', 'paid'].includes(pr.value?.status));
 const newDocuments = ref([]);
 const uploading = ref(false);
 
@@ -69,7 +69,7 @@ function downloadDocument(doc) {
 // The uploader or an admin may take a document off until the request is paid. The file is kept and
 // the removal is recorded. Mirrors PaymentRequestService::removeDocument.
 const canRemoveDocument = (doc) => (auth.isAdmin || doc.uploaded_by === auth.user?.id)
-    && ['in_approval', 'approved'].includes(pr.value?.status);
+    && ['in_approval', 'queried', 'approved'].includes(pr.value?.status);
 const documentToRemove = ref(null);
 const removingDocument = ref(false);
 
@@ -102,6 +102,11 @@ const canAct = computed(() => {
     if (auth.isAdmin) return true;
     return currentStep.value?.approver_id === auth.user?.id;
 });
+// An open approval query holds the request at its stage. Finance, admins and the submitter of any
+// invoice on it may answer and resubmit — never the approvers. Mirrors PaymentRequest::canBeResubmittedBy.
+const openQuery = computed(() => (pr.value?.queries ?? []).find((q) => !q.resubmitted_at) ?? null);
+const canResubmit = computed(() => pr.value?.status === 'queried'
+    && (auth.canProcessPayments || (pr.value?.invoices ?? []).some((i) => i.submitted_by === auth.user?.id)));
 const canPay = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
 // Reversing a completed approval is a Finance/admin call, never an approver's.
 const canWithdraw = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
@@ -138,7 +143,8 @@ function openDialog(kind) {
 
 const dialogTitle = computed(() => ({
     approve: 'Approve Payment Request',
-    reject: 'Reject Payment Request',
+    query: 'Raise an Approval Query',
+    resubmit: 'Answer Query and Resubmit',
     withdraw: 'Withdraw Payment Request',
     pay: 'Mark as Paid',
     editPaymentRef: 'Correct Payment Reference',
@@ -149,7 +155,8 @@ async function runAction(kind, payload = {}) {
     try {
         const urls = {
             approve: `/payment-requests/${props.id}/approve`,
-            reject: `/payment-requests/${props.id}/reject`,
+            query: `/payment-requests/${props.id}/query`,
+            resubmit: `/payment-requests/${props.id}/resubmit`,
             withdraw: `/payment-requests/${props.id}/withdraw`,
             pay: `/payment-requests/${props.id}/mark-paid`,
             editPaymentRef: `/payment-requests/${props.id}/payment-reference`,
@@ -157,7 +164,8 @@ async function runAction(kind, payload = {}) {
         await api.post(urls[kind], payload);
         notify.success({
             approve: 'Stage approved.',
-            reject: 'Payment request rejected.',
+            query: 'Query sent — the request is on hold until it is answered and resubmitted to you.',
+            resubmit: 'Query answered — the request is back with the approver who raised it.',
             withdraw: 'Payment request withdrawn — its invoices are back in the Invoice Log.',
             pay: 'Payment recorded.',
             editPaymentRef: 'Payment reference corrected.',
@@ -174,9 +182,13 @@ async function runAction(kind, payload = {}) {
 function confirmDialog() {
     const { kind, comments, payment_reference } = dialog.value;
     if (kind === 'approve') return runAction('approve', { comments });
-    if (kind === 'reject') {
-        if (!comments.trim()) return notify.error('A reason is required to reject.');
-        return runAction('reject', { comments });
+    if (kind === 'query') {
+        if (!comments.trim()) return notify.error('A question is required to raise a query.');
+        return runAction('query', { question: comments });
+    }
+    if (kind === 'resubmit') {
+        if (!comments.trim()) return notify.error('A response is required to resubmit.');
+        return runAction('resubmit', { response: comments });
     }
     if (kind === 'withdraw') {
         if (!comments.trim()) return notify.error('A reason is required to withdraw.');
@@ -223,7 +235,8 @@ function approvalColor(status) {
             <v-spacer />
 
             <v-btn v-if="canAct" color="success" prepend-icon="mdi-check" @click="openDialog('approve')">Approve</v-btn>
-            <v-btn v-if="canAct" color="error" variant="tonal" prepend-icon="mdi-close" @click="openDialog('reject')">Reject</v-btn>
+            <v-btn v-if="canAct" color="warning" variant="tonal" prepend-icon="mdi-help-circle-outline" @click="openDialog('query')">Query</v-btn>
+            <v-btn v-if="canResubmit" color="primary" prepend-icon="mdi-reply" @click="openDialog('resubmit')">Answer &amp; Resubmit</v-btn>
             <v-btn v-if="canPay" color="success" prepend-icon="mdi-cash-check" @click="openDialog('pay')">Mark Paid</v-btn>
             <v-btn v-if="canWithdraw" color="warning" variant="tonal" prepend-icon="mdi-undo-variant" @click="openDialog('withdraw')">Withdraw</v-btn>
             <v-btn
@@ -238,7 +251,18 @@ function approvalColor(status) {
             </v-btn>
         </div>
 
-        <v-alert v-if="pr.status === 'rejected'" type="error" variant="tonal" class="mb-4" icon="mdi-close-circle-outline">
+        <v-alert v-if="pr.status === 'queried'" type="warning" variant="tonal" class="mb-4" icon="mdi-help-circle-outline">
+            <strong>On hold — approval query.</strong>
+            <template v-if="openQuery">
+                {{ openQuery.raiser?.name ?? 'An approver' }} asked at Stage {{ openQuery.sequence }} ({{ openQuery.stage_label }})
+                on {{ dateTime(openQuery.raised_at) }}:
+                <div class="text-body-2 font-italic my-1" style="white-space: pre-line">“{{ openQuery.question }}”</div>
+            </template>
+            The invoice submitter, Finance or an administrator answers the query — correcting the invoices first if
+            needed — and resubmits. The request then returns to the same approver, with the approvals already given
+            still in place. Nobody can approve it until then.
+        </v-alert>
+        <v-alert v-else-if="pr.status === 'rejected'" type="error" variant="tonal" class="mb-4" icon="mdi-close-circle-outline">
             <strong>Rejected:</strong> {{ pr.rejection_reason }} — invoices were returned to the pool for re-initiation.
         </v-alert>
         <v-alert v-else-if="pr.status === 'withdrawn'" type="warning" variant="tonal" class="mb-4" icon="mdi-undo-variant">
@@ -296,6 +320,25 @@ function approvalColor(status) {
                     </div>
                 </v-card>
 
+                <v-card v-if="pr.queries?.length" class="mb-4">
+                    <v-card-title class="text-subtitle-1">Approval Queries</v-card-title>
+                    <v-card-text>
+                        <div v-for="q in pr.queries" :key="q.id" class="mb-4">
+                            <div class="text-caption text-medium-emphasis">
+                                Stage {{ q.sequence }} — {{ q.stage_label }} · asked by {{ q.raiser?.name ?? '—' }} · {{ dateTime(q.raised_at) }}
+                            </div>
+                            <div class="text-body-2 mb-1" style="white-space: pre-line">{{ q.question }}</div>
+                            <template v-if="q.resubmitted_at">
+                                <div class="text-caption text-medium-emphasis">
+                                    Answered by {{ q.resubmitter?.name ?? '—' }} · {{ dateTime(q.resubmitted_at) }}
+                                </div>
+                                <div class="text-body-2" style="white-space: pre-line">{{ q.response }}</div>
+                            </template>
+                            <v-chip v-else size="x-small" variant="tonal" color="warning">awaiting an answer</v-chip>
+                        </div>
+                    </v-card-text>
+                </v-card>
+
                 <v-card v-if="pr.audit_logs?.length">
                     <v-card-title class="text-subtitle-1">Audit Trail</v-card-title>
                     <v-card-text>
@@ -335,7 +378,7 @@ function approvalColor(status) {
                                     <v-chip
                                         v-if="step.sequence === pr.current_stage && step.status === 'pending'"
                                         size="x-small" variant="tonal" style="color: #b87a00" class="ml-1"
-                                    >current</v-chip>
+                                    >{{ pr.status === 'queried' ? 'on hold — query' : 'current' }}</v-chip>
                                 </div>
                                 <div class="text-caption text-medium-emphasis">
                                     <template v-if="step.status === 'pending'">
@@ -392,7 +435,7 @@ function approvalColor(status) {
                                 class="mt-2"
                                 prepend-icon=""
                                 prepend-inner-icon="mdi-paperclip"
-                                :hint="pr.status === 'in_approval'
+                                :hint="['in_approval', 'queried'].includes(pr.status)
                                     ? 'Included in the PAF straight away.'
                                     : 'The request is already approved — these will be marked as added after approval.'"
                                 persistent-hint
@@ -434,7 +477,18 @@ function approvalColor(status) {
             <v-card>
                 <v-card-title>{{ dialogTitle }}</v-card-title>
                 <v-card-text>
-                    <template v-if="dialog.kind === 'approve' || dialog.kind === 'reject' || dialog.kind === 'withdraw'">
+                    <template v-if="['approve', 'query', 'resubmit', 'withdraw'].includes(dialog.kind)">
+                        <v-alert v-if="dialog.kind === 'query'" type="info" variant="tonal" density="compact" class="mb-4">
+                            The request is put on hold at your stage — not rejected. The submitter, Finance or an
+                            administrator answers your query and resubmits it, and it comes back to you with the
+                            approvals already given still in place.
+                        </v-alert>
+                        <v-alert v-if="dialog.kind === 'resubmit' && openQuery" type="info" variant="tonal" density="compact" class="mb-4">
+                            <strong>{{ openQuery.raiser?.name ?? 'The approver' }} asked:</strong>
+                            <div style="white-space: pre-line">{{ openQuery.question }}</div>
+                            <div class="mt-2">Correct the invoices first if the query needs it. Resubmitting sends the
+                                request back to Stage {{ openQuery.sequence }} ({{ openQuery.stage_label }}).</div>
+                        </v-alert>
                         <v-alert v-if="dialog.kind === 'withdraw'" type="warning" variant="tonal" density="compact" class="mb-4">
                             This cancels an approved payment. Its {{ pr.invoices?.length }} invoice(s) go back to the
                             Invoice Log, and paying the corrected amount needs a new payment request with a new
@@ -443,7 +497,7 @@ function approvalColor(status) {
                         </v-alert>
                         <v-textarea
                             v-model="dialog.comments"
-                            :label="dialog.kind === 'approve' ? 'Comments (optional)' : 'Reason (required)'"
+                            :label="{ approve: 'Comments (optional)', query: 'Your question (required)', resubmit: 'Your response (required)' }[dialog.kind] ?? 'Reason (required)'"
                             rows="3"
                             autofocus
                         />
@@ -465,7 +519,7 @@ function approvalColor(status) {
                     <v-spacer />
                     <v-btn variant="text" @click="dialog.show = false">Cancel</v-btn>
                     <v-btn
-                        :color="dialog.kind === 'reject' ? 'error' : (dialog.kind === 'withdraw' ? 'warning' : 'primary')"
+                        :color="['query', 'withdraw'].includes(dialog.kind) ? 'warning' : 'primary'"
                         variant="flat"
                         :loading="acting"
                         @click="confirmDialog"

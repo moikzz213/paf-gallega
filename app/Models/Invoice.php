@@ -189,15 +189,16 @@ class Invoice extends Model
 
     /**
      * The submitter's own correction window: narrower than Finance's. Open only while the payment
-     * request is still in approval, and closed for good once the chain has signed — after that, a
-     * change goes through Finance. The limits are Finance's plus a locked vendor; see
+     * request is still in approval — including while it is on hold for an approval query, which is
+     * often what asks for the correction — and closed for good once the chain has signed. After
+     * that, a change goes through Finance. The limits are Finance's plus a locked vendor; see
      * InvoiceController::update.
      */
     public function isCorrectableBySubmitter(): bool
     {
         return $this->payment_status === self::PAY_IN_APPROVAL
             && $this->status !== self::STATUS_CANCELLED
-            && $this->paymentRequest?->status === PaymentRequest::STATUS_IN_APPROVAL;
+            && in_array($this->paymentRequest?->status, [PaymentRequest::STATUS_IN_APPROVAL, PaymentRequest::STATUS_QUERIED], true);
     }
 
     /**

@@ -1,5 +1,6 @@
 <?php
 
+use App\Console\Commands\SendApprovalQueryReminders;
 use App\Console\Commands\SendPendingApprovalReminders;
 use Illuminate\Foundation\Inspiring;
 use Illuminate\Support\Facades\Artisan;
@@ -18,6 +19,15 @@ Artisan::command('inspire', function () {
  * configured looks identical to a quiet day.
  */
 Schedule::command(SendPendingApprovalReminders::class)
+    ->dailyAt('09:00')
+    ->withoutOverlapping()
+    ->appendOutputTo(storage_path('logs/scheduler.log'));
+
+/*
+ * Unanswered approval queries, every two days per query (the command works out which are due), to
+ * the invoice submitters and the Finance user who raised the request. Same 09:00 slot and log.
+ */
+Schedule::command(SendApprovalQueryReminders::class)
     ->dailyAt('09:00')
     ->withoutOverlapping()
     ->appendOutputTo(storage_path('logs/scheduler.log'));

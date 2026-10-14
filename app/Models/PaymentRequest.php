@@ -15,7 +15,18 @@ class PaymentRequest extends Model
 
     public const STATUS_APPROVED = 'approved';
 
+    /**
+     * Historical only. Approvers can no longer reject — they raise an Approval Query instead — so no
+     * request enters this state any more; the ones already in it are kept as they were.
+     */
     public const STATUS_REJECTED = 'rejected';
+
+    /**
+     * On hold at the current stage while an approver's Approval Query is answered. Nobody can approve
+     * it until it is resubmitted, which returns it to `in_approval` at the same stage — see
+     * PaymentRequestService::query / resubmit.
+     */
+    public const STATUS_QUERIED = 'queried';
 
     /** Pulled back by Finance after full approval but before payment — see PaymentRequestService::withdraw. */
     public const STATUS_WITHDRAWN = 'withdrawn';
@@ -25,6 +36,7 @@ class PaymentRequest extends Model
     public const STATUSES = [
         self::STATUS_DRAFT,
         self::STATUS_IN_APPROVAL,
+        self::STATUS_QUERIED,
         self::STATUS_APPROVED,
         self::STATUS_REJECTED,
         self::STATUS_WITHDRAWN,
@@ -166,6 +178,28 @@ class PaymentRequest extends Model
     public function auditLogs()
     {
         return $this->hasMany(AuditLog::class)->latest('created_at');
+    }
+
+    /** Approval Queries raised on this request, oldest first. */
+    public function queries()
+    {
+        return $this->hasMany(PaymentRequestQuery::class)->oldest('raised_at')->orderBy('id');
+    }
+
+    /** The query the request is currently on hold for, if any. */
+    public function openQuery(): ?PaymentRequestQuery
+    {
+        return $this->queries()->whereNull('resubmitted_at')->latest('raised_at')->first();
+    }
+
+    /**
+     * Who may answer an open Approval Query and resubmit: Finance, admins, and the submitter of any
+     * invoice on the request. Approvers — including the one who asked — wait for the answer.
+     */
+    public function canBeResubmittedBy(User $user): bool
+    {
+        return $user->isAdmin() || $user->isFinance()
+            || $this->invoices()->where('submitted_by', $user->id)->exists();
     }
 
     /** Documents attached to the request as a whole — see documentsVisibleTo before showing them. */

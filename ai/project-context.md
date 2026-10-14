@@ -17,7 +17,7 @@ full audit trail.
 |------|-----|------------------|
 | **Requester** | Department staff | Submit vendor invoices; track their status |
 | **Finance** | AP / accounts | Post invoices to ERP or raise queries; create payment requests; mark paid |
-| **Approver** | Managers / directors / CFO … | Approve or reject the payment-request stages assigned to them |
+| **Approver** | Managers / directors / CFO … | Approve the payment-request stages assigned to them, or raise an approval query |
 | **Admin** | System administrators | Manage users & approval levels; view audit logs; can do everything |
 
 ## Main business workflow (the four steps)
@@ -30,15 +30,18 @@ full audit trail.
                     groups them into a PRF + approval chain  → invoice payment_status: in_approval
 4. Payment Approval PRF routed stage-by-stage to each
                     assigned approver (approve → next stage;
-                    reject → back to Finance, invoices freed)
+                    query → on hold at that stage until the
+                    submitter/Finance answers and resubmits)
                     all approved → approved_for_payment
                     Finance marks paid   (payment_reference) → paid
 ```
 
 - **Invoice status:** `submitted → posted | query_raised`, plus `cancelled`.
 - **Invoice payment_status:** `not_initiated → in_approval → approved_for_payment → paid`
-  (a rejected PRF returns its invoices to `not_initiated`).
-- **PRF status:** `draft → in_approval → approved → paid`, or `rejected`.
+  (a released invoice or a withdrawn PRF returns them to `not_initiated`).
+- **PRF status:** `draft → in_approval ⇄ queried → approved → paid`, or `withdrawn`. `rejected` is
+  historical only — approvers raise a query instead (CR
+  `ai/change-requests/replace-reject-with-query-in-payment-approval.md`).
 
 ## Approval chain (dynamic, with defaults)
 
