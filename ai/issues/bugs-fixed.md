@@ -18,8 +18,15 @@ A running log of resolved bugs, so fixes aren't re-litigated and regressions are
   requests (unprovable ones left blank) and `paf:set-request-currency` for Finance-confirmed ones; a
   blank currency renders blank; dashboard cards and report totals per currency, charts in AED
   equivalent at configured rates (`CurrencyTotals`). CR `ai/change-requests/fix-wrong-currency-on-payment-requests-and-dashboard-totals.md`.
-- **Verified:** `tests/Feature/PaymentRequestCurrencyTest.php`; repair previewed against the
-  development database (217 recordable, 34 left blank); full suite.
+- **Also:** the queued **rejection notice** (production, PAF-2026-00460: "Total Amount AED 22,875.00"
+  above invoice lines in USD) read the total's currency from the request after its invoices had been
+  returned. It now uses the request's recorded currency, else the currency of the invoice lines it
+  captured (`PaymentRequestRejected::totalCurrency`). Rejection itself no longer exists; this covers
+  notices still queued at deployment.
+- **Verified:** `tests/Feature/PaymentRequestCurrencyTest.php` — including every request email and
+  the emailed approval page for a USD request, rendered through the queue round trip, and the
+  production rejection notice reproduced; a read-only render of real USD/OMR requests on the
+  development database; repair previewed (217 recordable, 34 left blank); full suite.
 
 ## [2026-10-06] Invoice document download returned a server error to a guest
 

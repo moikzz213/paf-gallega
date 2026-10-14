@@ -335,6 +335,14 @@ equivalent; Reports page summary per currency).
   "AED equivalent". If a currency has no exchange rate, it is left out of the charts and a warning
   names it; the cards still include it.
 - **Reports page:** the summary totals are per currency.
+- **Rejection notice (found in production after the first fix).** A rejection email for a USD request
+  (PAF-2026-00460) showed its total as AED, because the email is assembled after the invoices have
+  left. Rejection no longer exists, but any notice still waiting to be sent at deployment now takes
+  the currency from the invoices it lists. Production requests such as PAF-2026-00460 get their
+  currency back when the repair is run there.
+- **Validated:** every email that states a request's amount (approval required, reminder, approval
+  query, fully approved, rejection) and the emailed approval page show the request's own currency
+  in automated tests and in a read-only check against real USD and OMR requests.
 
 **Verification:** automated tests cover a request keeping its currency after withdrawal, a blank
 currency never showing as AED, the repair (preview, evidence and refusal cases), the manual setting,
