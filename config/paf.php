@@ -83,4 +83,16 @@ return [
         'required' => ['vendor_invoice', 'job_sheet', 'job_order', 'buy_rate', 'sell_rate', 'finance_approval'],
     ],
 
+    // The weekly Query Raised Report: each department's open Finance queries, emailed to its
+    // Department Head(s) (nominated in Master Data), only in weeks it has any. Finance and admins
+    // receive a summary of what was sent. Switching it off stops the emails without a release.
+    // See ai/change-requests/schedule-weekly-query-raised-report-email-to-department-heads.md
+    'query_raised_report' => [
+        'enabled' => (bool) env('PAF_QUERY_REPORT_ENABLED', true),
+        // Day of the week, 0 (Sunday) to 6 (Saturday). 5 is Friday.
+        'day' => (int) env('PAF_QUERY_REPORT_DAY', 5),
+        'time' => env('PAF_QUERY_REPORT_TIME', '08:00'),
+        'timezone' => env('PAF_QUERY_REPORT_TIMEZONE', 'Asia/Dubai'),
+    ],
+
 ];

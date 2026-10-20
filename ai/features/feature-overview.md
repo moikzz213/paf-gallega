@@ -383,6 +383,21 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   without a login. Keys are issued per user with `api-key:issue` and carry that user's data
   visibility; the secret is stored only as a hash, use is audit-logged, and `api-key:revoke`
   kills a key immediately. Page, download and API all read one definition, so they cannot drift.
+- **Weekly Query Raised Report** (`paf:send-query-raised-report`, Fridays 08:00 Dubai time). Every
+  invoice in **Query Raised** status is grouped by department (names compared ignoring case and
+  spaces) and emailed, in one BCC email per department, to that department's **Department
+  Head(s)** (nominated in Master Data). A department with no open queries is not emailed. Columns:
+  invoice number (linked to the invoice), PAF number (a PAF the invoice is or was on, usually
+  blank), vendor name, invoice amount, submitter name, the query and when it was raised, days open,
+  and remarks — oldest query first, with a per-currency total. **No attachments.** The rows come
+  from the same `InvoiceReport` definition as the Reports page; the report is not scoped by any
+  viewer's visibility, because nobody is logged in — the admin's Head nomination is the access
+  decision. Afterwards active Finance and admin users get **only a summary of what was sent**:
+  departments, recipients, counts, any failed send, and any department with open queries that
+  nobody received (no active Head, or a department name not in master data). Each delivered
+  report is audited as `query_raised_report_sent`. Day, time and an on/off switch are in
+  `config('paf.query_raised_report')`. CR:
+  `ai/change-requests/schedule-weekly-query-raised-report-email-to-department-heads.md`.
 
 ## 9. Audit trail (Admin)
 
@@ -428,6 +443,12 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   for vendors/customers (name-based for other masters), report duplicates with Excel row numbers,
   default every new record to active, and commit atomically so a partial
   master-data load cannot occur. The templates omit status and retain normal Excel gridlines.
+- **Department Heads** (Master Data → Departments): an admin picks one or more **active** users as
+  a department's Heads, who receive its weekly Query Raised Report (§8). Shown in a column on the
+  Departments tab ("None — no weekly report" when empty); Finance see them but cannot change them.
+  Also settable on import through the departments template's optional **Department Head Emails**
+  column (admin only). A Head whose account is deactivated stops receiving the report. Audited as
+  `department_heads_updated`.
 
 ## Role → feature matrix
 

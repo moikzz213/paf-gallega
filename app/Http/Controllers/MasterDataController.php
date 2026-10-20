@@ -3,10 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Exports\MasterDataTemplateExport;
+use App\Models\Department;
 use App\Services\AuditLogger;
+use App\Services\DepartmentHeadService;
 use App\Services\MasterDataImportService;
 use App\Support\MasterDataDefinition;
 use Illuminate\Http\Request;
+use Illuminate\Support\Arr;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\Rules\File;
 use Illuminate\Validation\Rules\Unique;
@@ -15,7 +19,10 @@ use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class MasterDataController extends Controller
 {
-    public function __construct(private readonly MasterDataImportService $importService) {}
+    public function __construct(
+        private readonly MasterDataImportService $importService,
+        private readonly DepartmentHeadService $headService,
+    ) {}
 
     public function index(Request $request, string $entity)
     {
@@ -27,6 +34,10 @@ class MasterDataController extends Controller
             'per_page' => ['nullable', 'integer', 'min:1', 'max:1000'],
         ]);
         $query = $model::query();
+
+        if ($entity === 'departments') {
+            $query->with('heads:id,name,email,is_active');
+        }
 
         $search = trim((string) ($filters['q'] ?? ''));
         if ($search !== '') {
@@ -51,12 +62,19 @@ class MasterDataController extends Controller
         $this->normalizeRequestCode($request, $entity);
         $data = $request->validate($this->validationRules($entity));
         $this->normalizeCode($data, $entity);
+        $this->authorizeHeads($request, $data);
 
-        $item = $model::create($data);
+        $item = DB::transaction(function () use ($model, $data, $entity) {
+            $item = $model::create(Arr::except($data, 'head_ids'));
 
-        AuditLogger::log('master_data_created', ucfirst($entity)." \"{$item->name}\" created");
+            AuditLogger::log('master_data_created', ucfirst($entity)." \"{$item->name}\" created");
 
-        return response()->json($item, 201);
+            $this->syncHeads($item, $data);
+
+            return $item;
+        });
+
+        return response()->json($this->withHeads($item), 201);
     }
 
     public function template(string $entity): BinaryFileResponse
@@ -90,12 +108,17 @@ class MasterDataController extends Controller
         $this->normalizeRequestCode($request, $entity);
         $data = $request->validate($this->validationRules($entity, $item->id));
         $this->normalizeCode($data, $entity);
+        $this->authorizeHeads($request, $data);
 
-        $item->update($data);
+        DB::transaction(function () use ($item, $data, $entity) {
+            $item->update(Arr::except($data, 'head_ids'));
 
-        AuditLogger::log('master_data_updated', ucfirst($entity)." \"{$item->name}\" updated");
+            AuditLogger::log('master_data_updated', ucfirst($entity)." \"{$item->name}\" updated");
 
-        return response()->json($item);
+            $this->syncHeads($item, $data);
+        });
+
+        return response()->json($this->withHeads($item));
     }
 
     public function destroy(string $entity, int $id)
@@ -154,6 +177,15 @@ class MasterDataController extends Controller
                 'exchange_rate' => ['nullable', 'numeric', 'gt:0', 'max:999999999'],
             ], $common),
 
+            // A department also carries the Heads who receive its weekly Query Raised Report.
+            'departments' => array_merge([
+                'name' => array_merge(
+                    ['required'],
+                    MasterDataDefinition::nameRules($definition),
+                    [$uniqueName($definition['table'])],
+                ),
+            ], DepartmentHeadService::rules(), $common),
+
             default => array_merge([
                 'name' => array_merge(
                     ['required'],
@@ -162,6 +194,31 @@ class MasterDataController extends Controller
                 ),
             ], $common),
         };
+    }
+
+    /**
+     * Finance maintain departments too, but nominating Heads is an admin's decision: it chooses who
+     * is emailed the department's invoice details. Finance's saves simply leave `head_ids` out.
+     *
+     * CR: ai/change-requests/schedule-weekly-query-raised-report-email-to-department-heads.md
+     */
+    private function authorizeHeads(Request $request, array $data): void
+    {
+        if (array_key_exists('head_ids', $data)) {
+            DepartmentHeadService::authorize($request->user());
+        }
+    }
+
+    private function syncHeads(object $item, array $data): void
+    {
+        if ($item instanceof Department && array_key_exists('head_ids', $data)) {
+            $this->headService->sync($item, $data['head_ids'] ?? []);
+        }
+    }
+
+    private function withHeads(object $item): object
+    {
+        return $item instanceof Department ? $item->load('heads:id,name,email,is_active') : $item;
     }
 
     private function normalizeCode(array &$data, string $entity): void
