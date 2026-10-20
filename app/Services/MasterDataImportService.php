@@ -3,8 +3,10 @@
 namespace App\Services;
 
 use App\Imports\MasterDataSpreadsheetImport;
+use App\Models\Department;
 use App\Support\MasterDataDefinition;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Arr;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\Rule;
@@ -15,6 +17,11 @@ use Throwable;
 class MasterDataImportService
 {
     private const MAX_ROWS = 1000;
+
+    /** The departments template's optional Department Heads column. */
+    private const HEAD_EMAILS = 'department_head_emails';
+
+    public function __construct(private readonly DepartmentHeadService $headService) {}
 
     public function import(string $entity, UploadedFile $file): int
     {
@@ -40,7 +47,9 @@ class MasterDataImportService
             ]);
         }
 
+        // An optional column may be missing from a template downloaded before it was added.
         $expectedHeadings = collect($definition['columns'])
+            ->reject(fn (array $column) => $column['optional'])
             ->map(fn (array $column) => $column['key'])
             ->values();
         $actualHeadings = collect($rows->first()->keys())
@@ -65,6 +74,20 @@ class MasterDataImportService
 
             foreach ($validator->errors()->all() as $message) {
                 $errors[] = "Row {$excelRow}: {$message}";
+            }
+
+            // Department Heads are nominated by an admin only, and must be active users. See
+            // DepartmentHeadService.
+            if (array_key_exists(self::HEAD_EMAILS, $data)) {
+                $heads = DepartmentHeadService::resolveEmails($data[self::HEAD_EMAILS]);
+
+                if (($heads['ids'] || $heads['unknown']) && ! auth()->user()?->isAdmin()) {
+                    $errors[] = "Row {$excelRow}: Only an administrator can nominate Department Heads. Leave the Department Head Emails column blank.";
+                } elseif ($heads['unknown']) {
+                    $errors[] = "Row {$excelRow}: Not an active PAF user: ".implode(', ', $heads['unknown']).'. Department Heads must have an active user account.';
+                }
+
+                $data[self::HEAD_EMAILS] = $heads['ids'];
             }
 
             if (! $definition['code_key']) {
@@ -94,8 +117,12 @@ class MasterDataImportService
         return DB::transaction(function () use ($definition, $entity, $preparedRows): int {
             $model = $definition['model'];
             foreach ($preparedRows as $data) {
-                $item = $model::create($data);
+                $item = $model::create(Arr::except($data, self::HEAD_EMAILS));
                 AuditLogger::log('master_data_imported', ucfirst($entity)." \"{$item->name}\" imported");
+
+                if ($item instanceof Department && ! empty($data[self::HEAD_EMAILS])) {
+                    $this->headService->sync($item, $data[self::HEAD_EMAILS]);
+                }
             }
 
             return count($preparedRows);
@@ -152,6 +179,10 @@ class MasterDataImportService
             ];
             $rules['credit_limit'] = ['required', 'numeric', 'min:0', 'max:999999999999'];
             $rules['credit_days'] = ['required', 'integer', 'min:0', 'max:365'];
+        }
+
+        if (collect($definition['columns'])->contains(fn ($column) => $column['key'] === self::HEAD_EMAILS)) {
+            $rules[self::HEAD_EMAILS] = ['nullable', 'string', 'max:2000'];
         }
 
         if (collect($definition['columns'])->contains(fn ($column) => $column['key'] === 'exchange_rate')) {

@@ -2,12 +2,32 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../../services/api';
 import { money } from '../../utils/format';
+import { useAuthStore } from '../../stores/auth';
 import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
 import { ITEMS_PER_PAGE_OPTIONS } from '../../plugins/vuetify';
 
+const auth = useAuthStore();
 const meta = useMetaStore();
 const notify = useNotifyStore();
+
+// Department Heads receive the department's weekly Query Raised Report. Only an admin nominates
+// them (the server refuses anyone else); Finance see who they are but cannot change them.
+// CR: ai/change-requests/schedule-weekly-query-raised-report-email-to-department-heads.md
+const headOptions = ref([]);
+const canEditHeads = computed(() => auth.isAdmin);
+
+async function loadHeadOptions() {
+    if (!canEditHeads.value || headOptions.value.length) return;
+    try {
+        const { data } = await api.get('/users', { params: { per_page: 1000 } });
+        headOptions.value = data.data
+            .filter((u) => u.is_active)
+            .map((u) => ({ value: u.id, title: u.name, subtitle: u.email }));
+    } catch (e) {
+        notify.error(errorMessage(e));
+    }
+}
 
 const tab = ref('vendors');
 const loading = ref(false);
@@ -65,6 +85,9 @@ function headers(t) {
     if (t === 'currencies') {
         h.splice(1, 0, { title: `Rate to ${baseCurrency.value}`, key: 'exchange_rate', sortable: false });
     }
+    if (t === 'departments') {
+        h.splice(1, 0, { title: 'Department Head(s)', key: 'heads', sortable: false });
+    }
     if (hasCreditFields(t)) {
         const codeKey = t === 'vendors' ? 'vendor_code' : 'customer_code';
         h.splice(1, 0, { title: 'Code', key: codeKey, sortable: false });
@@ -119,6 +142,9 @@ function emptyForm() {
     if (tab.value === 'currencies') {
         return { name: '', exchange_rate: null, is_active: true };
     }
+    if (tab.value === 'departments') {
+        return { name: '', head_ids: [], is_active: true };
+    }
     return { name: '', is_active: true };
 }
 
@@ -133,6 +159,11 @@ function formFromItem(item) {
     if (tab.value === 'currencies') {
         base.exchange_rate = item.exchange_rate ?? null;
     }
+    if (tab.value === 'departments') {
+        // A deactivated Head already receives nothing, and cannot be nominated again, so saving
+        // the department lets them go.
+        base.head_ids = (item.heads ?? []).filter((u) => u.is_active).map((u) => u.id);
+    }
     return base;
 }
 
@@ -140,6 +171,7 @@ function openCreate() {
     editing.value = null;
     form.value = emptyForm();
     dialog.value = true;
+    if (tab.value === 'departments') loadHeadOptions();
 }
 
 function downloadTemplate() {
@@ -177,6 +209,7 @@ function openEdit(item) {
     editing.value = item;
     form.value = formFromItem(item);
     dialog.value = true;
+    if (tab.value === 'departments') loadHeadOptions();
 }
 
 async function save() {
@@ -192,6 +225,10 @@ async function save() {
             else if (payload.exchange_rate === '' || payload.exchange_rate === undefined) payload.exchange_rate = null;
         } else {
             delete payload.exchange_rate;
+        }
+        // Only an admin may send Heads; anyone else's save leaves them as they are.
+        if (tab.value !== 'departments' || !canEditHeads.value) {
+            delete payload.head_ids;
         }
         if (!hasCreditFields(tab.value)) {
             delete payload.vendor_code;
@@ -299,6 +336,12 @@ async function remove(item) {
                 <template v-if="hasCreditFields(tab)" #item.credit_days="{ item }">
                     {{ item.credit_days != null ? `${item.credit_days} days` : '—' }}
                 </template>
+                <template v-if="tab === 'departments'" #item.heads="{ item }">
+                    <span v-if="item.heads?.length" class="text-body-2">
+                        {{ item.heads.map((u) => (u.is_active ? u.name : `${u.name} (inactive)`)).join(', ') }}
+                    </span>
+                    <v-chip v-else size="small" color="warning" variant="tonal">None — no weekly report</v-chip>
+                </template>
                 <template #item.is_active="{ item }">
                     <v-chip size="small" variant="tonal" :style="{ color: item.is_active ? '#008300' : '#d03b3b' }">
                         {{ item.is_active ? 'Active' : 'Inactive' }}
@@ -346,6 +389,30 @@ async function remove(item) {
                             <v-text-field v-else v-model="form.customer_code" label="Customer Code" />
                             <v-text-field v-model="form.credit_limit" label="Credit Limit" type="number" min="0" step="0.01" :rules="[rules.nonNeg]" prefix="AED" />
                             <v-text-field v-model="form.credit_days" label="Credit Days" type="number" min="0" max="365" :rules="[rules.nonNeg]" suffix="days" />
+                        </template>
+                        <template v-if="tab === 'departments'">
+                            <v-autocomplete
+                                v-if="canEditHeads"
+                                v-model="form.head_ids"
+                                :items="headOptions"
+                                label="Department Head(s)"
+                                hint="Active PAF users. They receive this department's Query Raised Report every Friday at 08:00, in weeks when it has open queries."
+                                persistent-hint
+                                multiple
+                                chips
+                                closable-chips
+                                clearable
+                                class="mt-2"
+                            >
+                                <template #item="{ props, item }">
+                                    <v-list-item v-bind="props" :subtitle="item.raw.subtitle" />
+                                </template>
+                            </v-autocomplete>
+                            <v-alert v-else type="info" variant="tonal" density="compact" class="mt-2">
+                                Department Head(s):
+                                {{ editing?.heads?.length ? editing.heads.map((u) => u.name).join(', ') : 'none' }}.
+                                Only an administrator can change them.
+                            </v-alert>
                         </template>
                         <v-switch v-model="form.is_active" label="Active" color="success" hide-details class="mt-2" />
                     </v-form>

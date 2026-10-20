@@ -61,7 +61,12 @@ blank. Hand the blank list to Finance; set each confirmed one with
 **2. Scheduler** — `routes/console.php` schedules `prf:send-reminders` and
 `prf:send-query-reminders` (unanswered approval queries, every two days per query) daily at 09:00
 (`config('app.timezone')` is `Asia/Dubai`, hardcoded, so 09:00 means 09:00 Dubai in every
-environment). Laravel's schedule only advances when something calls `schedule:run` **every minute**:
+environment). It also schedules `paf:send-query-raised-report` — the weekly Query Raised Report to
+Department Heads — on **Fridays at 08:00 Dubai time** (`PAF_QUERY_REPORT_DAY` / `_TIME` /
+`_TIMEZONE`; `PAF_QUERY_REPORT_ENABLED=false` stops it without a release). It can be run by hand to
+test or catch up; it only reads and sends. Nobody receives a department's report until an admin has
+nominated its Heads under Master Data → Departments; the summary to Finance lists any that are
+missing. Laravel's schedule only advances when something calls `schedule:run` **every minute**:
 
 ```bash
 # Linux (crontab -e)
@@ -168,6 +173,10 @@ grep for it rather than judging from the screen, because the failure is silent b
 | `PAF_PDF_REPAIR` | `true` | Set `false` to switch the repair off without redeploying — the backout lever |
 | `PAF_QPDF_PATH` | `qpdf` | Full path if the binary is not on `PATH` |
 | `PAF_PDF_REPAIR_TIMEOUT` | `20` | Seconds per document; exceeded means fall back, not hang |
+| `PAF_QUERY_REPORT_ENABLED` | `true` | Weekly Query Raised Report on/off — the backout lever |
+| `PAF_QUERY_REPORT_DAY` | `5` | Day of week, 0 (Sun)–6 (Sat); 5 = Friday |
+| `PAF_QUERY_REPORT_TIME` | `08:00` | Send time |
+| `PAF_QUERY_REPORT_TIMEZONE` | `Asia/Dubai` | Timezone of the send time |
 
 Notes on behaviour, because they bound the risk:
 

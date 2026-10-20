@@ -59,6 +59,9 @@ final class MasterDataDefinition
                 'code_key' => null,
                 'columns' => [
                     self::column('name', 'Name', true, 'Department name. Must be unique.', 34),
+                    // Optional, and may be missing from a template downloaded before it existed.
+                    // Only an admin may fill it in. See DepartmentHeadService.
+                    self::column('department_head_emails', 'Department Head Emails', false, 'Optional. Email addresses of the Department Head(s), separated by commas. Each must be an active PAF user. They receive the weekly Query Raised Report. Only an administrator can fill this in.', 40, optional: true),
                 ],
             ],
             'locations' => [
@@ -104,7 +107,8 @@ final class MasterDataDefinition
         bool $required,
         string $description,
         int $width,
+        bool $optional = false,
     ): array {
-        return compact('key', 'heading', 'required', 'description', 'width');
+        return compact('key', 'heading', 'required', 'description', 'width', 'optional');
     }
 }

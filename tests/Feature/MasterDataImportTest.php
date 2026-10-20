@@ -42,7 +42,7 @@ class MasterDataImportTest extends TestCase
             'vendors' => ['Name *', 'Vendor Code', 'Credit Limit', 'Credit Days'],
             'customers' => ['Name *', 'Customer Code', 'Credit Limit', 'Credit Days'],
             'business-units' => ['Name *'],
-            'departments' => ['Name *'],
+            'departments' => ['Name *', 'Department Head Emails'],
             'locations' => ['Name *'],
             'currencies' => ['Name *', 'Exchange Rate'],
         ];

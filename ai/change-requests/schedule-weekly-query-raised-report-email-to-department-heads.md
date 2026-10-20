@@ -187,9 +187,9 @@ accurate.
    each contained. It also lists any department with open queries but **no Head nominated**, and
    any report that could not be delivered. Nothing is left out silently. The summary does not
    repeat the invoice details.
-5. **Department name matching** will compare names without regard to capitalisation or extra spaces.
-   Before go-live, a one-off check will list any invoice department names that do not match Master
-   Data, so they can be corrected.
+5. **Department name matching** compares names without regard to capitalisation or extra spaces.
+   Any invoice whose department still matches nothing in Master Data is listed in the weekly
+   summary to Finance, so it can be corrected rather than silently left out.
 6. **Proof of delivery.** Every weekly run is recorded in the scheduler log and the system audit log.
    A run that never happened can then be told apart from a week with nothing to report.
 7. **Retries.** Email uses the existing retrying delivery service, so short mail outages do not lose
@@ -249,8 +249,9 @@ accurate.
 ## Implementation Overview
 
 1. **Department Head nomination.** Add a "Department Head(s)" setting to each department in the
-   existing Master Data area. The administrator picks one or more active system users. Changes are
-   audit-logged.
+   existing Master Data area. The administrator picks one or more active system users. Heads can
+   also be filled in through the departments spreadsheet upload. Finance can see who the Heads are
+   but cannot change them. Changes are audit-logged.
 2. **Weekly report.** Every Friday at **08:00 Dubai time** (configurable), the system gathers every
    invoice currently in **Query Raised** status, groups them by department, and sends each
    department's list to its Head(s).
@@ -309,7 +310,7 @@ get their own reminder every two days, and could be added to this report later a
 4. **User Acceptance Testing.** Selected Department Heads and Finance receive test reports (run on
    demand) and confirm the content and layout meet their needs.
 5. **Production Deployment.** Deploy, then the administrator nominates Heads for every department and
-   corrects any mismatched department names found by the pre-go-live check. Confirm the scheduler and
+   corrects any mismatched department names listed in the first weekly summary. Confirm the scheduler and
    email delivery service are running.
 6. **Post Deployment Monitoring.** For the first three Fridays, IT confirms in the scheduler log and
    audit log that the report ran and was delivered. Finance confirms receipt of the weekly summary
@@ -379,7 +380,7 @@ Name: ________________________  Signature: ________________  Date: __________
 | Affected Features Confidence | High. The change is additive and touches no existing workflow |
 | Business Impact Confidence | Medium-High. The benefit depends on Department Heads acting on the report and on the Head list being kept up to date |
 | Security Impact Confidence | Medium-High. Recipient control is strong when Heads are chosen from active users, and no attachments are sent. Policy on financial detail in email bodies still needs confirming |
-| Risk Assessment Confidence | Medium-High. The scale of department-name mismatches on existing invoices is not yet known, and the pre-go-live check will measure it |
+| Risk Assessment Confidence | Medium-High. The scale of department-name mismatches on existing invoices is not yet known. The weekly summary lists any mismatch from the first run |
 
 ---
 

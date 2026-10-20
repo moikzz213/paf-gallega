@@ -113,6 +113,15 @@ copied into `invoices.currency` / `invoice_items.currency` as a plain string; th
 present on an invoice or invoice line, so existing rows stay valid after the switch from the
 hard-coded config list.
 
+### department_heads
+
+Who receives each department's weekly **Query Raised Report** (`2026_10_20_000001`). Pivot between
+`departments` and `users`: `id`, `department_id` (FK departments, cascadeOnDelete), `user_id` (FK
+users, cascadeOnDelete), timestamps, **unique** (`department_id`, `user_id`). A department may have
+several Heads and one user may head several departments. Nominated by an admin only, from active
+users; an inactive Head stays linked but is skipped by the report. Starts empty. Relation
+`Department::heads()`. CR `ai/change-requests/schedule-weekly-query-raised-report-email-to-department-heads.md`
+
 ### invoices
 
 Intake entity (the Invoice Log). Base fields: `reference_no` (unique, `INV-{year}-00001`;
