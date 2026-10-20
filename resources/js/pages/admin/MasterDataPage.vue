@@ -17,6 +17,12 @@ const notify = useNotifyStore();
 const headOptions = ref([]);
 const canEditHeads = computed(() => auth.isAdmin);
 
+// Show each user's email under their name. Through item-props, not a custom #item slot: that
+// slot's item has no `.raw` in Vuetify 4, so reading it broke the list as it opened.
+function headItemProps(item) {
+    return { title: item.title, subtitle: item.subtitle };
+}
+
 async function loadHeadOptions() {
     if (!canEditHeads.value || headOptions.value.length) return;
     try {
@@ -395,6 +401,7 @@ async function remove(item) {
                                 v-if="canEditHeads"
                                 v-model="form.head_ids"
                                 :items="headOptions"
+                                :item-props="headItemProps"
                                 label="Department Head(s)"
                                 hint="Active PAF users. They receive this department's Query Raised Report every Friday at 08:00, in weeks when it has open queries."
                                 persistent-hint
@@ -403,11 +410,7 @@ async function remove(item) {
                                 closable-chips
                                 clearable
                                 class="mt-2"
-                            >
-                                <template #item="{ props, item }">
-                                    <v-list-item v-bind="props" :subtitle="item.raw.subtitle" />
-                                </template>
-                            </v-autocomplete>
+                            />
                             <v-alert v-else type="info" variant="tonal" density="compact" class="mt-2">
                                 Department Head(s):
                                 {{ editing?.heads?.length ? editing.heads.map((u) => u.name).join(', ') : 'none' }}.
