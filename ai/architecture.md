@@ -30,7 +30,9 @@ Laravel 13 (routes/web.php, prefix "api")
   `routes/api.php`). `POST /api/login` is public + throttled; all else is behind `auth`.
   Role-restricted groups use the `role:` alias.
 - **Middleware** — `App\Http\Middleware\EnsureRole` (aliased `role` in `bootstrap/app.php`).
-  Usage `->middleware('role:finance,admin')`. Exceptions render as JSON for `api/*`
+  Usage `->middleware('role:finance,admin')`. `BlockAuditorWrites` (aliased `auditor-read-only`)
+  wraps the whole `auth` group and refuses every non-read request from an auditor, so new write
+  routes are closed to them without a check of their own. Exceptions render as JSON for `api/*`
   (configured in `bootstrap/app.php`).
 - **Controllers** — thin. They validate (`$request->validate`/`validated()`), enforce inline
   ownership checks, delegate workflow to services, and return Eloquent models or paginators
@@ -96,8 +98,8 @@ Laravel 13 (routes/web.php, prefix "api")
      (`admin`).
    - Inline ownership checks in controllers + `PaymentRequestService::assertActionable`
      (only the assigned approver of the current stage, or an admin, may act).
-   - **Data scoping** via `Invoice::scopeVisibleTo` / `PaymentRequest::scopeVisibleTo`: admin &
-     finance see all; approvers see items routed to them (PRFs where they're an approver, plus
+   - **Data scoping** via `Invoice::scopeVisibleTo` / `PaymentRequest::scopeVisibleTo`: admin,
+     finance & auditor see all (`User::canViewAllInvoices`); approvers see items routed to them (PRFs where they're an approver, plus
      own submissions); requesters see their own. **Requesters** additionally see, read-only, the
      invoices — and the PRFs holding them — submitted by **members of their own department**
      (the submitter's `users.department`, compared case-insensitively; a blank department matches
@@ -108,7 +110,9 @@ Laravel 13 (routes/web.php, prefix "api")
      rely entirely on these scopes. The invoice-detail and invoice-document checks call the scope
      too (`whereKey(...)->visibleTo($user)->exists()`) rather than restating it.
 2. **Client (UX only):** Vue Router `beforeEach` checks `to.meta.roles`; `AppLayout` shows nav
-   items by auth getters (`canApprove`, `canProcessPayments`, `isAdmin`). These mirror the
+   items by auth getters (`canApprove`, `canProcessPayments`, `isAdmin`, and the auditor's
+   `canViewApprovals` / `canViewAdminPages` / `canViewMasterData`). Auditors are kept off the
+   invoice create/edit forms (`meta.write`) and pages hide their action buttons via `isAuditor`. These mirror the
    server rules but are **independent code paths** — keep them aligned when adding routes.
 
 ## Frontend architecture

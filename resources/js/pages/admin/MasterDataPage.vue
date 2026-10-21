@@ -100,7 +100,8 @@ function headers(t) {
         h.splice(3, 0, { title: 'Credit Limit', key: 'credit_limit', sortable: false });
         h.splice(4, 0, { title: 'Credit Days', key: 'credit_days', sortable: false });
     }
-    return h;
+    // Auditors see the data but not the edit/delete column.
+    return h.filter((h) => h.key !== 'actions' || !auth.isAuditor);
 }
 
 async function load() {
@@ -288,13 +289,15 @@ async function remove(item) {
                 <div class="text-body-2 text-medium-emphasis">Manage vendors, customers, business units, departments, locations and currencies</div>
             </div>
             <v-spacer />
-            <v-btn variant="outlined" prepend-icon="mdi-file-download-outline" @click="downloadTemplate">
-                Export Template
-            </v-btn>
-            <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="openImport">
-                Import Excel
-            </v-btn>
-            <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">New {{ tabSingular(tab) }}</v-btn>
+            <template v-if="!auth.isAuditor">
+                <v-btn variant="outlined" prepend-icon="mdi-file-download-outline" @click="downloadTemplate">
+                    Export Template
+                </v-btn>
+                <v-btn variant="outlined" prepend-icon="mdi-file-upload-outline" @click="openImport">
+                    Import Excel
+                </v-btn>
+                <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">New {{ tabSingular(tab) }}</v-btn>
+            </template>
         </div>
 
         <v-tabs v-model="tab" color="primary" class="mb-4">

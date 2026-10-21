@@ -183,7 +183,9 @@ class PaymentRequestController extends Controller
                 'approvals.approver:id,name',
             ]);
 
-        if (! $user->isAdmin()) {
+        // Admins and auditors see every request awaiting approval; auditors can open the page but
+        // never act on it.
+        if (! $user->isAdmin() && ! $user->isAuditor()) {
             // Finance users nominated as approvers get a queue too, scoped the same way.
             abort_unless($user->canApprove(), 403, 'Only approvers have an approval queue.');
             $query->whereHas('approvals', fn ($a) => $a

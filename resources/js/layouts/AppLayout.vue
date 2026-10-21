@@ -17,13 +17,13 @@ const navItems = computed(() => {
         { title: 'Payment Requests', icon: 'mdi-bank-transfer-out', to: '/payment-requests' },
     ];
 
-    if (auth.canApprove) {
+    if (auth.canViewApprovals) {
         items.push({ title: 'Approvals', icon: 'mdi-stamper', to: '/approvals' });
     }
 
     items.push({ title: 'Reports', icon: 'mdi-chart-box-outline', to: '/reports' });
 
-    if (auth.isAdmin) {
+    if (auth.canViewAdminPages) {
         items.push(
             { title: 'Audit Trail', icon: 'mdi-history', to: '/audit-log' },
             { title: 'Users', icon: 'mdi-account-group-outline', to: '/admin/users' },
@@ -32,7 +32,7 @@ const navItems = computed(() => {
     }
 
     // Listed after the admin group so an admin's menu order is unchanged.
-    if (auth.canManageMasterData) {
+    if (auth.canViewMasterData) {
         items.push({ title: 'Master Data', icon: 'mdi-database-outline', to: '/admin/master-data' });
     }
 

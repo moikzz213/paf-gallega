@@ -452,30 +452,34 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 
 ## Role → feature matrix
 
-| Feature | Requester | Approver | Finance | Admin |
-|---------|:--------:|:--------:|:-------:|:-----:|
-| Submit / edit own invoices | ✓ | ✓ (own) | ✓ | ✓ |
-| Post to ERP / raise query | | | ✓ | ✓ |
-| Correct posting details (ERP doc no.) | | | ✓ (only what they posted) | ✓ (any) |
-| Correct a payment reference | | | ✓ (only what they paid) | ✓ (any) |
-| Create payment request | | | ✓ | ✓ |
-| Approve / query a PRF stage | | ✓ (assigned) | ✓ (assigned, needs a level) | ✓ |
-| Answer an approval query & resubmit | ✓ (own invoice on it) | ✓ (own invoice on it) | ✓ | ✓ |
-| …but never on a PRF they created | — | — | — | — |
-| Mark PRF paid | | | ✓ | ✓ |
-| Withdraw an approved PRF | | | ✓ | ✓ |
-| Release one invoice from a PRF | | | ✓ | ✓ |
-| Correct a posted invoice not yet in a PRF (nothing locked, stays posted) | | | ✓ | ✓ |
-| Correct an invoice held by a PRF | | | ✓ | ✓ |
-| Correct own invoice while its PRF is in approval (vendor locked) | ✓ (own) | ✓ (own) | (✓ wider) | (✓ wider) |
-| Attach documents to a PRF as a whole | | | ✓ | ✓ |
-| See a PRF's own documents | | ✓ (on its chain) | ✓ | ✓ |
-| Remove a document after posting, until paid (file kept) | ✓ (own uploads) | ✓ (own uploads) | ✓ (own uploads) | ✓ (any) |
-| Download PRF PAF (any status) | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
-| Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ |
-| View (read-only) own department's invoices & PRFs | ✓ | | (sees all) | (sees all) |
-| View (read-only) named colleagues' invoices & PRFs | ✓ (if granted) | ✓ (if granted) | (sees all) | (sees all) |
-| Audit log viewer, manage users/levels | | | | ✓ |
+| Feature | Requester | Approver | Finance | Admin | Auditor |
+|---------|:--------:|:--------:|:-------:|:-----:|:-------:|
+| Submit / edit own invoices | ✓ | ✓ (own) | ✓ | ✓ |  |
+| Post to ERP / raise query | | | ✓ | ✓ |  |
+| Correct posting details (ERP doc no.) | | | ✓ (only what they posted) | ✓ (any) |  |
+| Correct a payment reference | | | ✓ (only what they paid) | ✓ (any) |  |
+| Create payment request | | | ✓ | ✓ |  |
+| Approve / query a PRF stage | | ✓ (assigned) | ✓ (assigned, needs a level) | ✓ |  |
+| Answer an approval query & resubmit | ✓ (own invoice on it) | ✓ (own invoice on it) | ✓ | ✓ |  |
+| …but never on a PRF they created | — | — | — | — | — |
+| Mark PRF paid | | | ✓ | ✓ |  |
+| Withdraw an approved PRF | | | ✓ | ✓ |  |
+| Release one invoice from a PRF | | | ✓ | ✓ |  |
+| Correct a posted invoice not yet in a PRF (nothing locked, stays posted) | | | ✓ | ✓ |  |
+| Correct an invoice held by a PRF | | | ✓ | ✓ |  |
+| Correct own invoice while its PRF is in approval (vendor locked) | ✓ (own) | ✓ (own) | (✓ wider) | (✓ wider) |  |
+| Attach documents to a PRF as a whole | | | ✓ | ✓ |  |
+| See a PRF's own documents | | ✓ (on its chain) | ✓ | ✓ | (sees all) |
+| Remove a document after posting, until paid (file kept) | ✓ (own uploads) | ✓ (own uploads) | ✓ (own uploads) | ✓ (any) |  |
+| Download PRF PAF (any status) | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ | ✓ |
+| Reports & export | ✓ (scoped) | ✓ (scoped) | ✓ | ✓ | ✓ |
+| View (read-only) own department's invoices & PRFs | ✓ | | (sees all) | (sees all) | (sees all) |
+| View (read-only) named colleagues' invoices & PRFs | ✓ (if granted) | ✓ (if granted) | (sees all) | (sees all) | (sees all) |
+| Audit log viewer, manage users/levels | | | | ✓ | ✓ (view only) |
+
+**Auditor** sees every page and record, read-only. Every write is refused on the server
+(`BlockAuditorWrites`), whatever the endpoint; only signing out and changing their own password
+remain. They are never offered as an approver.
 
 ## Not yet implemented
 

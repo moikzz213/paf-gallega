@@ -4,8 +4,10 @@ import { useRouter } from 'vue-router';
 import api, { errorMessage } from '../services/api';
 import { money, dateTime, requestCurrency } from '../utils/format';
 import { useNotifyStore } from '../stores/notify';
+import { useAuthStore } from '../stores/auth';
 
 const notify = useNotifyStore();
+const auth = useAuthStore();
 const router = useRouter();
 const loading = ref(false);
 const acting = ref(false);
@@ -36,7 +38,7 @@ const headers = [
     { title: 'Your stage', key: 'stage', sortable: false },
     { title: 'Sent', key: 'sent_at', sortable: false },
     { title: '', key: 'actions', align: 'end', sortable: false },
-];
+].filter((h) => h.key !== 'actions' || !auth.isAuditor);
 
 async function load() {
     loading.value = true;

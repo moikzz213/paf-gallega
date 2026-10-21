@@ -19,6 +19,14 @@ export const useAuthStore = defineStore('auth', {
         // Finance maintains vendors, customers, business units, departments and locations
         // day to day, so master data is not gated on the admin role.
         canManageMasterData: (state) => ['admin', 'finance'].includes(state.user?.role),
+        // Auditors open every page read-only: they see these screens but none of their actions,
+        // and the server refuses any write they attempt (BlockAuditorWrites).
+        isAuditor: (state) => state.user?.role === 'auditor',
+        canViewApprovals: (state) => state.user?.role === 'auditor'
+            || ['admin', 'approver'].includes(state.user?.role)
+            || (state.user?.role === 'finance' && state.user?.approval_level != null),
+        canViewAdminPages: (state) => ['admin', 'auditor'].includes(state.user?.role),
+        canViewMasterData: (state) => ['admin', 'finance', 'auditor'].includes(state.user?.role),
     },
 
     actions: {

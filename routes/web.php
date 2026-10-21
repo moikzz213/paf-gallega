@@ -41,7 +41,9 @@ Route::prefix('api')->group(function () {
     Route::get('/export-report', [ReportApiController::class, 'export'])
         ->middleware(['api-key', 'throttle:60,1']);
 
-    Route::middleware('auth')->group(function () {
+    // Auditors are view-only: BlockAuditorWrites refuses every non-read request in this group,
+    // except signing out and changing their own password.
+    Route::middleware(['auth', 'auditor-read-only'])->group(function () {
         Route::post('/logout', [AuthController::class, 'logout']);
         Route::get('/me', [AuthController::class, 'me']);
 
@@ -113,8 +115,8 @@ Route::prefix('api')->group(function () {
 
         // Master data (vendors, customers, business units, departments, locations). Finance owns
         // this reference data day to day, so they get the same full access as admins.
+        Route::get('/master-data/{entity}', [MasterDataController::class, 'index'])->middleware('role:finance,admin,auditor');
         Route::middleware('role:finance,admin')->group(function () {
-            Route::get('/master-data/{entity}', [MasterDataController::class, 'index']);
             Route::get('/master-data/{entity}/template', [MasterDataController::class, 'template']);
             Route::post('/master-data/{entity}/import', [MasterDataController::class, 'import']);
             Route::post('/master-data/{entity}', [MasterDataController::class, 'store']);
@@ -122,16 +124,18 @@ Route::prefix('api')->group(function () {
             Route::delete('/master-data/{entity}/{id}', [MasterDataController::class, 'destroy']);
         });
 
-        // administration
-        Route::middleware('role:admin')->group(function () {
+        // administration — auditors may read these pages, never change them
+        Route::middleware('role:admin,auditor')->group(function () {
             Route::get('/audit-logs', [AuditLogController::class, 'index']);
             Route::get('/audit-logs/actions', [AuditLogController::class, 'actions']);
-
             Route::get('/users', [UserController::class, 'index']);
+            Route::get('/approval-levels', [ApprovalLevelController::class, 'index']);
+        });
+
+        Route::middleware('role:admin')->group(function () {
             Route::post('/users', [UserController::class, 'store']);
             Route::put('/users/{user}', [UserController::class, 'update']);
 
-            Route::get('/approval-levels', [ApprovalLevelController::class, 'index']);
             Route::post('/approval-levels', [ApprovalLevelController::class, 'store']);
             Route::put('/approval-levels/{approvalLevel}', [ApprovalLevelController::class, 'update']);
             Route::delete('/approval-levels/{approvalLevel}', [ApprovalLevelController::class, 'destroy']);

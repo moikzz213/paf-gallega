@@ -10,6 +10,13 @@
   `GET /api/export-report` (key-authenticated, see below) is behind `auth`. Login is `throttle:10,1`.
 - Roles via `EnsureRole` (`role:...`): `role:finance,admin` (invoice post/query, PRF create,
   mark-paid, eligible list), `role:admin` (audit-logs, users, approval-levels).
+- **Auditor is view-only.** `BlockAuditorWrites` (alias `auditor-read-only`) sits on the whole
+  `auth` group and answers `403 "Auditors have view-only access."` to any non-GET/HEAD request from
+  an `auditor`, whatever the route — except `POST /api/logout` and `PUT /api/profile/password`.
+  Auditors also pass the read routes that are otherwise gated: `GET /api/audit-logs`,
+  `/api/audit-logs/actions`, `/api/users`, `/api/approval-levels` (`role:admin,auditor`),
+  `GET /api/master-data/{entity}` (`role:finance,admin,auditor`) and
+  `GET /api/payment-requests/pending` (every request in approval, as for an admin).
 - **No response envelope** — controllers return raw models or Laravel paginator JSON
   (`{ data, current_page, last_page, per_page, total, ... }`).
 - Errors: `422` from validation/`ValidationException`; `403` from `role:` middleware or inline
@@ -23,7 +30,7 @@
 - **Invoice payment_status:** `not_initiated`, `in_approval`, `approved_for_payment`, `paid`.
 - **PRF status:** `draft`, `in_approval`, `queried`, `approved`, `rejected` (historical only), `withdrawn`, `paid`.
 - **PRF approval status:** `pending`, `approved`, `rejected` (historical only).
-- **Roles:** `admin`, `requester`, `approver`, `finance`. **Currencies:** master data (the
+- **Roles:** `admin`, `requester`, `approver`, `finance`, `auditor`. **Currencies:** master data (the
   `currencies` table; seeded AED/USD/EUR/GBP/SAR), stored on the invoice as a plain string.
 
 ## Auth & meta
@@ -181,8 +188,8 @@ column lists every PAF the invoice was on that was rejected (`PAF-… (rejected 
 first), and `remarks` prefixes each rejected request's approver comments and reason with
 `[<reference>]` before the current request's own remarks. Blank for an invoice never rejected.
 Adding a column is additive for API consumers; existing column keys are unchanged.
-| GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin`. `GET /api/users` rows carry `viewable_colleagues[{id,name}]`; create/update accept `viewable_colleague_ids[]` (optional; distinct existing user ids, never the user themself — `422` otherwise). Sent → the grant list is replaced (empty array clears it); omitted → left as is. Audited on `user_created`/`user_updated` as `can_view_records_of` (names, old/new). User `department` must match an active Departments master-data row. `approval_level` (1–10) is **required for role approver and optional for role finance** — setting it on a finance user is what nominates them as an approver; it is nulled for requesters/admins. Approval-level create/update accepts `default_approver_id` (nullable; must satisfy `canApprove()` **and** be assigned to the level being saved — `422` naming the user otherwise. The level's *current* default is always accepted so a legacy mismatch doesn't block renaming or deactivating it) |
-| GET/POST | `/api/master-data/{entity}` | `role:admin`. Entity ∈ `vendors, customers, business-units, departments, locations, currencies`.
+| GET/POST/PUT/DELETE | `/api/audit-logs`, `/api/users`, `/api/approval-levels` | `role:admin` (the GETs also `auditor`). `GET /api/users` rows carry `viewable_colleagues[{id,name}]`; create/update accept `viewable_colleague_ids[]` (optional; distinct existing user ids, never the user themself — `422` otherwise). Sent → the grant list is replaced (empty array clears it); omitted → left as is. Audited on `user_created`/`user_updated` as `can_view_records_of` (names, old/new). User `department` must match an active Departments master-data row. `approval_level` (1–10) is **required for role approver and optional for role finance** — setting it on a finance user is what nominates them as an approver; it is nulled for requesters/admins. Approval-level create/update accepts `default_approver_id` (nullable; must satisfy `canApprove()` **and** be assigned to the level being saved — `422` naming the user otherwise. The level's *current* default is always accepted so a legacy mismatch doesn't block renaming or deactivating it) |
+| GET/POST | `/api/master-data/{entity}` | `role:admin` (GET also `auditor`, read-only). Entity ∈ `vendors, customers, business-units, departments, locations, currencies`.
 A currency's `name` is its 3-letter upper-case code (`size:3`, `alpha:ascii`, `uppercase`). GET is paginated (`page`, `per_page` 1–100) and accepts `q` (name for all entities, plus code for vendors/customers); results are ordered by name then id. POST creates vendors/customers with repeatable names and unique entered codes; other entities retain unique names. **Departments** rows carry `heads[{id,name,email,is_active}]` (the Department Heads who receive the weekly Query Raised Report), and POST/PUT accept `head_ids[]` (optional; distinct **active** user ids — `422` otherwise). Sending `head_ids` is **admin-only** (`403` for Finance); sent → the Heads are replaced (empty array clears them), omitted → left as is. Changes are audited as `department_heads_updated` (names, old/new). |
 | PUT/DELETE | `/api/master-data/{entity}/{id}` | `role:admin`. PUT updates the entity's create fields plus `is_active`; DELETE removes. |
 | GET | `/api/master-data/{entity}/template` | `role:admin`. Downloads an XLSX import template with an **Import Data** sheet and entity-specific instructions. |

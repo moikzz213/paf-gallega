@@ -125,7 +125,7 @@ async function confirmDialog() {
                 <div class="text-body-2 text-medium-emphasis">Date-wise register — Finance posts invoices to ERP or raises a query</div>
             </div>
             <v-spacer />
-            <v-btn color="primary" prepend-icon="mdi-plus" to="/invoices/new">Submit Invoice</v-btn>
+            <v-btn v-if="!auth.isAuditor" color="primary" prepend-icon="mdi-plus" to="/invoices/new">Submit Invoice</v-btn>
         </div>
 
         <v-card class="mb-4">
