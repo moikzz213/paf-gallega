@@ -1,20 +1,4 @@
 {
-  "../../../node_modules/@mdi/font/fonts/materialdesignicons-webfont.eot": {
-    "file": "assets/materialdesignicons-webfont-CSr8KVlo.eot",
-    "src": "../../../node_modules/@mdi/font/fonts/materialdesignicons-webfont.eot"
-  },
-  "../../../node_modules/@mdi/font/fonts/materialdesignicons-webfont.ttf": {
-    "file": "assets/materialdesignicons-webfont-B7mPwVP_.ttf",
-    "src": "../../../node_modules/@mdi/font/fonts/materialdesignicons-webfont.ttf"
-  },
-  "../../../node_modules/@mdi/font/fonts/materialdesignicons-webfont.woff": {
-    "file": "assets/materialdesignicons-webfont-PXm3-2wK.woff",
-    "src": "../../../node_modules/@mdi/font/fonts/materialdesignicons-webfont.woff"
-  },
-  "../../../node_modules/@mdi/font/fonts/materialdesignicons-webfont.woff2": {
-    "file": "assets/materialdesignicons-webfont-Dp5v-WZN.woff2",
-    "src": "../../../node_modules/@mdi/font/fonts/materialdesignicons-webfont.woff2"
-  },
   "_StatusChip-jjBj5iL1.js": {
     "file": "assets/StatusChip-jjBj5iL1.js",
     "name": "StatusChip",
@@ -347,6 +331,22 @@
     "imports": [
       "resources/js/main.js"
     ]
+  },
+  "node_modules/@mdi/font/fonts/materialdesignicons-webfont.eot": {
+    "file": "assets/materialdesignicons-webfont-CSr8KVlo.eot",
+    "src": "node_modules/@mdi/font/fonts/materialdesignicons-webfont.eot"
+  },
+  "node_modules/@mdi/font/fonts/materialdesignicons-webfont.ttf": {
+    "file": "assets/materialdesignicons-webfont-B7mPwVP_.ttf",
+    "src": "node_modules/@mdi/font/fonts/materialdesignicons-webfont.ttf"
+  },
+  "node_modules/@mdi/font/fonts/materialdesignicons-webfont.woff": {
+    "file": "assets/materialdesignicons-webfont-PXm3-2wK.woff",
+    "src": "node_modules/@mdi/font/fonts/materialdesignicons-webfont.woff"
+  },
+  "node_modules/@mdi/font/fonts/materialdesignicons-webfont.woff2": {
+    "file": "assets/materialdesignicons-webfont-Dp5v-WZN.woff2",
+    "src": "node_modules/@mdi/font/fonts/materialdesignicons-webfont.woff2"
   },
   "resources/js/layouts/AppLayout.vue": {
     "file": "assets/AppLayout-D1S4qfd5.js",
