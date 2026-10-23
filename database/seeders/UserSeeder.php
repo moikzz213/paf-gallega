@@ -17,6 +17,7 @@ class UserSeeder extends Seeder
             ['name' => 'Fatima Hassan', 'email' => 'approver2@paf.local', 'role' => User::ROLE_APPROVER, 'approval_level' => 2, 'department' => 'Finance', 'job_title' => 'Finance Director'],
             ['name' => 'Omar Khalid', 'email' => 'approver3@paf.local', 'role' => User::ROLE_APPROVER, 'approval_level' => 3, 'department' => 'Finance', 'job_title' => 'Chief Financial Officer'],
             ['name' => 'Grace Tan', 'email' => 'finance@paf.local', 'role' => User::ROLE_FINANCE, 'department' => 'Finance', 'job_title' => 'AP Accountant'],
+            ['name' => 'Aisha Malik', 'email' => 'auditor@paf.local', 'role' => User::ROLE_AUDITOR, 'department' => 'Finance', 'job_title' => 'Internal Auditor'],
         ];
 
         foreach ($users as $user) {

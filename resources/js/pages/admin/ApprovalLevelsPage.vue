@@ -4,9 +4,11 @@ import api, { errorMessage } from '../../services/api';
 import { money } from '../../utils/format';
 import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
+import { useAuthStore } from '../../stores/auth';
 
 const meta = useMetaStore();
 const notify = useNotifyStore();
+const auth = useAuthStore();
 
 const loading = ref(true);
 const saving = ref(false);
@@ -136,7 +138,7 @@ async function remove(level) {
                 </div>
             </div>
             <v-spacer />
-            <v-btn color="primary" prepend-icon="mdi-plus" @click="openCreate">New Level</v-btn>
+            <v-btn v-if="!auth.isAuditor" color="primary" prepend-icon="mdi-plus" @click="openCreate">New Level</v-btn>
         </div>
 
         <v-card>
@@ -148,7 +150,7 @@ async function remove(level) {
                     { title: 'Default approver', key: 'default_approver', sortable: false },
                     { title: 'Status', key: 'is_active', sortable: false },
                     { title: '', key: 'actions', align: 'end', sortable: false },
-                ]"
+                ].filter((h) => h.key !== 'actions' || !auth.isAuditor)"
                 :items="levels"
                 :loading="loading"
                 density="comfortable"

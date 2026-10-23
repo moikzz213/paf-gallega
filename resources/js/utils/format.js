@@ -115,6 +115,7 @@ export function roleLabel(user) {
         requester: 'Requester',
         approver: `Approver — L${user?.approval_level ?? ''}`,
         finance: user?.approval_level != null ? `Finance — L${user.approval_level}` : 'Finance',
+        auditor: 'Auditor (view only)',
     };
     return labels[user?.role] ?? user?.role ?? '—';
 }

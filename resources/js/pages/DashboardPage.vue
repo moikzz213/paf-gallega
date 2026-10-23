@@ -177,7 +177,7 @@ const recentHeaders = [
                 <div class="text-body-2 text-medium-emphasis">Welcome back, {{ auth.user?.name }}</div>
             </div>
             <v-spacer />
-            <v-btn color="primary" prepend-icon="mdi-plus" to="/invoices/new">New Request</v-btn>
+            <v-btn v-if="!auth.isAuditor" color="primary" prepend-icon="mdi-plus" to="/invoices/new">New Request</v-btn>
         </div>
 
         <v-card class="mb-6">

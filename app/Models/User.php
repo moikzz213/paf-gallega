@@ -31,11 +31,15 @@ class User extends Authenticatable
 
     public const ROLE_FINANCE = 'finance';
 
+    /** Sees every page and record, changes nothing — see BlockAuditorWrites. */
+    public const ROLE_AUDITOR = 'auditor';
+
     public const ROLES = [
         self::ROLE_ADMIN,
         self::ROLE_REQUESTER,
         self::ROLE_APPROVER,
         self::ROLE_FINANCE,
+        self::ROLE_AUDITOR,
     ];
 
     /**
@@ -132,10 +136,18 @@ class User extends Authenticatable
         return $this->role === self::ROLE_FINANCE;
     }
 
-    /** Admin & finance can see every invoice; approvers see those routed to them. */
+    public function isAuditor(): bool
+    {
+        return $this->role === self::ROLE_AUDITOR;
+    }
+
+    /**
+     * Admin, finance & auditors can see every invoice and payment request; approvers see those
+     * routed to them. Visibility only — an auditor's writes are refused by BlockAuditorWrites.
+     */
     public function canViewAllInvoices(): bool
     {
-        return in_array($this->role, [self::ROLE_ADMIN, self::ROLE_FINANCE], true);
+        return in_array($this->role, [self::ROLE_ADMIN, self::ROLE_FINANCE, self::ROLE_AUDITOR], true);
     }
 
     /**

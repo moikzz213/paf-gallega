@@ -3,9 +3,11 @@ import { onMounted, reactive, ref, watch } from 'vue';
 import api, { errorMessage } from '../../services/api';
 import { useMetaStore } from '../../stores/meta';
 import { useNotifyStore } from '../../stores/notify';
+import { useAuthStore } from '../../stores/auth';
 
 const meta = useMetaStore();
 const notify = useNotifyStore();
+const auth = useAuthStore();
 
 const loading = ref(false);
 const saving = ref(false);
@@ -26,10 +28,10 @@ const rules = {
     email: (v) => /.+@.+\..+/.test(v) || 'Invalid email',
 };
 
-const roleLabels = { admin: 'Administrator', requester: 'Requester', approver: 'Approver', finance: 'Finance' };
+const roleLabels = { admin: 'Administrator', requester: 'Requester', approver: 'Approver', finance: 'Finance', auditor: 'Auditor' };
 // Approvers must have a level; Finance may be given one to become selectable as an approver.
 const takesLevel = (role) => role === 'approver' || role === 'finance';
-const roleColors = { admin: '#4a3aa7', requester: '#2a78d6', approver: '#eda100', finance: '#1baf7a' };
+const roleColors = { admin: '#4a3aa7', requester: '#2a78d6', approver: '#eda100', finance: '#1baf7a', auditor: '#6b7280' };
 
 const headers = [
     { title: 'Name', key: 'name', sortable: false },
@@ -40,7 +42,7 @@ const headers = [
     { title: 'Can view PAFs of', key: 'viewable_colleagues', sortable: false },
     { title: 'Status', key: 'is_active', sortable: false },
     { title: '', key: 'actions', align: 'end', sortable: false },
-];
+].filter((h) => h.key !== 'actions' || !auth.isAuditor);
 
 async function load() {
     loading.value = true;
@@ -135,7 +137,7 @@ onMounted(() => meta.load());
                 <div class="text-body-2 text-medium-emphasis">Manage accounts, roles and approval levels</div>
             </div>
             <v-spacer />
-            <v-btn color="primary" prepend-icon="mdi-account-plus" @click="openCreate">New User</v-btn>
+            <v-btn v-if="!auth.isAuditor" color="primary" prepend-icon="mdi-account-plus" @click="openCreate">New User</v-btn>
         </div>
 
         <v-card class="mb-4">

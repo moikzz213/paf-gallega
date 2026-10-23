@@ -1,7 +1,7 @@
 <script setup>
 import { computed, onMounted, reactive, ref, watch } from 'vue';
 import api from '../services/api';
-import { money, shortDate, STATUS_META, statusLabel, moneyByCurrency } from '../utils/format';
+import { money, shortDate, STATUS_META, statusLabel } from '../utils/format';
 import { useMetaStore } from '../stores/meta';
 import StatusChip from '../components/StatusChip.vue';
 
@@ -141,15 +141,27 @@ function exportExcel() {
     window.open(`/api/reports/export${query ? `?${query}` : ''}`, '_blank');
 }
 
-const summaryCards = computed(() =>
-    summary.value.map((s) => ({
+// A tile lists this many currencies (the server sends the busiest first); the rest sit in a tooltip.
+const VISIBLE_CURRENCIES = 3;
+
+const nonZero = (amounts) => (amounts ?? []).filter((a) => a && Number(a.amount) !== 0);
+
+const summaryCards = computed(() => [
+    {
+        status: 'all',
+        label: 'Matching requests',
+        count: totals.value.count,
+        amounts: nonZero(totals.value.amounts),
+        color: 'rgb(var(--v-theme-primary))',
+    },
+    ...summary.value.map((s) => ({
         status: s.status,
         label: statusLabel(s.status),
         count: s.count,
-        amounts: s.amounts ?? [],
+        amounts: nonZero(s.amounts),
         color: STATUS_META[s.status]?.color ?? '#898781',
-    }))
-);
+    })),
+]);
 
 onMounted(() => meta.load());
 </script>
@@ -190,26 +202,35 @@ onMounted(() => meta.load());
             </v-card-text>
         </v-card>
 
-        <v-row class="mb-1">
-            <v-col cols="12" sm="6" md="3">
-                <v-card class="pa-3">
-                    <div class="text-h5 font-weight-bold">{{ totals.count }}</div>
-                    <div class="text-body-2 text-medium-emphasis">Matching requests</div>
-                    <!-- One total per currency — never a sum across currencies. -->
-                    <div class="text-caption text-medium-emphasis">{{ moneyByCurrency(totals.amounts) }}</div>
-                </v-card>
-            </v-col>
-            <v-col v-for="card in summaryCards" :key="card.status" cols="12" sm="6" md="3">
-                <v-card class="pa-3">
-                    <div class="d-flex align-center">
-                        <span class="mr-2" :style="{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: card.color, display: 'inline-block' }" />
-                        <div class="text-h5 font-weight-bold">{{ card.count }}</div>
+        <!-- One total per currency — never a sum across currencies. -->
+        <div class="summary-grid mb-4">
+            <v-card v-for="card in summaryCards" :key="card.status" class="summary-tile pa-4" :style="{ borderLeftColor: card.color }">
+                <div class="d-flex align-center text-body-medium text-medium-emphasis summary-label">
+                    <span class="summary-dot mr-2" :style="{ backgroundColor: card.color }" />
+                    {{ card.label }}
+                </div>
+                <div class="text-headline-small font-weight-bold tabular mt-1">{{ Number(card.count ?? 0).toLocaleString() }}</div>
+
+                <v-divider class="my-2" />
+
+                <div v-if="!card.amounts.length" class="text-body-medium text-medium-emphasis tabular">{{ money(0) }}</div>
+                <div v-for="a in card.amounts.slice(0, VISIBLE_CURRENCIES)" :key="a.currency" class="summary-amount text-body-medium">
+                    <span class="text-medium-emphasis">{{ a.currency }}</span>
+                    <span class="tabular">{{ money(a.amount, '') }}</span>
+                </div>
+                <v-tooltip v-if="card.amounts.length > VISIBLE_CURRENCIES" location="bottom">
+                    <template #activator="{ props }">
+                        <div v-bind="props" class="text-body-small text-primary mt-1 summary-more">
+                            +{{ card.amounts.length - VISIBLE_CURRENCIES }} more
+                        </div>
+                    </template>
+                    <div v-for="a in card.amounts.slice(VISIBLE_CURRENCIES)" :key="a.currency" class="summary-amount text-body-medium">
+                        <span>{{ a.currency }}</span>
+                        <span class="tabular">{{ money(a.amount, '') }}</span>
                     </div>
-                    <div class="text-body-2 text-medium-emphasis">{{ card.label }}</div>
-                    <div class="text-caption text-medium-emphasis">{{ moneyByCurrency(card.amounts) }}</div>
-                </v-card>
-            </v-col>
-        </v-row>
+                </v-tooltip>
+            </v-card>
+        </div>
 
         <v-card>
             <v-data-table-server
@@ -252,3 +273,45 @@ onMounted(() => meta.load());
         </v-card>
     </div>
 </template>
+
+<style scoped>
+.tabular {
+    font-variant-numeric: tabular-nums;
+}
+
+/* Every tile on one row on desktop, wrapping evenly on narrower screens. */
+.summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 16px;
+}
+
+.summary-tile {
+    border-left: 4px solid transparent;
+}
+
+.summary-label {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.summary-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+}
+
+.summary-amount {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    line-height: 1.6;
+}
+
+.summary-more {
+    cursor: default;
+    width: fit-content;
+}
+</style>

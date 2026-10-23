@@ -11,7 +11,7 @@ posts them to the ERP; Finance then groups posted invoices into a **Payment Requ
 is routed through a **dynamic, per-request approval chain** and finally marked paid — all with a
 full audit trail.
 
-## Target users (four roles)
+## Target users (five roles)
 
 | Role | Who | Primary activity |
 |------|-----|------------------|
@@ -19,6 +19,7 @@ full audit trail.
 | **Finance** | AP / accounts | Post invoices to ERP or raise queries; create payment requests; mark paid |
 | **Approver** | Managers / directors / CFO … | Approve the payment-request stages assigned to them, or raise an approval query |
 | **Admin** | System administrators | Manage users & approval levels; view audit logs; can do everything |
+| **Auditor** | Internal / external auditors | See every page and record, read-only; can change nothing |
 
 ## Main business workflow (the four steps)
 

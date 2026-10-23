@@ -237,17 +237,17 @@ class PaymentRequest extends Model
      * Narrower than seeing the request: a submitter can open a request that holds one of their
      * invoices, but the request may group invoices from other submitters and departments, and a
      * document covering the whole payment can show figures for all of them. So Finance, admins and
-     * the approvers on this request's chain only.
+     * the approvers on this request's chain only — and auditors, who see everything read-only.
      */
     public function documentsVisibleTo(User $user): bool
     {
-        return $user->isAdmin() || $user->isFinance()
+        return $user->canViewAllInvoices()
             || $this->approvals()->where('approver_id', $user->id)->exists();
     }
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
-        if ($user->isAdmin() || $user->isFinance()) {
+        if ($user->canViewAllInvoices()) {
             return $query;
         }
 
