@@ -130,6 +130,17 @@ Test Case document — this happens **before Forge**, so the tests define what "
 - During **Tune**, execute the checklist and record the outcome; automated coverage still goes in
   `tests/` as usual (see [Testing](#testing)).
 
+## Context Rules
+
+These rules work within [LIFT](#the-lift-workflow-follow-for-every-task). They do not replace it.
+
+- Do not read unrelated files.
+- Only inspect files the user mentions, plus what **Learn** requires: the relevant `/ai` docs
+  and the code paths the task touches.
+- Do not scan `node_modules`.
+- Do not scan the `vendor` directory.
+- Keep responses concise.
+
 ## AI behavior rules
 
 - **Do not invent facts.** If a detail isn't in the docs or code, go read the code. Never answer
