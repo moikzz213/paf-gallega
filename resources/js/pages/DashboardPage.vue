@@ -76,6 +76,9 @@ async function load() {
 onMounted(load);
 watch(period, load);
 
+// Currencies listed on a card before the rest fold into a "+N more" tooltip, so cards stay even.
+const VISIBLE_CURRENCIES = 4;
+
 const cards = computed(() => {
     if (!dash.value) return [];
     const c = dash.value.cards;
@@ -268,20 +271,36 @@ const recentHeaders = [
 
             <v-row>
                 <v-col v-for="card in cards" :key="card.title" cols="12" sm="6" lg="3">
-                    <v-card class="pa-1">
-                        <v-card-text class="d-flex align-center">
-                            <v-avatar :style="{ backgroundColor: card.color + '1a' }" size="48" class="mr-4">
-                                <v-icon :style="{ color: card.color }">{{ card.icon }}</v-icon>
+                    <v-card class="stat-card h-100 pa-4 d-flex flex-column" :style="{ borderTopColor: card.color }">
+                        <div class="d-flex align-center">
+                            <v-avatar :style="{ backgroundColor: card.color + '1a' }" size="36" class="mr-3">
+                                <v-icon :style="{ color: card.color }" size="20">{{ card.icon }}</v-icon>
                             </v-avatar>
-                            <div>
-                                <div class="text-h4 font-weight-bold">{{ card.value }}</div>
-                                <div class="text-body-2 text-medium-emphasis">{{ card.title }}</div>
-                                <div v-for="a in card.amounts ?? []" :key="a.currency" class="text-caption">
-                                    {{ money(a.amount, a.currency) }}
-                                </div>
-                                <div class="text-caption text-medium-emphasis">{{ card.caption }}</div>
+                            <span class="text-body-medium text-medium-emphasis">{{ card.title }}</span>
+                        </div>
+                        <div class="text-headline-small font-weight-bold tabular mt-3">{{ Number(card.value ?? 0).toLocaleString() }}</div>
+
+                        <template v-if="card.amounts">
+                            <v-divider class="my-2" />
+                            <div v-if="!card.amounts.length" class="text-body-medium text-medium-emphasis tabular">{{ money(0) }}</div>
+                            <div v-for="a in card.amounts.slice(0, VISIBLE_CURRENCIES)" :key="a.currency" class="stat-amount text-body-medium">
+                                <span class="text-medium-emphasis">{{ a.currency }}</span>
+                                <span class="tabular">{{ money(a.amount, '') }}</span>
                             </div>
-                        </v-card-text>
+                            <v-tooltip v-if="card.amounts.length > VISIBLE_CURRENCIES" location="bottom">
+                                <template #activator="{ props }">
+                                    <div v-bind="props" class="text-body-small text-primary mt-1 stat-more">
+                                        +{{ card.amounts.length - VISIBLE_CURRENCIES }} more
+                                    </div>
+                                </template>
+                                <div v-for="a in card.amounts.slice(VISIBLE_CURRENCIES)" :key="a.currency" class="stat-amount text-body-medium">
+                                    <span>{{ a.currency }}</span>
+                                    <span class="tabular">{{ money(a.amount, '') }}</span>
+                                </div>
+                            </v-tooltip>
+                        </template>
+
+                        <div class="text-body-small text-medium-emphasis mt-auto pt-3">{{ card.caption }}</div>
                     </v-card>
                 </v-col>
             </v-row>
@@ -395,5 +414,21 @@ const recentHeaders = [
 <style scoped>
 .tabular {
     font-variant-numeric: tabular-nums;
+}
+
+.stat-card {
+    border-top: 3px solid transparent;
+}
+
+.stat-amount {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    line-height: 1.6;
+}
+
+.stat-more {
+    cursor: default;
+    width: fit-content;
 }
 </style>
