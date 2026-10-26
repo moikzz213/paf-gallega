@@ -131,7 +131,7 @@ async function confirmDialog() {
         <v-card class="mb-4">
             <v-card-text>
                 <v-row dense>
-                    <v-col cols="12" md="4">
+                    <v-col cols="12" md="5">
                         <v-text-field
                             v-model="filters.q"
                             label="Search reference, vendor, invoice #"
@@ -140,7 +140,7 @@ async function confirmDialog() {
                             hide-details
                         />
                     </v-col>
-                    <v-col cols="12" sm="6" md="3">
+                    <v-col cols="12" sm="6" md="4">
                         <v-select
                             v-model="filters.status"
                             :items="statusOptions()"
@@ -152,7 +152,7 @@ async function confirmDialog() {
                             hide-details
                         />
                     </v-col>
-                    <v-col cols="12" sm="6" md="2">
+                    <v-col cols="12" sm="6" md="3">
                         <v-select
                             v-model="filters.department"
                             :items="meta.departments"
@@ -161,7 +161,7 @@ async function confirmDialog() {
                             hide-details
                         />
                     </v-col>
-                    <v-col cols="12" sm="6" md="2">
+                    <v-col cols="12" sm="6" md="3">
                         <v-select
                             v-model="filters.priority"
                             :items="meta.priorities.map(p => ({ value: p, title: PRIORITY_META[p]?.label ?? p }))"
@@ -170,7 +170,7 @@ async function confirmDialog() {
                             hide-details
                         />
                     </v-col>
-                    <v-col cols="12" sm="6" md="2">
+                    <v-col cols="12" sm="6" md="3">
                         <v-select
                             v-model="filters.advance_payment"
                             :items="[{ value: true, title: 'Advance payments' }, { value: false, title: 'Ordinary payments' }]"
@@ -179,10 +179,10 @@ async function confirmDialog() {
                             hide-details
                         />
                     </v-col>
-                    <v-col cols="6" md="1.5">
+                    <v-col cols="6" md="3">
                         <v-text-field v-model="filters.date_from" label="From" type="date" hide-details />
                     </v-col>
-                    <v-col cols="6" md="1.5">
+                    <v-col cols="6" md="3">
                         <v-text-field v-model="filters.date_to" label="To" type="date" hide-details />
                     </v-col>
                 </v-row>
