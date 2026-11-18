@@ -62,6 +62,14 @@ Laravel 13 (routes/web.php, prefix "api")
     audits the complete batch in one transaction.
   - `AuditLogger` — static `log(action, description, ?invoice, ?old, ?new, ?paymentRequest)`
     writing `audit_logs` with the current user + request IP.
+- **Mail sign-in** — `MAIL_SMTP_AUTH` (`config('mail.mailers.smtp.auth')`) picks how the `smtp`
+  mailer signs in: `password` (default, Laravel's own transport, untouched) or `oauth`. With `oauth`,
+  `AppServiceProvider` re-registers the `smtp` transport with `App\Mail\Transport\MicrosoftOAuthAuthenticator`
+  as its only authenticator (XOAUTH2). It asks `App\Services\MicrosoftOAuthToken` for a token on every
+  connection. The token is a client-credentials grant from the `services.microsoft` tenant app, held
+  in memory and renewed five minutes before expiry. It is never stored in the cache store, because it
+  is a bearer credential. The long-running queue worker keeps one transport, which is why the token
+  is not baked into it as a password. Exchange refusing the token makes the next attempt fetch a new one.
 - **Spreadsheet import/export** — Laravel Excel reads the first template sheet through
   `MasterDataSpreadsheetImport`; `MasterDataTemplateExport` builds the entry and instructions
   sheets. `MasterDataDefinition` is the shared entity/column map used by the controller, importer
