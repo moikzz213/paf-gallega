@@ -104,6 +104,40 @@ Driven by `.env` (see `.env.example`). Key settings for this project:
 | `CACHE_STORE` | `database` | |
 | `FILESYSTEM_DISK` | `local` | invoice documents stored here (`storage/app`) |
 | `MAIL_MAILER` | `log` | **email is not actually sent** — logged only |
+| `MAIL_SMTP_AUTH` | `password` | how the `smtp` mailer signs in: `password` (`MAIL_USERNAME` + `MAIL_PASSWORD`) or `oauth` (Microsoft 365 token, see below) |
+| `MICROSOFT_TENANT_ID` / `MICROSOFT_CLIENT_ID` / `MICROSOFT_CLIENT_SECRET` | empty | the Microsoft 365 app registration, used only when `MAIL_SMTP_AUTH=oauth` |
+
+### Microsoft 365 mail with OAuth (`MAIL_SMTP_AUTH=oauth`)
+
+SMTP still goes through Exchange Online. Only the sign-in changes, from the mailbox password to a
+token from the tenant's app registration. This is not Microsoft Graph.
+
+```env
+MAIL_MAILER=smtp
+MAIL_SMTP_AUTH=oauth
+MAIL_HOST=smtp.office365.com
+MAIL_PORT=587
+MAIL_USERNAME=paf@yourcompany.com      # the mailbox the app was granted (falls back to MAIL_FROM_ADDRESS)
+MAIL_FROM_ADDRESS=paf@yourcompany.com
+MICROSOFT_TENANT_ID=
+MICROSOFT_CLIENT_ID=
+MICROSOFT_CLIENT_SECRET=
+```
+
+Microsoft 365 setup (IT):
+
+1. Entra ID → App registrations: register an app. Under API permissions, add **Office 365 Exchange
+   Online → Application → `SMTP.SendAsApp`**, grant admin consent, and create a client secret.
+   Record the secret's expiry: mail stops when it lapses.
+2. Exchange Online PowerShell: `New-ServicePrincipal -AppId <client id> -ObjectId <enterprise app object id>`,
+   then `Add-MailboxPermission -Identity <mailbox> -User <service principal id> -AccessRights FullAccess`.
+   The app can sign in only to the mailboxes granted this way.
+3. Keep SMTP AUTH on for that mailbox: `Set-CASMailbox <mailbox> -SmtpClientAuthenticationDisabled $false`.
+
+Then `php artisan config:clear` (if cached) and `php artisan queue:restart`. A wrong or expired
+credential fails the queued mail job with Microsoft's reason in the log (`AADSTS…`, or a `535` from
+SMTP). Fix `.env`, restart the worker, then `php artisan queue:retry all`. To go back, set
+`MAIL_SMTP_AUTH=password` and restart the worker.
 
 > `config/app.php` sets timezone `Asia/Dubai` (note: this is a committed edit, not env-driven).
 
