@@ -121,7 +121,7 @@ class PaymentRequestController extends Controller
             'creator:id,name', 'payer:id,name', 'withdrawer:id,name',
             'invoices.submitter:id,name',
             'invoices.items.customer:id,name',
-            'approvals.approver:id,name',
+            'approvals.approver:id,name', 'approvals.skipper:id,name',
             'auditLogs.user:id,name',
             'corrections.user:id,name', 'corrections.invoice:id,reference_no',
             'queries.raiser:id,name', 'queries.resubmitter:id,name',
@@ -159,6 +159,7 @@ class PaymentRequestController extends Controller
             $data['approvers'] ?? [],
             $data['adhoc_approvers'] ?? [],
             ! empty($data['l2a_approver_id']) ? (int) $data['l2a_approver_id'] : null,
+            $data['on_leave'] ?? [],
         );
 
         // Supporting documents for the payment as a whole (a vendor statement, a covering memo),
@@ -231,6 +232,20 @@ class PaymentRequestController extends Controller
         $pr = $this->service->resubmit($paymentRequest, $request->user(), $data['response']);
 
         return response()->json($pr->load('approvals.approver:id,name', 'queries.raiser:id,name', 'queries.resubmitter:id,name'));
+    }
+
+    /**
+     * The approver holding the request is on leave: skip their stage and route the request to the
+     * next approver. Finance/admin only (route middleware, and the service checks it too).
+     */
+    public function markOnLeave(Request $request, PaymentRequest $paymentRequest)
+    {
+        $data = $request->validate(['reason' => ['required', 'string', 'max:500']], [
+            'reason.required' => 'Give a reason for marking the approver on leave.',
+        ]);
+        $pr = $this->service->markOnLeave($paymentRequest, $request->user(), $data['reason']);
+
+        return response()->json($pr->load('approvals.approver:id,name', 'approvals.skipper:id,name'));
     }
 
     /**
@@ -327,8 +342,13 @@ class PaymentRequestController extends Controller
      * Which levels apply is decided on the invoices' worth in the base currency, not on their face
      * value: the thresholds are AED figures, so a USD 36,000 request has to be measured as the
      * ~AED 132,000 it is worth or it routes below the tier that should sign it.
+     *
+     * `$onLeave` maps a level to the reason its approver is on leave. That level's stage is still
+     * built with its approver — whose absence it records — and the service saves it as skipped.
+     *
+     * @param  array<int|string, string>  $onLeave
      */
-    private function buildStages($invoices, array $assignments, array $adhoc, ?int $l2aApproverId = null): array
+    private function buildStages($invoices, array $assignments, array $adhoc, ?int $l2aApproverId = null, array $onLeave = []): array
     {
         $levels = ApprovalLevel::requiredForInvoices($invoices);
 
@@ -356,6 +376,7 @@ class PaymentRequestController extends Controller
                 'label' => $jobTitle((int) $approverId) ?? $level->name,
                 'level' => $level->level,
                 'is_adhoc' => false,
+                'on_leave_reason' => trim((string) ($onLeave[$level->level] ?? '')) ?: null,
             ];
 
             // L2-A: the optional second signature at level 2, routed straight after L2 rather than
@@ -455,9 +476,15 @@ class PaymentRequestController extends Controller
             // The optional second signature at level 2 — see buildStages for where it lands in the
             // chain and the two ways it can be refused.
             'l2a_approver_id' => ['nullable', 'integer', $isApprover],
+            // Levels whose approver is on leave, keyed by level, each with its required reason.
+            // The stage is recorded as skipped and the request goes to the next approver.
+            'on_leave' => ['nullable', 'array'],
+            'on_leave.*' => ['required', 'string', 'max:500'],
             // Optional documents for the request as a whole; same limits as an invoice's.
             'documents' => ['nullable', 'array', 'max:'.config('paf.max_documents')],
             'documents.*' => ['file', 'mimes:'.config('paf.document_mimes'), 'max:'.config('paf.max_document_kb')],
+        ], [
+            'on_leave.*.required' => 'Give a reason for each approver marked on leave.',
         ]);
     }
 }

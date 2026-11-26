@@ -109,6 +109,16 @@ const openQuery = computed(() => (pr.value?.queries ?? []).find((q) => !q.resubm
 const canResubmit = computed(() => pr.value?.status === 'queried'
     && (auth.canProcessPayments || (pr.value?.invoices ?? []).some((i) => i.submitted_by === auth.user?.id)));
 const canPay = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
+// The approver holding the request is on leave: Finance/admin skip their stage and the request goes
+// to the next approver. Only while it is waiting, and only when there is a next approver to go to.
+// Mirrors PaymentRequestService::markOnLeave.
+const nextStep = computed(() => (pr.value?.approvals ?? [])
+    .filter((s) => s.status === 'pending' && s.sequence > (pr.value?.current_stage ?? Infinity))
+    .sort((a, b) => a.sequence - b.sequence)[0] ?? null);
+const canMarkOnLeave = computed(() => auth.canProcessPayments
+    && pr.value?.status === 'in_approval'
+    && !!currentStep.value
+    && !!nextStep.value);
 // Reversing a completed approval is a Finance/admin call, never an approver's.
 const canWithdraw = computed(() => auth.canProcessPayments && pr.value?.status === 'approved');
 // The payment reference is the transfer/cheque number keyed by hand when the payment is recorded,
@@ -146,6 +156,7 @@ const dialogTitle = computed(() => ({
     approve: 'Approve Payment Request',
     query: 'Raise an Approval Query',
     resubmit: 'Answer Query and Resubmit',
+    onLeave: 'Mark Approver On Leave',
     withdraw: 'Withdraw Payment Request',
     pay: 'Mark as Paid',
     editPaymentRef: 'Correct Payment Reference',
@@ -158,6 +169,7 @@ async function runAction(kind, payload = {}) {
             approve: `/payment-requests/${props.id}/approve`,
             query: `/payment-requests/${props.id}/query`,
             resubmit: `/payment-requests/${props.id}/resubmit`,
+            onLeave: `/payment-requests/${props.id}/on-leave`,
             withdraw: `/payment-requests/${props.id}/withdraw`,
             pay: `/payment-requests/${props.id}/mark-paid`,
             editPaymentRef: `/payment-requests/${props.id}/payment-reference`,
@@ -167,6 +179,7 @@ async function runAction(kind, payload = {}) {
             approve: 'Stage approved.',
             query: 'Query sent — the request is on hold until it is answered and resubmitted to you.',
             resubmit: 'Query answered — the request is back with the approver who raised it.',
+            onLeave: 'Approver marked on leave — the request has moved to the next approver, who has been emailed.',
             withdraw: 'Payment request withdrawn — its invoices are back in the Invoice Log.',
             pay: 'Payment recorded.',
             editPaymentRef: 'Payment reference corrected.',
@@ -191,6 +204,10 @@ function confirmDialog() {
         if (!comments.trim()) return notify.error('A response is required to resubmit.');
         return runAction('resubmit', { response: comments });
     }
+    if (kind === 'onLeave') {
+        if (!comments.trim()) return notify.error('A reason is required to mark the approver on leave.');
+        return runAction('onLeave', { reason: comments });
+    }
     if (kind === 'withdraw') {
         if (!comments.trim()) return notify.error('A reason is required to withdraw.');
         return runAction('withdraw', { reason: comments });
@@ -209,10 +226,10 @@ function confirmDialog() {
 }
 
 function approvalIcon(status) {
-    return { approved: 'mdi-check-circle', rejected: 'mdi-close-circle', pending: 'mdi-circle-outline' }[status];
+    return { approved: 'mdi-check-circle', rejected: 'mdi-close-circle', pending: 'mdi-circle-outline', skipped: 'mdi-airplane' }[status];
 }
 function approvalColor(status) {
-    return { approved: '#1baf7a', rejected: '#e34948', pending: '#898781' }[status];
+    return { approved: '#1baf7a', rejected: '#e34948', pending: '#898781', skipped: '#b87a00' }[status];
 }
 </script>
 
@@ -238,6 +255,14 @@ function approvalColor(status) {
             <v-btn v-if="canAct" color="success" prepend-icon="mdi-check" @click="openDialog('approve')">Approve</v-btn>
             <v-btn v-if="canAct" color="warning" variant="tonal" prepend-icon="mdi-help-circle-outline" @click="openDialog('query')">Query</v-btn>
             <v-btn v-if="canResubmit" color="primary" prepend-icon="mdi-reply" @click="openDialog('resubmit')">Answer &amp; Resubmit</v-btn>
+            <v-btn
+                v-if="canMarkOnLeave"
+                color="warning"
+                variant="tonal"
+                prepend-icon="mdi-airplane"
+                :title="`${currentStep.approver?.name ?? 'The current approver'} is on leave — skip to the next approver`"
+                @click="openDialog('onLeave')"
+            >Mark On Leave</v-btn>
             <v-btn v-if="canPay" color="success" prepend-icon="mdi-cash-check" @click="openDialog('pay')">Mark Paid</v-btn>
             <v-btn v-if="canWithdraw" color="warning" variant="tonal" prepend-icon="mdi-undo-variant" @click="openDialog('withdraw')">Withdraw</v-btn>
             <v-btn
@@ -385,10 +410,15 @@ function approvalColor(status) {
                                     <template v-if="step.status === 'pending'">
                                         {{ step.approver ? `Assigned to ${step.approver.name}` : 'Awaiting decision' }}
                                     </template>
+                                    <template v-else-if="step.status === 'skipped'">
+                                        <span style="color: #b87a00">Skipped — {{ step.approver?.name ?? 'approver' }} on leave</span>
+                                        · marked by {{ step.skipper?.name ?? '—' }} · {{ dateTime(step.acted_at) }}
+                                    </template>
                                     <template v-else>
                                         {{ step.status === 'approved' ? 'Approved' : 'Rejected' }} by {{ step.approver?.name }} · {{ dateTime(step.acted_at) }}
                                     </template>
                                 </div>
+                                <div v-if="step.skip_reason" class="text-caption font-italic mt-1">Reason: “{{ step.skip_reason }}”</div>
                                 <div v-if="step.comments" class="text-caption font-italic mt-1">“{{ step.comments }}”</div>
                             </v-timeline-item>
                         </v-timeline>
@@ -478,7 +508,14 @@ function approvalColor(status) {
             <v-card>
                 <v-card-title>{{ dialogTitle }}</v-card-title>
                 <v-card-text>
-                    <template v-if="['approve', 'query', 'resubmit', 'withdraw'].includes(dialog.kind)">
+                    <template v-if="['approve', 'query', 'resubmit', 'onLeave', 'withdraw'].includes(dialog.kind)">
+                        <v-alert v-if="dialog.kind === 'onLeave'" type="warning" variant="tonal" density="compact" class="mb-4">
+                            <strong>{{ currentStep?.approver?.name ?? 'The current approver' }}</strong>
+                            (Stage {{ currentStep?.sequence }} — {{ currentStep?.label }}) is skipped and does not sign
+                            this payment. The request goes to <strong>{{ nextStep?.approver?.name ?? 'the next approver' }}</strong>
+                            (Stage {{ nextStep?.sequence }} — {{ nextStep?.label }}), who is emailed. The skip and your
+                            reason are recorded on the request, the PAF and the audit trail. This cannot be undone.
+                        </v-alert>
                         <v-alert v-if="dialog.kind === 'query'" type="info" variant="tonal" density="compact" class="mb-4">
                             The request is put on hold at your stage — not rejected. The submitter, Finance or an
                             administrator answers your query and resubmits it, and it comes back to you with the
@@ -520,7 +557,7 @@ function approvalColor(status) {
                     <v-spacer />
                     <v-btn variant="text" @click="dialog.show = false">Cancel</v-btn>
                     <v-btn
-                        :color="['query', 'withdraw'].includes(dialog.kind) ? 'warning' : 'primary'"
+                        :color="['query', 'onLeave', 'withdraw'].includes(dialog.kind) ? 'warning' : 'primary'"
                         variant="flat"
                         :loading="acting"
                         @click="confirmDialog"

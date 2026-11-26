@@ -213,7 +213,7 @@ class PublicPaymentRequestController extends Controller
             'invoices.submitter:id,name',
             'invoices.items.customer:id,name',
             'invoices.documents',
-            'approvals.approver',
+            'approvals.approver', 'approvals.skipper:id,name',
             'documents',
             'corrections.user:id,name', 'corrections.invoice:id,reference_no',
             'queries.raiser:id,name', 'queries.resubmitter:id,name',

@@ -213,10 +213,12 @@ One row per chain stage, sequence-ordered.
 | `level` | tinyint, nullable | source approval level; null for ad-hoc |
 | `label` | string | the job description shown against this stage everywhere the chain is rendered (screen, PAF PDF, public link). Snapshotted at creation from the **approver's `job_title`**, falling back to the approval level's `name`; ad-hoc stages use the typed label, else the approver's job title. A later job change never rewrites a recorded approval |
 | `is_adhoc` | boolean | added beyond the amount-based levels |
-| `status` | string, default `pending` | `pending \| approved \| rejected` (`rejected` historical only). A queried stage stays `pending` with its approver |
-| `approver_id` | FK users, nullable | the assigned approver (and actor) |
+| `status` | string, default `pending` | `pending \| approved \| skipped \| rejected` (`rejected` historical only). A queried stage stays `pending` with its approver. `skipped` = the approver was **on leave**: passed over, never signed (`PaymentRequestApproval::STATUS_SKIPPED`) |
+| `approver_id` | FK users, nullable | the assigned approver (and actor). On a `skipped` stage, the approver who was on leave |
 | `comments` | text, nullable | |
-| `acted_at` | timestamp, nullable | |
+| `skip_reason` | text, nullable | why the approver was on leave — required whenever a stage is skipped (`2026_11_26_000001`) |
+| `skipped_by` | bigint, nullable, indexed | user who marked the approver on leave. **No FK constraint**: adding one makes MySQL re-check every existing FK, and the working database has approval rows whose PRF no longer exists (known issue #32) |
+| `acted_at` | timestamp, nullable | when approved, or when skipped |
 | timestamps | | |
 
 **Unique:** `(payment_request_id, sequence)`.

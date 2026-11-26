@@ -176,7 +176,7 @@ async function submitCreate() {
     if (!create.selected.length) return notify.error('Select at least one invoice.');
     if (mixedCurrency.value) return notify.error('All selected invoices must share one currency.');
     if (nothingPayable.value) return notify.error('The selected invoices come to zero or less, so nothing would be paid — also select the invoice(s) the credit note offsets.');
-    if (!chain.value.valid) return notify.error('Assign an approver for every approval stage.');
+    if (!chain.value.valid) return notify.error(chain.value.invalid_reason || 'Assign an approver for every approval stage.');
 
     // Marking a credit note rewrites the invoice's sign, which is the figure the approval
     // thresholds are measured against — worth one deliberate confirmation, the same way the
@@ -208,6 +208,7 @@ async function submitCreate() {
             if (stage.label) payload.append(`adhoc_approvers[${i}][label]`, stage.label);
         });
         if (chain.value.l2a_approver_id) payload.append('l2a_approver_id', chain.value.l2a_approver_id);
+        Object.entries(chain.value.on_leave ?? {}).forEach(([lvl, reason]) => payload.append(`on_leave[${lvl}]`, reason));
         create.files.forEach((file) => payload.append('documents[]', file));
 
         const { data } = await api.post('/payment-requests', payload);

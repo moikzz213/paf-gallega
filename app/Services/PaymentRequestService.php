@@ -195,6 +195,14 @@ class PaymentRequestService
             throw ValidationException::withMessages(['approvers' => 'Add at least one approver to the chain.']);
         }
 
+        // An approver marked on leave is recorded, but someone still has to sign the payment.
+        $isOnLeave = fn (array $s) => trim((string) ($s['on_leave_reason'] ?? '')) !== '';
+        if (! array_filter($stages, fn ($s) => ! $isOnLeave($s))) {
+            throw ValidationException::withMessages([
+                'on_leave' => 'Every approver on this chain is marked on leave. At least one approver must be available to sign the payment.',
+            ]);
+        }
+
         // Finance raises payment requests and can also be nominated as an approver, so the two roles
         // can land on the same person. Nobody signs off their own request — every payment keeps a
         // second pair of eyes.
@@ -204,12 +212,15 @@ class PaymentRequestService
             ]);
         }
 
-        $pr = DB::transaction(function () use ($invoices, $creator, $stages, $creditIds, $documents) {
+        $pr = DB::transaction(function () use ($invoices, $creator, $stages, $creditIds, $documents, $isOnLeave) {
+            // The chain starts with the first approver who is not on leave.
+            $firstAvailable = 1 + (int) array_key_first(array_filter($stages, fn ($s) => ! $isOnLeave($s)));
+
             $pr = PaymentRequest::create([
                 'reference_no' => PaymentRequest::nextReferenceNo(),
                 'created_by' => $creator->id,
                 'status' => PaymentRequest::STATUS_IN_APPROVAL,
-                'current_stage' => 1,
+                'current_stage' => $firstAvailable,
                 'total_amount' => $invoices->sum('total_amount'),
                 // Recorded, not derived: it has to survive the invoices leaving the request.
                 'currency' => $invoices->pluck('currency')->filter()->first(),
@@ -217,16 +228,27 @@ class PaymentRequestService
                 'last_reminder_sent_at' => now(),
             ]);
 
+            $skipped = [];
+
             foreach ($stages as $i => $stage) {
-                PaymentRequestApproval::create([
+                $onLeave = $isOnLeave($stage);
+
+                $approval = PaymentRequestApproval::create([
                     'payment_request_id' => $pr->id,
                     'sequence' => $i + 1,
                     'level' => $stage['level'] ?? null,
                     'label' => trim((string) ($stage['label'] ?? '')) ?: 'Approver',
                     'is_adhoc' => (bool) ($stage['is_adhoc'] ?? false),
                     'approver_id' => (int) $stage['approver_id'],
-                    'status' => PaymentRequestApproval::STATUS_PENDING,
+                    'status' => $onLeave ? PaymentRequestApproval::STATUS_SKIPPED : PaymentRequestApproval::STATUS_PENDING,
+                    'skip_reason' => $onLeave ? trim((string) $stage['on_leave_reason']) : null,
+                    'skipped_by' => $onLeave ? $creator->id : null,
+                    'acted_at' => $onLeave ? now() : null,
                 ]);
+
+                if ($onLeave) {
+                    $skipped[] = $approval;
+                }
             }
 
             // Inside the transaction, so a failure anywhere in creation leaves the invoice with the
@@ -246,6 +268,10 @@ class PaymentRequestService
                 "Payment request {$pr->reference_no} created for {$invoices->count()} invoice(s) ({$invoices->sum('total_amount')}); routed to {$pr->currentApproval()?->approver?->name}",
                 null, null, null, $pr,
             );
+
+            foreach ($skipped as $approval) {
+                $this->logOnLeave($pr, $approval, $creator);
+            }
 
             // Last in the transaction: the files are the one part a rollback cannot undo, so they are
             // written only once everything else has succeeded (and cleaned up if this step fails).
@@ -403,6 +429,83 @@ class PaymentRequestService
         }
 
         return $pr;
+    }
+
+    /**
+     * The approver holding the request is on leave: pass their stage over and route the request to
+     * the next approver, who is emailed as usual. Finance/admin only (route middleware, and checked
+     * here). The stage is recorded as skipped — never as an approval — with the reason.
+     *
+     * Only while the request is waiting for approval, and only when there is a next approver: the
+     * request must go to someone, so the last approver on the chain cannot be skipped.
+     *
+     * CR: ai/change-requests/route-payment-approvals-past-an-approver-on-leave.md
+     */
+    public function markOnLeave(PaymentRequest $pr, User $actor, string $reason): PaymentRequest
+    {
+        if (! $actor->isAdmin() && ! $actor->isFinance()) {
+            abort(403, 'Only Finance or an administrator can mark an approver on leave.');
+        }
+
+        if ($pr->status === PaymentRequest::STATUS_QUERIED) {
+            throw ValidationException::withMessages(['status' => 'This payment request is on hold for an approval query. Answer and resubmit the query first.']);
+        }
+
+        if ($pr->status !== PaymentRequest::STATUS_IN_APPROVAL) {
+            throw ValidationException::withMessages(['status' => 'This payment request is not awaiting approval.']);
+        }
+
+        $next = null;
+
+        $pr = DB::transaction(function () use ($pr, $actor, $reason, &$next) {
+            $stage = $pr->currentApproval();
+
+            $next = $pr->approvals()
+                ->where('status', PaymentRequestApproval::STATUS_PENDING)
+                ->where('sequence', '>', $stage->sequence)
+                ->orderBy('sequence')
+                ->first();
+
+            if (! $next) {
+                throw ValidationException::withMessages([
+                    'reason' => "{$stage->approver?->name} is the last approver on this chain, so there is no next approver to send the request to.",
+                ]);
+            }
+
+            $stage->update([
+                'status' => PaymentRequestApproval::STATUS_SKIPPED,
+                'skip_reason' => $reason,
+                'skipped_by' => $actor->id,
+                'acted_at' => now(),
+            ]);
+
+            // The next approver is told below, so the daily reminder starts counting from now.
+            $pr->update([
+                'current_stage' => $next->sequence,
+                'last_reminder_sent_at' => now(),
+            ]);
+
+            $this->logOnLeave($pr, $stage, $actor, $next);
+
+            return $pr->refresh();
+        });
+
+        $this->notifyNextApprover($pr, $next);
+
+        return $pr;
+    }
+
+    private function logOnLeave(PaymentRequest $pr, PaymentRequestApproval $stage, User $actor, ?PaymentRequestApproval $next = null): void
+    {
+        $approver = $stage->approver?->name ?? 'the approver';
+
+        AuditLogger::log(
+            'approver_on_leave',
+            "Stage {$stage->sequence} ({$stage->label}) on {$pr->reference_no} skipped: {$approver} on leave, marked by {$actor->name}"
+                .($next ? "; moved to {$next->label} ({$next->approver?->name})" : '')
+                .": {$stage->skip_reason}",
+            null, null, ['approver_id' => $stage->approver_id, 'skip_reason' => $stage->skip_reason], $pr,
+        );
     }
 
     /**
@@ -571,7 +674,10 @@ class PaymentRequestService
 
         $users = $this->answerers($pr)
             ->merge($stage >= 2
-                ? $pr->approvals->where('sequence', '<', $stage)->map(fn ($a) => $a->approver)
+                // An approver skipped while on leave took no part, so is not copied.
+                ? $pr->approvals->where('sequence', '<', $stage)
+                    ->where('status', '!=', PaymentRequestApproval::STATUS_SKIPPED)
+                    ->map(fn ($a) => $a->approver)
                 : [])
             ->merge($stage >= 4
                 ? $pr->approvals->where('sequence', $stage)->map(fn ($a) => $a->approver)
