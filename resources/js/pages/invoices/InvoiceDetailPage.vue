@@ -259,10 +259,10 @@ async function uploadLateDocuments() {
 }
 
 function approvalIcon(status) {
-    return { approved: 'mdi-check-circle', rejected: 'mdi-close-circle', pending: 'mdi-circle-outline' }[status];
+    return { approved: 'mdi-check-circle', rejected: 'mdi-close-circle', pending: 'mdi-circle-outline', skipped: 'mdi-airplane' }[status];
 }
 function approvalColor(status) {
-    return { approved: '#1baf7a', rejected: '#e34948', pending: '#898781' }[status];
+    return { approved: '#1baf7a', rejected: '#e34948', pending: '#898781', skipped: '#b87a00' }[status];
 }
 
 const auditIcons = {
@@ -578,6 +578,9 @@ const auditIcons = {
                                 <div class="text-caption text-medium-emphasis">
                                     <template v-if="step.status === 'pending'">
                                         {{ step.approver ? `Assigned to ${step.approver.name}` : 'Awaiting decision' }}
+                                    </template>
+                                    <template v-else-if="step.status === 'skipped'">
+                                        Skipped — {{ step.approver?.name ?? 'approver' }} on leave · {{ dateTime(step.acted_at) }}
                                     </template>
                                     <template v-else>
                                         {{ step.status === 'approved' ? 'Approved' : 'Rejected' }} by {{ step.approver?.name }} · {{ dateTime(step.acted_at) }}

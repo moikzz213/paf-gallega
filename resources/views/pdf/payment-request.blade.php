@@ -50,6 +50,9 @@
         .arrow-link span { float: right; width: 0; height: 0; margin-top: -4px; margin-right: -1px; border-top: 4px solid transparent; border-bottom: 4px solid transparent; border-left: 7px solid #315d93; font-size: 0; line-height: 0; }
         .signature-box { height: 38px; padding: 3px 2px; border: 1px solid #555; font-size: 6px; font-weight: bold; text-align: center; }
         .signature-box.not-required { border-style: dashed; border-color: #aaa; background: #f4f4f4; color: #999; font-weight: normal; }
+        /* Approver on leave: the stage was passed over, not signed. */
+        .signature-box.skipped { border-style: dashed; border-color: #b26a00; background: #fff4e0; color: #8a5200; }
+        .skipped-label { font-size: 5.5px; font-style: italic; font-weight: normal; }
         .signature-date { margin-top: 2px; font-size: 5px; font-weight: normal; }
         .signature-action { min-height: 13px; padding: 2px 1px 0; font-size: 6px; font-weight: bold; line-height: 1.2; }
         .signature-role { min-height: 17px; padding: 2px 1px 2px; font-size: 5.5px; font-weight: bold; line-height: 1.2; }
@@ -84,6 +87,9 @@
         .corrected-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #1565c0;
                             background: #e3f2fd; color: #0d47a1; font-size: 7px; font-weight: bold;
                             text-align: center; }
+        /* Approvers skipped while on leave, and why. */
+        .on-leave-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #b26a00;
+                           background: #fff4e0; color: #8a5200; font-size: 7px; text-align: left; }
         /* Approval queries asked on this request, and the answers that resumed it. */
         .query-banner { margin-bottom: 3px; padding: 3px 5px; border: 1px solid #b26a00;
                         background: #fff4e0; color: #8a5200; font-size: 7px; text-align: left; }
@@ -122,13 +128,23 @@
         $remainingApprovals = $approvals->reject(
             fn ($approval) => $requisitionApprovals->contains('id', $approval->id)
         )->values();
+        // An approver skipped while on leave never signed, so their box must not read as a signature.
+        $isSkipped = fn ($ap) => $ap->status === \App\Models\PaymentRequestApproval::STATUS_SKIPPED;
+        $stageAction = fn ($ap) => match ($ap->status) {
+            'approved' => 'Approved By',
+            'rejected' => 'Rejected By',
+            \App\Models\PaymentRequestApproval::STATUS_SKIPPED => 'On Leave — Not Signed',
+            default => 'Pending Approval',
+        };
+        $skippedApprovals = $approvals->filter($isSkipped)->values();
         $requisitionCards = collect([
             ['name' => $requesters ?: ($paymentRequest->creator?->name ?? '-'), 'date' => ($paymentRequest->sent_at ?? $paymentRequest->created_at)?->format('d/m/Y'), 'action' => 'Prepared By / Requested By', 'role' => $departments ?: 'Executive / Officer'],
         ])->concat($requisitionApprovals->map(fn ($approval) => [
             'name' => $approval->approver?->name ?? '',
             'date' => $approval->acted_at?->format('d/m/Y') ?? '',
-            'action' => 'Approved By',
+            'action' => $isSkipped($approval) ? $stageAction($approval) : 'Approved By',
             'role' => $approval->label,
+            'skipped' => $isSkipped($approval),
         ]));
 
         // For Approval column: show EVERY configured approval level above the requisition
@@ -142,7 +158,8 @@
                 $forApprovalCards->push([
                     'name' => $ap->approver?->name ?? '',
                     'date' => $ap->acted_at?->format('d/m/Y'),
-                    'action' => $ap->status === 'approved' ? 'Approved By' : ($ap->status === 'rejected' ? 'Rejected By' : 'Pending Approval'),
+                    'action' => $stageAction($ap),
+                    'skipped' => $isSkipped($ap),
                     // The stage's own label — the approver's job title as recorded when the chain was
                     // built — so the paper form matches the chain on screen. The level name is what
                     // that label falls back to, and stays the text for a level nobody was assigned.
@@ -164,7 +181,8 @@
             $forApprovalCards->push([
                 'name' => $ap->approver?->name ?? '',
                 'date' => $ap->acted_at?->format('d/m/Y'),
-                'action' => $ap->status === 'approved' ? 'Approved By' : ($ap->status === 'rejected' ? 'Rejected By' : 'Pending Approval'),
+                'action' => $stageAction($ap),
+                'skipped' => $isSkipped($ap),
                 'role' => $ap->label,
                 'required' => true,
             ]);
@@ -215,6 +233,15 @@
             CORRECTED DURING APPROVAL —
             @foreach($paymentRequest->corrections as $correction)
                 {{ $correction->invoice?->reference_no ?? 'an invoice' }} by {{ $correction->user?->name ?? 'its submitter' }} on {{ $correction->created_at?->format('d M Y H:i') }}@if(! $loop->last); @endif
+            @endforeach
+        </div>
+        @endif
+
+        @if($skippedApprovals->isNotEmpty())
+        <div class="on-leave-banner">
+            <strong>APPROVER ON LEAVE — STAGE NOT SIGNED</strong>
+            @foreach($skippedApprovals as $ap)
+                <div>Stage {{ $ap->sequence }} ({{ $ap->label }}) — {{ $ap->approver?->name ?? 'approver' }} on leave; skipped by {{ $ap->skipper?->name ?? '—' }} on {{ $ap->acted_at?->format('d M Y H:i') }}: "{{ $ap->skip_reason }}"</div>
             @endforeach
         </div>
         @endif
@@ -381,7 +408,7 @@
                             <tr>
                                 @foreach($requisitionCards as $card)
                                     <td class="card-cell">
-                                        <div class="signature-box">{{ $card['name'] }}@if($card['date'])<div class="signature-date">{{ $card['date'] }}</div>@endif</div>
+                                        <div class="signature-box{{ !empty($card['skipped']) ? ' skipped' : '' }}">{{ $card['name'] }}@if(!empty($card['skipped']))<div class="skipped-label">on leave</div>@endif @if($card['date'])<div class="signature-date">{{ $card['date'] }}</div>@endif</div>
                                         <div class="signature-action">{{ $card['action'] }}</div>
                                         <div class="signature-role">{{ $card['role'] }}</div>
                                     </td>
@@ -400,8 +427,8 @@
                                 <tr>
                                     @foreach($cardRow as $card)
                                         <td class="card-cell">
-                                            <div class="signature-box{{ $card['required'] ? '' : ' not-required' }}">
-                                                {{ $card['name'] }}
+                                            <div class="signature-box{{ $card['required'] ? '' : ' not-required' }}{{ !empty($card['skipped']) ? ' skipped' : '' }}">
+                                                {{ $card['name'] }}@if(!empty($card['skipped']))<div class="skipped-label">on leave</div>@endif
                                                 @if($card['date'])<div class="signature-date">{{ $card['date'] }}</div>@endif
                                             </div>
                                             <div class="signature-action">{{ $card['action'] }}</div>

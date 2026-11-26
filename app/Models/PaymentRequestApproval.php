@@ -13,9 +13,15 @@ class PaymentRequestApproval extends Model
 
     public const STATUS_REJECTED = 'rejected';
 
+    /**
+     * The approver was on leave: the stage was passed over, not signed. `approver_id` stays the
+     * absent approver, `skipped_by` is who marked it, `skip_reason` why, `acted_at` when.
+     */
+    public const STATUS_SKIPPED = 'skipped';
+
     protected $fillable = [
         'payment_request_id', 'view_token', 'sequence', 'level', 'label', 'is_adhoc',
-        'status', 'approver_id', 'comments', 'acted_at',
+        'status', 'approver_id', 'comments', 'skip_reason', 'skipped_by', 'acted_at',
     ];
 
     protected function casts(): array
@@ -45,6 +51,11 @@ class PaymentRequestApproval extends Model
     public function approver()
     {
         return $this->belongsTo(User::class, 'approver_id');
+    }
+
+    public function skipper()
+    {
+        return $this->belongsTo(User::class, 'skipped_by');
     }
 
     public function approvalLevel()

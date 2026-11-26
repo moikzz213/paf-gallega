@@ -244,6 +244,25 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
   dropped approver is worse than a refused request, because whoever added them would never find out.
   Leaving it empty routes exactly as before. It is recorded as an ad-hoc stage (no level of its own,
   labelled `L2-A — {job title}`) and audited like any other.
+- **Approver on leave.** An approver who is away is **skipped** and the request goes to the next
+  approver, so an absence no longer stalls a payment. A **reason is always required**. Two places:
+  - **Building the chain:** each required level has an **On leave** tick next to its approver (the
+    approver stays selected — the record says whose absence it was). That level is saved as skipped
+    and the request starts with the first approver not on leave, who is emailed. At least one
+    approver must remain to sign (refused otherwise, on screen and on the server). L2-A and the
+    additional approvers are unaffected (leave a stage off instead of marking it).
+  - **A request already waiting:** Finance or an admin uses **Mark On Leave** on the request page.
+    The current stage is skipped and the next approver is emailed their link; the skipped
+    approver's link becomes view-only. Only while the request is **in approval** (not on hold for a
+    query, nor approved/paid/withdrawn), and never on the **last** approver — the request must go to
+    someone. Approvers cannot skip each other. Any level may be skipped, the highest included
+    (decided at CR approval).
+  - **The record:** the stage shows "Skipped — on leave" with the reason, who marked it and when, on
+    the request page, the invoice page, the emailed approval page and the PAF (an
+    `APPROVER ON LEAVE — STAGE NOT SIGNED` banner, and "On Leave — Not Signed" in that stage's box —
+    never as a signature). Audited as `approver_on_leave`. A skipped approver is not copied on a
+    later approval query. Cannot be undone.
+  - CR: `ai/change-requests/route-payment-approvals-past-an-approver-on-leave.md`.
 - **Each stage carries the approver's job title**, not the approval level's name. "Department
   Manager" describes the level; the person signing at that level is often something else (an AP
   Accountant from the Finance group), and the chain, the PAF PDF and the public approval page all show
@@ -462,6 +481,7 @@ endpoints and [../decisions/ADR-002](../decisions/ADR-002-vendor-portal-workflow
 | Approve / query a PRF stage | | ✓ (assigned) | ✓ (assigned, needs a level) | ✓ |  |
 | Answer an approval query & resubmit | ✓ (own invoice on it) | ✓ (own invoice on it) | ✓ | ✓ |  |
 | …but never on a PRF they created | — | — | — | — | — |
+| Mark the current approver on leave (skip to next) | | | ✓ | ✓ |  |
 | Mark PRF paid | | | ✓ | ✓ |  |
 | Withdraw an approved PRF | | | ✓ | ✓ |  |
 | Release one invoice from a PRF | | | ✓ | ✓ |  |

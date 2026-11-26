@@ -120,8 +120,9 @@ deactivates that key immediately.
 | GET | `/api/payment-request-documents/{document}/download` | `documentsVisibleTo` (`403` otherwise) | Streams a request-level document; `404` once removed |
 | DELETE | `/api/payment-request-documents/{document}` | `role:finance,admin`, then uploader or admin (`403`) | **Soft-removes** a request-level document while the PRF is `in_approval`/`queried`/`approved` (`422` on `document` otherwise): hidden from the page, PAF and stage links, file kept, audited `request_document_removed`. Returns the request's remaining `documents[]` (with `uploader`) |
 | POST | `/api/payment-requests/{paymentRequest}/approve` | admin or assigned current-stage approver — **never the PRF's own creator** (`403`, even for an admin) | `comments` nullable ≤2000. `422` while `queried` |
-| POST | `/api/payment-requests/{paymentRequest}/query` | same as approve | **Approval Query** (replaced `/reject`, which no longer exists). `question` **required** ≤2000 → PRF `queried`; `current_stage`, the stage (`pending`, same approver), earlier approvals and the invoices (`in_approval`, linked) are untouched. Writes a `payment_request_queries` row, audited `approval_query_raised`. **One** queued `PaymentRequestQueryRaised` email, To the system sender address with every recipient in **BCC** (`Notifier::sendBcc`): invoice submitter(s) + the PRF creator always; stage ≥ 2 adds every earlier stage's approver; stage ≥ 4 adds the asking stage's approver. De-duplicated; deactivated users left out (logged). `422` while not `in_approval` |
+| POST | `/api/payment-requests/{paymentRequest}/query` | same as approve | **Approval Query** (replaced `/reject`, which no longer exists). `question` **required** ≤2000 → PRF `queried`; `current_stage`, the stage (`pending`, same approver), earlier approvals and the invoices (`in_approval`, linked) are untouched. Writes a `payment_request_queries` row, audited `approval_query_raised`. **One** queued `PaymentRequestQueryRaised` email, To the system sender address with every recipient in **BCC** (`Notifier::sendBcc`): invoice submitter(s) + the PRF creator always; stage ≥ 2 adds every earlier stage's approver (except stages skipped while the approver was on leave); stage ≥ 4 adds the asking stage's approver. De-duplicated; deactivated users left out (logged). `422` while not `in_approval` |
 | POST | `/api/payment-requests/{paymentRequest}/resubmit` | scoped `visibleTo`, then `PaymentRequest::canBeResubmittedBy` — finance, admin, or the submitter of an invoice on it (`403` otherwise, approvers included) | `response` **required** ≤2000; PRF must be `queried` (`422`). Closes the open query, PRF → `in_approval` at the **same** `current_stage`, `last_reminder_sent_at = now`, audited `approval_query_resubmitted`; the stage's approver gets the usual `PaymentRequestSubmitted` with their token |
+| POST | `/api/payment-requests/{paymentRequest}/on-leave` | `role:finance,admin` (rechecked in `PaymentRequestService::markOnLeave`; approvers, requesters and auditors `403`) | **Approver on leave.** `reason` **required** ≤500. The current stage → `skipped` (`skip_reason`, `skipped_by` = actor, `acted_at`); `current_stage` moves to the next `pending` stage, `last_reminder_sent_at = now`; audited `approver_on_leave`; the next approver gets the usual `PaymentRequestSubmitted` with their token. The skipped stage's token becomes view-only. `422` on `status` while `queried` or not `in_approval`; `422` on `reason` when there is no later pending stage (the last approver cannot be skipped). Returns the PRF with `approvals.approver` and `approvals.skipper` |
 | POST | `/api/payment-requests/{paymentRequest}/mark-paid` | `role:finance,admin`; PRF must be `approved` | `payment_reference` req ≤100 → `paid` |
 | POST | `/api/payment-requests/{paymentRequest}/payment-reference` | `role:finance,admin`; **payer or admin**; PRF must be `paid` | Correct a mistyped payment reference. `payment_reference` req ≤100. `403` unless `paid_by` is the actor or the actor is an admin — the message names the payer; the PRF **creator** has no special right here. `422` on any non-`paid` status, which also means this can never be a back door to marking something paid. No uniqueness rule: one transfer legitimately settles several PRFs. Does **not** touch `paid_by`/`paid_at`/`status`, nor the total, invoices or approvals — correcting is not re-paying. Audited as `payment_reference_corrected` against the PRF with the replaced value; the original `paid` entry survives |
 | POST | `/api/payment-requests/{paymentRequest}/withdraw` | `role:finance,admin` (never approvers — it reverses a completed approval); PRF must be `approved` | `reason` **required** ≤2000 → PRF `withdrawn`, invoices returned to `not_initiated` and unlinked. `422` while `in_approval`/`queried` (release its invoices instead — releasing the last withdraws it) or once `paid`. Approvals are kept as history and are **not** reused: the corrected invoices need a new PRF and a fresh chain |
@@ -138,20 +139,26 @@ deactivates that key immediately.
   would displace the real one in the PAF, which keys its required approvers by level) and a label of
   `"L2-A — {job title}"`. Refused (`422` on `l2a_approver_id`) when the chain does not reach level 2,
   or when that user already holds a stage on the request; left empty, the chain is exactly as before.
+- `on_leave`: optional object mapping approval **level → reason** for a level whose approver is on
+  leave. Each reason is **required** (`422` on `on_leave.{level}`), ≤500. The level's stage is still
+  built with its approver (whose absence it records) but saved as `skipped` (`skip_reason`,
+  `skipped_by` = creator, `acted_at`), audited `approver_on_leave`, and `current_stage` starts at the
+  **first stage not on leave**, whose approver is emailed. `422` on `on_leave` if every stage would be
+  skipped. A level not in the chain is ignored.
 - Each stage's stored `label` is the **approver's `job_title`**, not the approval level's name — the
   level names are generic positions and the signer often holds a different one. The level name is the
   fallback when a user has no job title, and `level` is still recorded on the stage either way.
 - Every referenced user must satisfy `User::canApprove()` — **active, and role approver/admin or
   finance with an `approval_level`** (validated as an `exists` rule). The server
   builds the ordered chain from `ApprovalLevel::requiredFor(total)` (assignment or default per
-  level) + ad-hoc stages, sets `current_stage = 1`, `status = in_approval`, and reserves the
+  level) + ad-hoc stages, sets `current_stage` to the first stage not on leave (`1` when none is), `status = in_approval`, and reserves the
   invoices (`payment_status = in_approval`).
 - **The creator may not be on the chain** (`422` on `approvers`). Finance raises requests and can
   also be nominated to approve, so the same person can be both; every payment keeps a second pair of
   eyes. `assertActionable()` repeats the check at action time, which also covers chains built before
   the rule and the admin override.
 
-**Chain routing:** approve marks the current stage and advances to the next pending sequence, or
+**Chain routing:** a `skipped` (on leave) stage is never pending, so routing passes over it. Approve marks the current stage and advances to the next pending sequence, or
 finalizes the PRF to `approved` (invoices → `approved_for_payment`). **Query** holds the PRF at
 the current stage (`queried`) until a submitter, Finance or an admin resubmits it, when it resumes at
 that same stage. There is no rejection any more; the whole-request exits are releasing invoices

@@ -36,7 +36,7 @@ class PafDocumentService
             'invoices.submitter:id,name', 'invoices.poster:id,name', 'invoices.documents',
             'invoices.vendor:id,name,vendor_code',
             'invoices.items',
-            'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount',
+            'approvals.approver:id,name', 'approvals.approvalLevel:level,min_amount', 'approvals.skipper:id,name',
             'corrections.user:id,name', 'corrections.invoice:id,reference_no',
             'queries.raiser:id,name', 'queries.resubmitter:id,name',
             'documents',

@@ -94,6 +94,8 @@ Route::prefix('api')->group(function () {
         Route::post('/payment-requests/{paymentRequest}/query', [PaymentRequestController::class, 'query']);
         // Answering it is open to the invoice submitter, Finance and admin — checked in the service.
         Route::post('/payment-requests/{paymentRequest}/resubmit', [PaymentRequestController::class, 'resubmit']);
+        // The current approver is on leave: skip their stage and route to the next approver.
+        Route::post('/payment-requests/{paymentRequest}/on-leave', [PaymentRequestController::class, 'markOnLeave'])->middleware('role:finance,admin');
         Route::post('/payment-requests/{paymentRequest}/mark-paid', [PaymentRequestController::class, 'markPaid'])->middleware('role:finance,admin');
         // Correct a mistyped payment reference after the payment is recorded. Narrowed inside the
         // service to the user who recorded it, or an admin.

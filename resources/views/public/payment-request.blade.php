@@ -29,6 +29,7 @@
         .badge-pending { background: #fff3e0; color: #e65100; }
         .badge-approved { background: #e8f5e9; color: #2e7d32; }
         .badge-rejected { background: #fce4ec; color: #c62828; }
+        .badge-skipped { background: #fff4e0; color: #8a5200; }
         .badge-in_approval { background: #e3f2fd; color: #1565c0; }
         .badge-queried { background: #fff4e0; color: #8a5200; }
         .badge-paid { background: #e8f5e9; color: #2e7d32; }
@@ -40,6 +41,7 @@
         .seq-current { background: #1565c0; color: #fff; }
         .seq-approved { background: #2e7d32; color: #fff; }
         .seq-rejected { background: #c62828; color: #fff; }
+        .seq-skipped { background: #fff4e0; color: #8a5200; border: 1px dashed #b26a00; }
         .chain .info { flex: 1; }
         .chain .name { font-weight: 600; font-size: 14px; }
         .chain .label { font-size: 12px; color: #888; }
@@ -340,14 +342,20 @@
                         <div class="info">
                             <div class="name">{{ $approval->approver?->name ?? 'Unassigned' }}</div>
                             <div class="label">{{ $approval->label }}</div>
-                            @if($approval->acted_at)
+                            @if($approval->status === \App\Models\PaymentRequestApproval::STATUS_SKIPPED)
+                            {{-- On leave: passed over, never signed — so never worded as an approval. --}}
+                            <div class="acted">Skipped — on leave, marked by {{ $approval->skipper?->name ?? '—' }}{{ $approval->acted_at ? ' on '.$approval->acted_at->format('d M Y, h:i A') : '' }}</div>
+                            @if($approval->skip_reason)
+                            <div class="acted" style="font-style:italic;">Reason: "{{ $approval->skip_reason }}"</div>
+                            @endif
+                            @elseif($approval->acted_at)
                             <div class="acted">{{ ucfirst($approval->status) }} {{ $approval->acted_at->format('d M Y, h:i A') }}</div>
                             @endif
                             @if($approval->comments)
                             <div class="acted" style="font-style:italic;">"{{ $approval->comments }}"</div>
                             @endif
                         </div>
-                        <span class="badge badge-{{ $approval->status }}">{{ ucfirst($approval->status) }}</span>
+                        <span class="badge badge-{{ $approval->status }}">{{ $approval->status === \App\Models\PaymentRequestApproval::STATUS_SKIPPED ? 'On leave' : ucfirst($approval->status) }}</span>
                     </li>
                     @endforeach
                 </ul>

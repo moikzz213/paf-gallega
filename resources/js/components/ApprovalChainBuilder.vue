@@ -106,6 +106,42 @@ const allAssigned = computed(
     () => baseTotal.value !== null && requiredLevels.value.every((l) => !!assignments.value[l.level])
 );
 
+// Approver on leave: the level keeps its approver (whose absence is recorded) but is skipped, and the
+// request goes to the next approver. A reason is required, and someone must still sign — the server
+// refuses both as well (PaymentRequestController::validatedChain, PaymentRequestService::create).
+// CR: ai/change-requests/route-payment-approvals-past-an-approver-on-leave.md
+const onLeave = ref({}); // { [level]: true }
+const leaveReasons = ref({}); // { [level]: reason }
+
+const leaveLevels = computed(() => requiredLevels.value.filter((l) => onLeave.value[l.level]).map((l) => l.level));
+
+const missingLeaveReason = computed(() => leaveLevels.value.some((lvl) => !String(leaveReasons.value[lvl] ?? '').trim()));
+
+const availableStages = computed(
+    () =>
+        requiredLevels.value.filter((l) => !onLeave.value[l.level] && assignments.value[l.level]).length +
+        (l2aApplies.value && l2aApproverId.value ? 1 : 0) +
+        adhoc.value.filter((s) => s.approver_id).length
+);
+
+const invalidReason = computed(() => {
+    if (!allAssigned.value) return 'Assign an approver for every approval stage.';
+    if (missingLeaveReason.value) return 'Give a reason for each approver marked on leave.';
+    if (!availableStages.value) return 'Every approver is marked on leave. At least one approver must be available to sign.';
+    return null;
+});
+
+// A level that drops out of the chain takes its on-leave mark with it.
+watch(requiredLevels, (levels) => {
+    const keep = new Set(levels.map((l) => l.level));
+    Object.keys(onLeave.value).forEach((lvl) => {
+        if (!keep.has(Number(lvl))) {
+            delete onLeave.value[lvl];
+            delete leaveReasons.value[lvl];
+        }
+    });
+});
+
 // Pre-fill each required level with its default approver (without clobbering user choices).
 // Also keyed on itemsByLevel so the pre-fill re-runs once the approver list finishes loading.
 watch(
@@ -142,13 +178,15 @@ const l2aItems = computed(() =>
 );
 
 watch(
-    [assignments, adhoc, l2aApproverId],
+    [assignments, adhoc, l2aApproverId, onLeave, leaveReasons],
     () => {
         emit('change', {
             assignments: { ...assignments.value },
             adhoc: adhoc.value.filter((s) => s.approver_id).map((s) => ({ ...s })),
             l2a_approver_id: l2aApplies.value ? l2aApproverId.value || null : null,
-            valid: allAssigned.value,
+            on_leave: Object.fromEntries(leaveLevels.value.map((lvl) => [lvl, String(leaveReasons.value[lvl] ?? '').trim()])),
+            valid: !invalidReason.value,
+            invalid_reason: invalidReason.value,
         });
     },
     { deep: true, immediate: true }
@@ -162,7 +200,15 @@ function removeAdhoc(index) {
     adhoc.value.splice(index, 1);
 }
 
-defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; l2aApproverId.value = null; } });
+defineExpose({
+    reset: () => {
+        assignments.value = {};
+        adhoc.value = [];
+        l2aApproverId.value = null;
+        onLeave.value = {};
+        leaveReasons.value = {};
+    },
+});
 </script>
 
 <template>
@@ -208,25 +254,58 @@ defineExpose({ reset: () => { assignments.value = {}; adhoc.value = []; l2aAppro
                 :text="`No selectable user is assigned to level(s) ${levelsWithoutApprovers.map((l) => l.level).join(', ')}. Ask an administrator to set that approval level on an approver, or on a Finance user who should sign off at that level.`"
             />
 
-            <div v-for="lvl in requiredLevels" :key="lvl.id ?? lvl.level" class="d-flex align-center ga-3 mb-2">
-                <v-chip size="small" color="primary" variant="tonal" class="flex-shrink-0" style="min-width: 44px; justify-content: center">
-                    L{{ lvl.level }}
-                </v-chip>
-                <div class="text-body-2 font-weight-medium flex-shrink-0" style="width: 150px">{{ lvl.name }}</div>
-                <v-select
-                    v-model="assignments[lvl.level]"
-                    :items="itemsByLevel[lvl.level] ?? []"
-                    item-title="title"
-                    item-value="value"
-                    :item-props="approverItemProps"
-                    label="Approver"
-                    :no-data-text="`No user is assigned to level ${lvl.level}`"
-                    density="compact"
-                    hide-details
-                    clearable
-                    :disabled="disabled"
-                />
+            <div v-for="lvl in requiredLevels" :key="lvl.id ?? lvl.level" class="mb-2">
+                <div class="d-flex align-center ga-3">
+                    <v-chip size="small" color="primary" variant="tonal" class="flex-shrink-0" style="min-width: 44px; justify-content: center">
+                        L{{ lvl.level }}
+                    </v-chip>
+                    <div class="text-body-2 font-weight-medium flex-shrink-0" style="width: 150px">{{ lvl.name }}</div>
+                    <v-select
+                        v-model="assignments[lvl.level]"
+                        :items="itemsByLevel[lvl.level] ?? []"
+                        item-title="title"
+                        item-value="value"
+                        :item-props="approverItemProps"
+                        label="Approver"
+                        :no-data-text="`No user is assigned to level ${lvl.level}`"
+                        density="compact"
+                        hide-details
+                        clearable
+                        :disabled="disabled"
+                    />
+                    <v-checkbox
+                        v-model="onLeave[lvl.level]"
+                        label="On leave"
+                        color="warning"
+                        density="compact"
+                        hide-details
+                        class="flex-shrink-0 flex-grow-0"
+                        :disabled="disabled || !assignments[lvl.level]"
+                    />
+                </div>
+                <div v-if="onLeave[lvl.level]" class="d-flex ga-3 mt-2" style="padding-left: 206px">
+                    <v-text-field
+                        v-model="leaveReasons[lvl.level]"
+                        label="Reason approver is on leave (required)"
+                        placeholder="e.g. Annual leave until 10 Dec"
+                        :hint="`This level is skipped and the request goes to the next approver. Recorded on the request, the PAF and the audit trail.`"
+                        persistent-hint
+                        density="compact"
+                        maxlength="500"
+                        :error="!String(leaveReasons[lvl.level] ?? '').trim()"
+                        :disabled="disabled"
+                    />
+                </div>
             </div>
+
+            <v-alert
+                v-if="allAssigned && !availableStages"
+                type="error"
+                variant="tonal"
+                density="compact"
+                class="mb-3"
+                text="Every approver is marked on leave. At least one approver must be available to sign this payment."
+            />
 
             <div v-if="l2aApplies" class="d-flex align-center ga-3 mb-2">
                 <v-chip size="small" color="primary" variant="outlined" class="flex-shrink-0" style="min-width: 44px; justify-content: center">
